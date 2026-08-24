@@ -1,0 +1,103 @@
+# Data Formats
+
+There's no database — everything is small, human-readable text files next
+to the exe. This documents the in-memory schema and every file format.
+
+## In-memory schema: `Entry`
+
+The single record type the whole app is built around (defined in
+`main.cpp`):
+
+| Field      | Type          | Notes                                              |
+|------------|---------------|-----------------------------------------------------|
+| `supplier` | `std::wstring`| Free text; cannot contain `\|`                      |
+| `product`  | `std::wstring`| The species; cannot contain `\|`                    |
+| `kgs`      | `double`      | Displayed to 1 decimal place everywhere            |
+| `price`    | `double`      | Price per kg; displayed to 2 decimal places        |
+| `date`     | `std::wstring`| ISO `YYYY-MM-DD`; empty if not set (older files)   |
+| `notes`    | `std::wstring`| Optional free text; cannot contain `\|`             |
+
+`Total()` is computed on demand (`kgs * price`), never stored.
+
+`g_entries: std::vector<Entry>` is the single in-memory source of truth
+for the current sheet.
+
+## `.fbd` — the main save file format
+
+Plain UTF-8 text. Example:
+
+```
+DEBTOR=16853.15+340
+CASH=250.7+1826+2552+286
+BEGIN
+Jcasement|Garfish|13.8000|17.0000|2026-08-05|
+Jcasement|Rock Flat|5.5000|12.0000|2026-08-05|Extra fresh
+END
+```
+
+- `DEBTOR=` / `CASH=` — the raw text typed into those fields on the Data
+  Entry tab. Stored as-is (including any `+`-separated sum expression),
+  re-parsed on load.
+- `BEGIN` / `END` — bracket the entry rows.
+- Each entry row is pipe-delimited: `Supplier|Species|Kgs|Price|Date|Notes`.
+  - Kgs/Price are written with 4 decimal places of precision internally
+    (display rounding to 1dp/2dp happens only when rendering, never on
+    the stored value).
+  - **Backward compatibility**: rows with only 4 fields (no Date/Notes)
+    are accepted — this is the pre-v0.9.0 format. Date/Notes default to
+    empty in that case.
+  - Rows that don't parse into exactly 4 or 6 fields are skipped, and the
+    user is warned with a count (see BUSINESS_RULES.md).
+
+`autosave.fbd` (next to the exe) uses this same format and is
+continuously overwritten on every data change. Named files created via
+File > Save As use the identical format with a user-chosen filename.
+
+## `settings.txt` — window/session state
+
+Plain UTF-8, `KEY=value` per line:
+
+```
+X=120
+Y=80
+W=1400
+H=900
+MAX=0
+LASTFILE=C:\Users\jack\Documents\august-week1.fbd
+```
+
+- `X`/`Y`/`W`/`H` — window position and size (physical pixels).
+- `MAX` — `1` if the window was maximized, `0` otherwise.
+- `LASTFILE` — path of the last-open named file, restored as the
+  associated file (not re-loaded from disk — the content always comes
+  from `autosave.fbd`, which is always at least as current).
+
+## `recent.txt` — Recent Files list
+
+Plain UTF-8, one file path per line, most-recent-first, capped at 8
+entries (`kMaxRecentFiles`).
+
+## `emails.txt` — supplier email addresses
+
+Plain UTF-8, pipe-delimited, one supplier per line:
+
+```
+Jcasement|jcasement@example.com
+Wdowns|wdowns.fish@example.com
+```
+
+Managed via Tools > Manage Supplier / Species Names (select a single
+supplier to see/edit its email). A supplier with no line in this file has
+no saved address — "Email All Suppliers" still creates a draft for them,
+just with a blank "To" field.
+
+## CSV export (`File > Export to CSV...`)
+
+Not a persistence format (nothing reads it back in) — a one-way export for
+opening in Excel. UTF-8 with a BOM (so Excel reads accented characters
+correctly), one file containing four sections back to back: Entries,
+Overview by Supplier, By Species, and Breakdown. Money is written as a
+plain number (no `$`) so Excel can sum it directly; see BUSINESS_RULES.md.
+Fields are also guarded against CSV formula injection (a leading
+`= + - @` gets neutralized) since Supplier/Species/Notes are free text
+that ends up in a file Excel will interpret.

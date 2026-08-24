@@ -1,0 +1,30 @@
+# Build outputs
+out/
+build/
+*.exe
+*.obj
+*.res
+*.pdb
+*.ilk
+*.exp
+*.lib
+app_icon_res.o
+app_icon.res
+FishBalanceManager.exe.manifest
+
+# Runtime-generated files (created next to the exe when the app runs -
+# these are user data, not project source, and differ machine to machine)
+autosave.fbd
+settings.txt
+recent.txt
+emails.txt
+
+# Editor/IDE
+.vs/
+.vscode/
+*.user
+CMakeUserPresets.json
+
+# OS cruft
+Thumbs.db
+.DS_Store
