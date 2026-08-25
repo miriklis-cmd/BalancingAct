@@ -9,6 +9,9 @@ A native Windows desktop app (C++ / Win32 API) that replaces the
 - [ARCHITECTURE.md](ARCHITECTURE.md) — codebase structure and known gotchas
 - [BUSINESS_RULES.md](BUSINESS_RULES.md) — domain decisions (units, tax, data integrity, email)
 - [DATA_FORMATS.md](DATA_FORMATS.md) — the `Entry` schema and every file format
+- [DevelopmentWorkflow.md](DevelopmentWorkflow.md) — how this project is actually built (chat-driven, no compiler on Claude's end)
+- [Testing.md](Testing.md) — the manual test checklist to run after each build
+- [SecurityHardeningRegister.md](SecurityHardeningRegister.md) — every security/data-integrity issue found and fixed
 
 Current version: see `version.h`, or Help > About in the app.
 
