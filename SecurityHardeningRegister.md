@@ -78,6 +78,85 @@ prefixed with a tab character, neutralizing it as a formula while keeping
 it readable. Added proactively while building the export feature, not in
 response to a reported incident.
 
+### 7. Opening (almost) any file could silently destroy the autosave (v0.9.1)
+**What**: `LoadFromFile()` treated nearly any readable file as a
+successful load — it didn't require the `BEGIN`/`END` markers, didn't
+require any parsed rows, and converted an invalid Kgs/Price value to `0`
+instead of rejecting the row. Every caller (`DoFileOpen`, Recent Files,
+and the startup autosave reload) immediately calls `RefreshAll()`, which
+autosaves right after — so selecting the wrong file, or opening a `.fbd`
+that was corrupted or cut off mid-write, could silently overwrite the
+real recovery copy with an empty or garbled document while reporting
+success the whole time. This directly contradicted the "malformed rows
+are surfaced, not silently dropped" rule in BUSINESS_RULES.md, which was
+only actually enforced for the wrong-pipe-count case, not for numeric
+garbage or a structurally empty/incomplete document.
+**Found by**: external audit (ChatGPT, read-only static review), confirmed
+by tracing every call site by hand.
+**Fix**: `LoadFromFile()` now parses into local temporaries and validates
+the *whole document* before committing anything to `g_entries` or the
+on-screen fields:
+- At least one recognized `.fbd` marker (`DEBTOR=`/`CASH=`/`BEGIN`/`END`)
+  must be present, or the file is rejected outright as "not a Fish
+  Balance file."
+- A `BEGIN` must be matched by an `END`, or the file is treated as a
+  truncated/interrupted write and rejected.
+- Kgs/Price on every row must parse as a finite, non-negative number
+  (see #8 below) — a bad value now skips and counts the row, same as the
+  existing wrong-pipe-count handling, instead of silently becoming `0`.
+- A row with an empty Supplier or Species (only reachable via a
+  hand-edited or corrupted file — the entry form already blocks this) is
+  now rejected instead of silently creating a blank-named report group.
+
+A file that fails any of these checks changes nothing: the in-memory
+sheet and the on-disk autosave are both left untouched, and the user sees
+a specific message instead of a silent "success."
+
+The same risk existed a second time at startup, since the initial
+`autosave.fbd` reload's return value was ignored before this fix.
+`RefreshAll()` now takes an optional `doAutosave` flag (default `true`,
+so all nine other call sites are unaffected); startup passes `false` when
+the existing autosave fails to load, so a corrupted/interrupted autosave
+is left alone (with a warning shown) instead of being immediately
+overwritten with a blank sheet.
+
+### 8. NaN/Infinity accepted as valid Kgs or Price (v0.9.1)
+**What**: `ParseDoubleW()` checked that `std::stod` consumed the whole
+string, but `std::stod` happily parses `"nan"`, `"inf"`, and `"-inf"` as
+fully-consumed, "successful" values — and the existing `value < 0` guard
+in `CommitEntryForm()` doesn't catch `NaN` either (`NaN < 0` is `false`
+in IEEE 754). A non-finite value could poison totals, sorting, and the
+`std::map<double, ...>` price-grouping used by `BuildBreakdownData()`,
+then propagate into CSV export, printing, and emails.
+**Found by**: external audit.
+**Fix**: `ParseDoubleW()` now explicitly rejects non-finite values via
+`std::isfinite()`. Since this function is shared by both the interactive
+entry form and (as of the #7 fix) the file loader, fixing it once closes
+the gap in both places at once.
+
+### 9. Undo Delete could insert a row from a different, already-closed
+   sheet into the current one (v0.9.1)
+**What**: the single-level undo buffer (`g_hasUndo`/`g_undoEntry`/
+`g_undoIndex`) and the enabled state of the "Edit > Undo Delete" menu
+item were only ever set by `DeleteSelectedEntry()` and cleared by
+`UndoDelete()` itself — never by `DoFileNew()`, `DoFileOpen()`, the
+Recent Files handler, or a Manage Names rename/merge. Sequence: delete a
+row in Sheet A (undo buffer now holds it, menu item enabled) → open Sheet
+B → click the still-enabled Undo Delete → Sheet A's deleted row is
+silently inserted into Sheet B's data and autosaved immediately, with no
+warning that anything crossed sheets. The same mechanism meant that
+deleting a row, then using Manage Names to fix a misspelled supplier,
+then undoing, would silently reintroduce the old misspelling into the
+freshly-renamed data.
+**Found by**: internal follow-up audit (not flagged by the external
+audit), confirmed by tracing every assignment to the three undo-state
+variables.
+**Fix**: added a `ClearUndoState()` helper (clears the buffer and grays
+the menu item) and call it from `DoFileNew()`, `DoFileOpen()` (on
+success), the Recent Files handler, and `ManageApply()` (when a
+rename/merge actually changed anything) — anywhere the document is
+replaced or restructured wholesale.
+
 ## Deliberately accepted risk (not fixed, by design)
 
 - **Large `.fbd` files could cause a large allocation.** `LoadFromFile`

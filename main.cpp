@@ -23,6 +23,13 @@
 #ifndef _UNICODE
 #define _UNICODE
 #endif
+// <windows.h> defines min/max as macros unless this is set first, which
+// silently mangles any std::min/std::max call (or any other code with an
+// identifier literally named min/max) into a broken expression before the
+// compiler ever sees it as a function call - the standard, permanent fix
+// for an entire class of confusing "illegal token" errors, not just a
+// patch for wherever it happens to bite first.
+#define NOMINMAX
 
 #include <windows.h>
 #include <commctrl.h>
@@ -38,9 +45,11 @@
 #include <cstdio>
 #include <cwchar>
 #include <cwctype>
+#include <cmath>
 
 #include "resource.h"
 #include "version.h"
+#include "FishBalanceCore.h"
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "comdlg32.lib")
@@ -49,19 +58,14 @@
 
 // ---------------------------------------------------------------------------
 // Data model
+//
+// Entry, PriceLine, ProductGroup, SupplierGroup, and SimpleDate are defined
+// in FishBalanceCore.h (platform-independent, unit-tested separately) -
+// nothing to define here.
 // ---------------------------------------------------------------------------
 
-struct Entry {
-    std::wstring supplier;
-    std::wstring product; // "species"
-    double kgs = 0.0;
-    double price = 0.0;
-    std::wstring date;  // ISO format YYYY-MM-DD; empty means not set (e.g. loaded from an older file)
-    std::wstring notes;
-    double Total() const { return kgs * price; }
-};
-
 static std::vector<Entry> g_entries;
+static bool g_autosaveFailWarned = false; // avoid repeating the same warning on every single autosave attempt while a problem persists (e.g. disk full) - reset once a save succeeds again
 static std::wstring g_currentFile; // empty = unsaved / using autosave only
 
 // ---------------------------------------------------------------------------
@@ -75,6 +79,7 @@ enum {
     ID_TAB = 100,
     ID_CMB_SUPPLIER = 200, ID_CMB_PRODUCT, ID_EDIT_KGS, ID_EDIT_PRICE, ID_BTN_ADD, ID_BTN_DELETE,
     ID_BTN_EDIT, ID_BTN_CANCEL_EDIT, ID_EDIT_FILTER, ID_DTP_DATE, ID_EDIT_NOTES, ID_BTN_DUPLICATE,
+    ID_BTN_DUPLICATE_SUPSPEC,
     ID_LIST_ENTRIES, ID_EDIT_DEBTOR, ID_EDIT_CASH,
     ID_LIST_OVERVIEW, ID_LIST_BREAKDOWN, ID_BTN_PRINT_BREAKDOWN, ID_BTN_EMAIL_SUPPLIERS,
     ID_BTN_PRINT_PREVIEW, ID_LIST_BYSPECIES,
@@ -84,7 +89,11 @@ enum {
     // Print Preview popup window controls
     ID_PREVIEW_PREV = 500, ID_PREVIEW_NEXT, ID_PREVIEW_PRINT, ID_PREVIEW_CLOSE,
     // Up to 8 Recent Files slots
-    ID_RECENT_BASE = 900
+    ID_RECENT_BASE = 900,
+    // Timer for the debounced Debtor/Cash autosave (see WM_TIMER)
+    ID_TIMER_DEBTOR_CASH_AUTOSAVE = 950,
+    // One-shot delayed retry for the combo box first-paint fix (see WM_TIMER)
+    ID_TIMER_FIRST_PAINT_FIX = 951
 };
 
 // ---------------------------------------------------------------------------
@@ -101,13 +110,14 @@ static HWND g_hMainWnd = nullptr;
 static int g_dpi = 96;
 int S(int px) { return MulDiv(px, g_dpi, 96); }
 static HWND hTab = nullptr;
+static HWND hStatusBar = nullptr;
 static HFONT g_normalFont = nullptr, g_boldFont = nullptr;
 
 // Tab 1
 static HWND hLblSupplier, hCmbSupplier, hLblProduct, hCmbProduct;
 static HWND hLblKgs, hEditKgs, hLblPrice, hEditPrice, hBtnAdd, hBtnDelete, hBtnEdit, hBtnCancelEdit;
 static HWND hLblFilter, hEditFilter;
-static HWND hLblDate, hDtpDate, hLblNotes, hEditNotes, hBtnDuplicate;
+static HWND hLblDate, hDtpDate, hLblNotes, hEditNotes, hBtnDuplicate, hBtnDuplicateSupSpec;
 static HWND hListEntries;
 static HWND hGrpRecon, hLblDebtor, hEditDebtor, hLblCash, hEditCash;
 static HWND hLblBook, hLblEntered, hLblDiff;
@@ -193,11 +203,12 @@ static AppSettings g_settings;
 // Forward declarations
 // ---------------------------------------------------------------------------
 
-void RefreshAll();
+void RefreshAll(bool doAutosave = true);
 void LayoutAll(HWND hwnd);
 void ShowTab(int idx);
 void RecalcTotals();
 void CancelEdit();
+void ClearUndoState();
 void RefreshEntriesList();
 void RefreshOverviewList();
 void RefreshBySpeciesList();
@@ -205,7 +216,7 @@ void RefreshBreakdownList();
 void RememberRecentFile(const std::wstring& path);
 void RebuildRecentMenu();
 void PopulateManageList();
-bool LooksLikeEmail(const std::wstring& email);
+// LooksLikeEmail is declared and defined in FishBalanceCore.h.
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK ManageWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK PreviewWndProc(HWND, UINT, WPARAM, LPARAM);
@@ -215,32 +226,30 @@ void PrintBreakdownReport(HWND owner);
 // Small utilities
 // ---------------------------------------------------------------------------
 
-std::wstring TrimW(const std::wstring& s) {
-    size_t a = s.find_first_not_of(L" \t\r\n");
-    if (a == std::wstring::npos) return L"";
-    size_t b = s.find_last_not_of(L" \t\r\n");
-    return s.substr(a, b - a + 1);
-}
+// TrimW, ToFixed, FormatMoney, FormatNum, FormatKg, ParseDoubleW, and
+// ParseSumExpr all now live in FishBalanceCore.h (unchanged logic, just
+// relocated so they can be unit-tested without a Win32 dependency).
 
-// Dates are stored as ISO "YYYY-MM-DD" throughout (sorts correctly as plain
-// text, unambiguous regardless of locale), converted to/from a SYSTEMTIME
-// only at the point of talking to the DateTimePicker control. Note the
-// comctl32 macros are DateTime_GetSystemtime / DateTime_SetSystemtime -
-// lowercase "time", easy to mistype as GetSystemTime.
+// FormatDateISO/ParseISODate keep their original SYSTEMTIME-based
+// signature here (nothing else in main.cpp needs to change) but delegate
+// to the portable SimpleDate versions in FishBalanceCore.h for the actual
+// logic. Dates are stored as ISO "YYYY-MM-DD" throughout (sorts correctly
+// as plain text, unambiguous regardless of locale), converted to/from a
+// SYSTEMTIME only at this one boundary and at the point of talking to the
+// DateTimePicker control. Note the comctl32 macros are
+// DateTime_GetSystemtime / DateTime_SetSystemtime - lowercase "time",
+// easy to mistype as GetSystemTime.
 std::wstring FormatDateISO(const SYSTEMTIME& st) {
-    std::wstringstream ss;
-    ss << std::setfill(L'0') << std::setw(4) << st.wYear << L"-"
-       << std::setw(2) << st.wMonth << L"-" << std::setw(2) << st.wDay;
-    return ss.str();
+    return FormatDateISO(SimpleDate{ st.wYear, st.wMonth, st.wDay });
 }
 
 bool ParseISODate(const std::wstring& s, SYSTEMTIME& out) {
-    if (s.size() != 10 || s[4] != L'-' || s[7] != L'-') return false;
+    SimpleDate d;
+    if (!ParseISODate(s, d)) return false;
     SYSTEMTIME st{};
-    st.wYear = (WORD)_wtoi(s.substr(0, 4).c_str());
-    st.wMonth = (WORD)_wtoi(s.substr(5, 2).c_str());
-    st.wDay = (WORD)_wtoi(s.substr(8, 2).c_str());
-    if (st.wYear < 1900 || st.wMonth < 1 || st.wMonth > 12 || st.wDay < 1 || st.wDay > 31) return false;
+    st.wYear = (WORD)d.year;
+    st.wMonth = (WORD)d.month;
+    st.wDay = (WORD)d.day;
     out = st;
     return true;
 }
@@ -261,73 +270,6 @@ std::wstring Utf8ToW(const std::string& s) {
     return w;
 }
 
-std::wstring ToFixed(double v, int decimals) {
-    std::wstringstream ss;
-    ss << std::fixed << std::setprecision(decimals) << v;
-    return ss.str();
-}
-
-std::wstring FormatMoney(double v) {
-    bool neg = v < 0;
-    if (neg) v = -v;
-    std::wstring s = ToFixed(v, 2);
-    size_t dot = s.find(L'.');
-    std::wstring intPart = s.substr(0, dot);
-    std::wstring frac = s.substr(dot);
-    std::wstring withCommas;
-    int cnt = 0;
-    for (int i = (int)intPart.size() - 1; i >= 0; i--) {
-        withCommas.push_back(intPart[i]);
-        cnt++;
-        if (cnt % 3 == 0 && i != 0) withCommas.push_back(L',');
-    }
-    std::reverse(withCommas.begin(), withCommas.end());
-    return (neg ? std::wstring(L"-$") : std::wstring(L"$")) + withCommas + frac;
-}
-
-std::wstring FormatNum(double v) {
-    return ToFixed(v, 2);
-}
-
-// Kg is always displayed to 1 decimal place (business convention) - kept
-// separate from FormatNum since that's also used for plain-number dollar
-// amounts in the CSV export, which still need 2 decimal places.
-std::wstring FormatKg(double v) {
-    return ToFixed(v, 1);
-}
-
-bool ParseDoubleW(const std::wstring& sIn, double& out) {
-    std::wstring s = TrimW(sIn);
-    if (s.empty()) return false;
-    try {
-        size_t pos = 0;
-        out = std::stod(s, &pos);
-        return pos == s.size();
-    } catch (...) {
-        return false;
-    }
-}
-
-// Parses simple sums like "250.7+1826+2552+286" (mirrors how the original
-// spreadsheet's Debtor/Cash cells were built up from several manual figures).
-double ParseSumExpr(const std::wstring& s) {
-    double sum = 0;
-    std::wstring cur;
-    auto flush = [&]() {
-        std::wstring t = TrimW(cur);
-        if (!t.empty()) {
-            try { sum += std::stod(t); } catch (...) {}
-        }
-        cur.clear();
-    };
-    for (wchar_t c : s) {
-        if (c == L'+') flush();
-        else cur.push_back(c);
-    }
-    flush();
-    return sum;
-}
-
 std::wstring GetExeDir() {
     wchar_t path[MAX_PATH];
     GetModuleFileNameW(nullptr, path, MAX_PATH);
@@ -336,18 +278,110 @@ std::wstring GetExeDir() {
     return (pos == std::wstring::npos) ? L"." : p.substr(0, pos);
 }
 
+// Every file this app opens goes through here. Under MSVC, this genuinely
+// uses the safer _wfopen_s (it validates its arguments and reports errors
+// through its return code, unlike plain _wfopen) rather than just
+// suppressing MSVC's deprecation warning - an actual fix, not a silenced
+// one. _wfopen_s is a Microsoft-only CRT extension not available on
+// MinGW, which is why this is gated: MinGW keeps using the plain, already
+// memory-safe standard _wfopen (every call site here passes a fixed
+// literal mode string, never attacker-influenced data), and never raised
+// this warning in the first place since it's specifically an MSVC CRT
+// header annotation, not a general compiler diagnostic.
+FILE* OpenFileW(const std::wstring& path, const wchar_t* mode) {
+#ifdef _MSC_VER
+    FILE* f = nullptr;
+    errno_t err = _wfopen_s(&f, path.c_str(), mode);
+    return (err == 0) ? f : nullptr;
+#else
+    return _wfopen(path.c_str(), mode);
+#endif
+}
+
+// Writes `utf8Content` to `path` as safely as this app can manage: write to
+// a temporary file in the SAME directory first (so the final rename is on
+// the same volume, which is required for it to be atomic rather than a
+// slow, interruptible copy+delete), checking every write/flush/close along
+// the way, and only atomically swap it into place if every step succeeded.
+//
+// If anything fails partway through - disk full, the destination locked by
+// another program, a crash - the temporary file is cleaned up and the REAL
+// destination is left completely untouched, exactly as it was before this
+// call. Previously every save path in this app (`.fbd`, settings.txt,
+// recent.txt, emails.txt, CSV export) opened the destination directly with
+// "wb" (truncating it immediately) and never checked whether any of the
+// writes actually succeeded - a write failure partway through could leave
+// a truncated file while the app reported success the whole time. See
+// SecurityHardeningRegister.md for the full writeup.
+//
+// Returns true only if the entire operation succeeded. On failure, if
+// outError is non-null, it's filled with a short, human-readable reason
+// suitable for showing directly to the user.
+bool WriteFileAtomicUtf8(const std::wstring& path, const std::string& utf8Content, std::wstring* outError = nullptr) {
+    auto fail = [&](const wchar_t* reason) {
+        if (outError) *outError = reason;
+        return false;
+    };
+
+    std::wstring tempPath = path + L".tmp";
+    FILE* f = OpenFileW(tempPath, L"wb");
+    if (!f) return fail(L"could not create a temporary file for saving (check the destination folder is writable)");
+
+    bool writeOk = true;
+    if (!utf8Content.empty()) {
+        size_t written = fwrite(utf8Content.data(), 1, utf8Content.size(), f);
+        if (written != utf8Content.size()) writeOk = false;
+    }
+    if (writeOk && ferror(f)) writeOk = false;
+    // Flush the C library's own buffer to the OS now, rather than waiting
+    // for fclose() to do it implicitly - lets us check the result
+    // explicitly instead of only learning about a failure from fclose().
+    if (writeOk && fflush(f) != 0) writeOk = false;
+
+    int closeResult = fclose(f);
+    if (closeResult != 0) writeOk = false;
+
+    if (!writeOk) {
+        _wremove(tempPath.c_str()); // best-effort cleanup; a leftover .tmp file is harmless either way
+        return fail(L"writing the file failed partway through - the disk may be full, or the file is locked by another program");
+    }
+
+    // Atomically swap the fully-written temp file into place. MOVEFILE_WRITE_THROUGH
+    // waits for the rename itself to actually reach disk before returning,
+    // rather than just the filesystem cache. If this fails, the temp file
+    // is cleaned up and the REAL destination is untouched - whatever was
+    // there before (if anything) is still exactly as it was.
+    if (!MoveFileExW(tempPath.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        _wremove(tempPath.c_str());
+        return fail(L"could not replace the destination file - it may be open in another program, or read-only");
+    }
+    return true;
+}
+
 // Keeps the currently open/saved file name visible in the title bar, so it's
 // always obvious what's loaded and whether it's been saved to a named file.
 void UpdateTitle() {
-    std::wstring title = L"Fish Balance Manager";
+    std::wstring name;
     if (!g_currentFile.empty()) {
         size_t pos = g_currentFile.find_last_of(L"\\/");
-        std::wstring name = (pos == std::wstring::npos) ? g_currentFile : g_currentFile.substr(pos + 1);
-        title += L" - " + name;
+        name = (pos == std::wstring::npos) ? g_currentFile : g_currentFile.substr(pos + 1);
     } else {
-        title += L" - (unsaved)";
+        name = L"(unsaved)";
     }
+
+    std::wstring title = L"Fish Balance Manager - " + name;
     if (g_hMainWnd) SetWindowTextW(g_hMainWnd, title.c_str());
+
+    // Status bar mirrors the same filename shown in the title bar (kept in
+    // sync automatically since both come from this one function), plus the
+    // running app version - handy for confirming which build is actually
+    // running without going through Help > About.
+    if (hStatusBar) {
+        std::wstring verText = std::wstring(L"Version ") + APP_VERSION;
+        SendMessageW(hStatusBar, SB_SETTEXT, 0, (LPARAM)verText.c_str());
+        std::wstring fileText = L"File: " + name;
+        SendMessageW(hStatusBar, SB_SETTEXT, 1, (LPARAM)fileText.c_str());
+    }
 }
 
 // Loads the app icon at the requested size. Tries the embedded resource
@@ -369,7 +403,7 @@ HICON LoadAppIcon(HINSTANCE hInstance, int size) {
 // an empty list) if the file doesn't exist - this is expected on first run.
 bool ReadAllLines(const std::wstring& path, std::vector<std::wstring>& outLines) {
     outLines.clear();
-    FILE* f = _wfopen(path.c_str(), L"rb");
+    FILE* f = OpenFileW(path, L"rb");
     if (!f) return false;
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
@@ -433,11 +467,9 @@ void SaveSettings() {
     GetWindowPlacement(g_hMainWnd, &wp);
     RECT rc = wp.rcNormalPosition;
 
-    FILE* f = _wfopen(SettingsPath().c_str(), L"wb");
-    if (!f) return;
+    std::string content;
     auto writeLine = [&](const std::wstring& l) {
-        std::string u8 = WToUtf8(l) + "\n";
-        fwrite(u8.data(), 1, u8.size(), f);
+        content += WToUtf8(l) + "\n";
     };
     writeLine(L"X=" + std::to_wstring(rc.left));
     writeLine(L"Y=" + std::to_wstring(rc.top));
@@ -445,7 +477,12 @@ void SaveSettings() {
     writeLine(L"H=" + std::to_wstring(rc.bottom - rc.top));
     writeLine(std::wstring(L"MAX=") + (wp.showCmd == SW_SHOWMAXIMIZED ? L"1" : L"0"));
     writeLine(L"LASTFILE=" + g_currentFile);
-    fclose(f);
+
+    // Failure here stays silent (as it always has been) - losing
+    // settings.txt only means window position/last-file aren't remembered
+    // next launch, not any loss of actual business data. Still a genuine
+    // atomic+checked write now, not a truncate-and-hope.
+    WriteFileAtomicUtf8(SettingsPath(), content);
 }
 
 // ---------------------------------------------------------------------------
@@ -455,13 +492,12 @@ void SaveSettings() {
 std::wstring RecentFilesPath() { return GetExeDir() + L"\\recent.txt"; }
 
 void SaveRecentFiles() {
-    FILE* f = _wfopen(RecentFilesPath().c_str(), L"wb");
-    if (!f) return;
-    for (auto& p : g_recentFiles) {
-        std::string u8 = WToUtf8(p) + "\n";
-        fwrite(u8.data(), 1, u8.size(), f);
-    }
-    fclose(f);
+    std::string content;
+    for (auto& p : g_recentFiles) content += WToUtf8(p) + "\n";
+    // Failure stays silent, same reasoning as SaveSettings() - losing this
+    // just means the Recent Files menu doesn't remember entries, not any
+    // loss of actual business data.
+    WriteFileAtomicUtf8(RecentFilesPath(), content);
 }
 
 void LoadRecentFiles() {
@@ -514,26 +550,20 @@ void LoadSupplierEmails() {
     }
 }
 
-void SaveSupplierEmails() {
-    FILE* f = _wfopen(EmailsPath().c_str(), L"wb");
-    if (!f) return;
-    for (auto& kv : g_supplierEmails) {
-        std::string u8 = WToUtf8(kv.first + L"|" + kv.second) + "\n";
-        fwrite(u8.data(), 1, u8.size(), f);
-    }
-    fclose(f);
+bool SaveSupplierEmails() {
+    std::string content;
+    for (auto& kv : g_supplierEmails) content += WToUtf8(kv.first + L"|" + kv.second) + "\n";
+    return WriteFileAtomicUtf8(EmailsPath(), content);
 }
 
 // ---------------------------------------------------------------------------
 // File persistence (simple pipe-delimited UTF-8 text format, *.fbd)
 // ---------------------------------------------------------------------------
 
-bool SaveToFile(const std::wstring& path) {
-    FILE* f = _wfopen(path.c_str(), L"wb");
-    if (!f) return false;
+bool SaveToFile(const std::wstring& path, std::wstring* outError = nullptr) {
+    std::string content;
     auto writeLine = [&](const std::wstring& line) {
-        std::string u8 = WToUtf8(line) + "\n";
-        fwrite(u8.data(), 1, u8.size(), f);
+        content += WToUtf8(line) + "\n";
     };
     wchar_t buf[512];
     GetWindowTextW(hEditDebtor, buf, 512);
@@ -548,12 +578,26 @@ bool SaveToFile(const std::wstring& path) {
         writeLine(line);
     }
     writeLine(L"END");
-    fclose(f);
-    return true;
+    return WriteFileAtomicUtf8(path, content, outError);
 }
 
+// Loads and STRICTLY validates a .fbd file. This function is now just the
+// Win32 file I/O boundary (open, read bytes, decode UTF-8) - all parsing
+// and validation logic (the part that matters, and the part every serious
+// bug in this app has lived in) is ParseFbdContent() in FishBalanceCore.h,
+// which takes the already-decoded content and is unit-tested directly
+// there without needing a real file or a Win32 window.
+//
+// g_entries and the on-screen Debtor/Cash fields are only touched if the
+// whole document passes validation. This matters because every caller of
+// this function (DoFileOpen, the Recent Files menu, and the startup
+// autosave reload) goes on to call RefreshAll(), which immediately
+// re-writes autosave.fbd - so a loader that's too permissive here doesn't
+// just show the user a wrong screen, it silently destroys the recovery
+// copy too. See SecurityHardeningRegister.md and ARCHITECTURE.md for why
+// this function gets this much scrutiny.
 bool LoadFromFile(const std::wstring& path) {
-    FILE* f = _wfopen(path.c_str(), L"rb");
+    FILE* f = OpenFileW(path, L"rb");
     if (!f) return false;
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
@@ -564,71 +608,18 @@ bool LoadFromFile(const std::wstring& path) {
     fclose(f);
 
     std::wstring all = Utf8ToW(data);
-    std::vector<std::wstring> lines;
-    std::wstring cur;
-    for (wchar_t c : all) {
-        if (c == L'\n') {
-            if (!cur.empty() && cur.back() == L'\r') cur.pop_back();
-            lines.push_back(cur);
-            cur.clear();
-        } else {
-            cur.push_back(c);
-        }
-    }
-    if (!cur.empty()) lines.push_back(cur);
+    FbdLoadResult result = ParseFbdContent(all);
+    if (!result.ok) return false;
 
-    std::vector<Entry> newEntries;
-    std::wstring debtor, cash;
-    bool inData = false;
-    int skippedLines = 0;
-    for (auto& line : lines) {
-        if (line.rfind(L"DEBTOR=", 0) == 0) {
-            debtor = line.substr(7);
-        } else if (line.rfind(L"CASH=", 0) == 0) {
-            cash = line.substr(5);
-        } else if (line == L"BEGIN") {
-            inData = true;
-        } else if (line == L"END") {
-            inData = false;
-        } else if (inData && !line.empty()) {
-            std::vector<std::wstring> parts;
-            std::wstring c2;
-            for (wchar_t ch : line) {
-                if (ch == L'|') { parts.push_back(c2); c2.clear(); }
-                else c2.push_back(ch);
-            }
-            parts.push_back(c2);
-            if (parts.size() == 4 || parts.size() == 6) {
-                Entry e;
-                e.supplier = parts[0];
-                e.product = parts[1];
-                try { e.kgs = std::stod(parts[2]); } catch (...) { e.kgs = 0; }
-                try { e.price = std::stod(parts[3]); } catch (...) { e.price = 0; }
-                if (parts.size() == 6) {
-                    e.date = parts[4];
-                    e.notes = parts[5];
-                }
-                // parts.size() == 4 means a file saved before dates/notes
-                // existed - e.date and e.notes just stay empty, handled
-                // gracefully everywhere they're displayed.
-                newEntries.push_back(e);
-            } else {
-                // A field containing '|' (possible in files saved before
-                // this character was blocked at entry time) splits into the
-                // wrong number of parts and can't be safely reconstructed -
-                // skip it, but don't lose it silently; the caller is told.
-                skippedLines++;
-            }
-        }
-    }
-    g_entries = newEntries;
-    SetWindowTextW(hEditDebtor, debtor.c_str());
-    SetWindowTextW(hEditCash, cash.c_str());
-    if (skippedLines > 0 && g_hMainWnd) {
-        std::wstring msg = L"Warning: " + std::to_wstring(skippedLines) +
-            (skippedLines == 1 ? L" row could" : L" rows could") +
-            L" not be read from this file and " + (skippedLines == 1 ? L"was" : L"were") +
-            L" skipped (likely an old file saved with a '|' character in a Supplier or Species name).";
+    g_entries = result.entries;
+    SetWindowTextW(hEditDebtor, result.debtor.c_str());
+    SetWindowTextW(hEditCash, result.cash.c_str());
+    if (result.skippedLines > 0 && g_hMainWnd) {
+        std::wstring msg = L"Warning: " + std::to_wstring(result.skippedLines) +
+            (result.skippedLines == 1 ? L" row could" : L" rows could") +
+            L" not be read from this file and " + (result.skippedLines == 1 ? L"was" : L"were") +
+            L" skipped (an invalid or missing Supplier/Species/Kgs/Price value, or an old file "
+            L"saved with a '|' character in a Supplier or Species name).";
         MessageBoxW(g_hMainWnd, msg.c_str(), L"Some Rows Skipped", MB_OK | MB_ICONWARNING);
     }
     return true;
@@ -834,37 +825,24 @@ void RecalcTotals() {
 
 // Shared by the Total Overview tab (grouped by supplier) and the By Species
 // tab (grouped by species) - same shape of report, just a different key.
+// The actual aggregation is ComputeGroupedTotals() in FishBalanceCore.h
+// (unit-tested there); this function is now just the ListView rendering.
 void PopulateGroupedTotalsList(HWND lv, bool bySupplier) {
     ListView_DeleteAllItems(lv);
-    std::vector<std::wstring> keys;
-    std::map<std::wstring, double> kgsSum, amtSum;
-    for (auto& e : g_entries) {
-        const std::wstring& k = bySupplier ? e.supplier : e.product;
-        if (kgsSum.find(k) == kgsSum.end()) {
-            kgsSum[k] = 0;
-            amtSum[k] = 0;
-            keys.push_back(k);
-        }
-        kgsSum[k] += e.kgs;
-        amtSum[k] += e.Total();
-    }
-    std::sort(keys.begin(), keys.end());
+    GroupedTotalsResult totals = ComputeGroupedTotals(g_entries, bySupplier);
 
-    double grandKgs = 0, grandAmt = 0;
     int idx = 0;
-    for (auto& k : keys) {
+    for (auto& row : totals.rows) {
         LVITEMW item{};
         item.mask = LVIF_TEXT;
         item.iItem = idx;
         item.iSubItem = 0;
-        item.pszText = const_cast<LPWSTR>(k.c_str());
+        item.pszText = const_cast<LPWSTR>(row.key.c_str());
         ListView_InsertItem(lv, &item);
-        std::wstring kgsS = FormatKg(kgsSum[k]);
+        std::wstring kgsS = FormatKg(row.kgs);
         ListView_SetItemText(lv, idx, 1, const_cast<LPWSTR>(kgsS.c_str()));
-        std::wstring amtS = FormatMoney(amtSum[k]);
+        std::wstring amtS = FormatMoney(row.amt);
         ListView_SetItemText(lv, idx, 2, const_cast<LPWSTR>(amtS.c_str()));
-        grandKgs += kgsSum[k];
-        grandAmt += amtSum[k];
         idx++;
     }
     LVITEMW gitem{};
@@ -874,9 +852,9 @@ void PopulateGroupedTotalsList(HWND lv, bool bySupplier) {
     std::wstring lbl = L"GRAND TOTAL";
     gitem.pszText = const_cast<LPWSTR>(lbl.c_str());
     ListView_InsertItem(lv, &gitem);
-    std::wstring gk = FormatKg(grandKgs);
+    std::wstring gk = FormatKg(totals.grandKgs);
     ListView_SetItemText(lv, idx, 1, const_cast<LPWSTR>(gk.c_str()));
-    std::wstring ga = FormatMoney(grandAmt);
+    std::wstring ga = FormatMoney(totals.grandAmt);
     ListView_SetItemText(lv, idx, 2, const_cast<LPWSTR>(ga.c_str()));
 }
 
@@ -884,54 +862,31 @@ void RefreshOverviewList() { PopulateGroupedTotalsList(hListOverview, true); }
 
 // By Species gets its own richer view (unlike Overview, which stays a plain
 // Kgs/Total breakdown per supplier): average, highest, and lowest price seen
-// for each species, alongside the usual Kgs/Total.
+// for each species, alongside the usual Kgs/Total. The actual aggregation
+// is ComputeSpeciesStats() in FishBalanceCore.h (unit-tested there); this
+// function is now just the ListView rendering.
 void RefreshBySpeciesList() {
     ListView_DeleteAllItems(hListBySpecies);
-    std::vector<std::wstring> keys;
-    std::map<std::wstring, double> kgsSum, amtSum, priceSum, priceMax, priceMin;
-    std::map<std::wstring, int> priceCount;
-    for (auto& e : g_entries) {
-        const std::wstring& k = e.product;
-        if (kgsSum.find(k) == kgsSum.end()) {
-            kgsSum[k] = 0;
-            amtSum[k] = 0;
-            priceSum[k] = 0;
-            priceCount[k] = 0;
-            priceMax[k] = e.price;
-            priceMin[k] = e.price;
-            keys.push_back(k);
-        }
-        kgsSum[k] += e.kgs;
-        amtSum[k] += e.Total();
-        priceSum[k] += e.price;
-        priceCount[k]++;
-        if (e.price > priceMax[k]) priceMax[k] = e.price;
-        if (e.price < priceMin[k]) priceMin[k] = e.price;
-    }
-    std::sort(keys.begin(), keys.end());
+    SpeciesStatsResult stats = ComputeSpeciesStats(g_entries);
 
-    double grandKgs = 0, grandAmt = 0;
     int idx = 0;
-    for (auto& k : keys) {
+    for (auto& row : stats.rows) {
         LVITEMW item{};
         item.mask = LVIF_TEXT;
         item.iItem = idx;
         item.iSubItem = 0;
-        item.pszText = const_cast<LPWSTR>(k.c_str());
+        item.pszText = const_cast<LPWSTR>(row.species.c_str());
         ListView_InsertItem(hListBySpecies, &item);
-        std::wstring kgsS = FormatKg(kgsSum[k]);
+        std::wstring kgsS = FormatKg(row.kgs);
         ListView_SetItemText(hListBySpecies, idx, 1, const_cast<LPWSTR>(kgsS.c_str()));
-        std::wstring amtS = FormatMoney(amtSum[k]);
+        std::wstring amtS = FormatMoney(row.amt);
         ListView_SetItemText(hListBySpecies, idx, 2, const_cast<LPWSTR>(amtS.c_str()));
-        double avg = priceCount[k] > 0 ? priceSum[k] / priceCount[k] : 0;
-        std::wstring avgS = FormatMoney(avg);
+        std::wstring avgS = FormatMoney(row.avgPrice);
         ListView_SetItemText(hListBySpecies, idx, 3, const_cast<LPWSTR>(avgS.c_str()));
-        std::wstring maxS = FormatMoney(priceMax[k]);
+        std::wstring maxS = FormatMoney(row.maxPrice);
         ListView_SetItemText(hListBySpecies, idx, 4, const_cast<LPWSTR>(maxS.c_str()));
-        std::wstring minS = FormatMoney(priceMin[k]);
+        std::wstring minS = FormatMoney(row.minPrice);
         ListView_SetItemText(hListBySpecies, idx, 5, const_cast<LPWSTR>(minS.c_str()));
-        grandKgs += kgsSum[k];
-        grandAmt += amtSum[k];
         idx++;
     }
 
@@ -945,76 +900,17 @@ void RefreshBySpeciesList() {
     std::wstring lbl = L"GRAND TOTAL";
     gitem.pszText = const_cast<LPWSTR>(lbl.c_str());
     ListView_InsertItem(hListBySpecies, &gitem);
-    std::wstring gk = FormatKg(grandKgs);
+    std::wstring gk = FormatKg(stats.grandKgs);
     ListView_SetItemText(hListBySpecies, idx, 1, const_cast<LPWSTR>(gk.c_str()));
-    std::wstring ga = FormatMoney(grandAmt);
+    std::wstring ga = FormatMoney(stats.grandAmt);
     ListView_SetItemText(hListBySpecies, idx, 2, const_cast<LPWSTR>(ga.c_str()));
 }
 
-// Shared grouping structures used both by the on-screen Breakdown list and by
-// the printed/PDF report, so the two can never drift out of sync.
-struct PriceLine { double price; double kgs; double amt; };
-struct ProductGroup {
-    std::wstring species;
-    std::vector<PriceLine> prices;
-    double totalKgs = 0, totalAmt = 0;
-};
-struct SupplierGroup {
-    std::wstring supplier;
-    std::vector<ProductGroup> products;
-    double totalKgs = 0, totalAmt = 0;
-};
-
-std::vector<SupplierGroup> BuildBreakdownData() {
-    std::vector<SupplierGroup> result;
-
-    std::vector<std::wstring> suppliers;
-    for (auto& e : g_entries)
-        if (std::find(suppliers.begin(), suppliers.end(), e.supplier) == suppliers.end())
-            suppliers.push_back(e.supplier);
-    std::sort(suppliers.begin(), suppliers.end());
-
-    for (auto& sup : suppliers) {
-        SupplierGroup sg;
-        sg.supplier = sup;
-
-        std::vector<std::wstring> products;
-        for (auto& e : g_entries)
-            if (e.supplier == sup && std::find(products.begin(), products.end(), e.product) == products.end())
-                products.push_back(e.product);
-        std::sort(products.begin(), products.end());
-
-        for (auto& prod : products) {
-            ProductGroup pg;
-            pg.species = prod;
-
-            std::vector<double> prices;
-            std::map<double, double> kgsByPrice, amtByPrice;
-            for (auto& e : g_entries) {
-                if (e.supplier == sup && e.product == prod) {
-                    if (kgsByPrice.find(e.price) == kgsByPrice.end()) {
-                        kgsByPrice[e.price] = 0;
-                        amtByPrice[e.price] = 0;
-                        prices.push_back(e.price);
-                    }
-                    kgsByPrice[e.price] += e.kgs;
-                    amtByPrice[e.price] += e.Total();
-                }
-            }
-            std::sort(prices.begin(), prices.end());
-            for (double p : prices) {
-                pg.prices.push_back({ p, kgsByPrice[p], amtByPrice[p] });
-                pg.totalKgs += kgsByPrice[p];
-                pg.totalAmt += amtByPrice[p];
-            }
-            sg.products.push_back(pg);
-            sg.totalKgs += pg.totalKgs;
-            sg.totalAmt += pg.totalAmt;
-        }
-        result.push_back(sg);
-    }
-    return result;
-}
+// PriceLine, ProductGroup, SupplierGroup, and BuildBreakdownData() now all
+// live in FishBalanceCore.h (unchanged logic; BuildBreakdownData() there
+// takes the entries vector as an explicit parameter instead of reading
+// the global g_entries directly, so it can be unit-tested against known
+// fixtures - call sites below now pass g_entries in explicitly).
 
 void InsertBreakdownRow(int groupId, int itemIdx, const std::wstring& species,
                          const std::wstring& priceStr, double kgs, double amt) {
@@ -1036,7 +932,7 @@ void RefreshBreakdownList() {
     ListView_DeleteAllItems(hListBreakdown);
     SendMessageW(hListBreakdown, LVM_REMOVEALLGROUPS, 0, 0);
 
-    auto data = BuildBreakdownData();
+    auto data = BuildBreakdownData(g_entries);
 
     int groupId = 0;
     int itemIdx = 0;
@@ -1059,14 +955,35 @@ void RefreshBreakdownList() {
     }
 }
 
-void RefreshAll() {
+// Attempts the autosave write and warns (once, not repeated while the same
+// problem persists) if it fails - shared by RefreshAll() and by the
+// Debtor/Cash immediate-autosave path below, so both get the same
+// warn-once/reset-on-recovery behavior from one place instead of two
+// copies that could drift apart.
+void AutosaveNow() {
+    bool ok = SaveToFile(GetExeDir() + L"\\autosave.fbd");
+    if (ok) {
+        g_autosaveFailWarned = false; // problem (if any) has cleared - a future failure should warn again
+    } else if (!g_autosaveFailWarned && g_hMainWnd) {
+        g_autosaveFailWarned = true;
+        MessageBoxW(g_hMainWnd,
+            L"Warning: the automatic backup (autosave.fbd) could not be saved just now - "
+            L"the disk may be full, or the file is locked by another program (e.g. antivirus).\n\n"
+            L"Your current data is still safe in memory. If you haven't saved to a named file "
+            L"recently, use File > Save now to make sure nothing is lost. This warning won't "
+            L"repeat again until autosave succeeds at least once.",
+            L"Autosave Failed", MB_OK | MB_ICONWARNING);
+    }
+}
+
+void RefreshAll(bool doAutosave) {
     RefreshEntriesList();
     RefreshCombos();
     RecalcTotals();
     RefreshOverviewList();
     RefreshBySpeciesList();
     RefreshBreakdownList();
-    SaveToFile(GetExeDir() + L"\\autosave.fbd"); // silent autosave, never blocks the UI
+    if (doAutosave) AutosaveNow();
 }
 
 // ---------------------------------------------------------------------------
@@ -1140,6 +1057,14 @@ void CommitEntryForm() {
     SetWindowTextW(hEditKgs, L"");
     SetWindowTextW(hEditPrice, L"");
     SetWindowTextW(hEditNotes, L"");
+    // Supplier deliberately stays populated (supports fast entry of several
+    // rows for the same supplier in a row - see README.md's batch-entry
+    // workflow), but Species is cleared so it doesn't silently carry over
+    // into what's often actually a different species next. Focus goes back
+    // to Supplier (not Species) - Jack's preference after trying v0.9.7's
+    // Species-focus behavior.
+    SetWindowTextW(hCmbProduct, L"");
+    g_prevProductLen = 0;
     SetFocus(hCmbSupplier);
 
     RefreshAll();
@@ -1172,6 +1097,39 @@ void DuplicateLastEntry() {
     g_prevProductLen = (int)e.product.size();
     SetFocus(hEditKgs);
     SendMessageW(hEditKgs, EM_SETSEL, 0, -1); // select all so typing immediately replaces it
+}
+
+// Pre-fills ONLY Supplier and Species from the most recently added entry -
+// unlike Duplicate Last Entry, this deliberately leaves Kgs/Price/Notes/Date
+// untouched. Complements Species now clearing after Add Entry: if the next
+// row is for the same species again (not a new one), this refills it in one
+// click without pulling in the old weight/price too.
+void DuplicateSupplierSpecies() {
+    if (g_entries.empty()) {
+        MessageBoxW(g_hMainWnd, L"There are no entries yet to duplicate from.", L"Duplicate Supplier & Species", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    Entry& e = g_entries.back();
+    SetWindowTextW(hCmbSupplier, e.supplier.c_str());
+    SetWindowTextW(hCmbProduct, e.product.c_str());
+    g_prevSupplierLen = (int)e.supplier.size();
+    g_prevProductLen = (int)e.product.size();
+    SetFocus(hEditKgs);
+    SendMessageW(hEditKgs, EM_SETSEL, 0, -1); // select all so typing immediately replaces it
+}
+
+// Invalidates the single-level Undo Delete buffer and grays out the menu
+// item. Must be called by anything that replaces or restructures
+// g_entries wholesale (New, Open, Recent Files, Manage Names rename/merge) -
+// otherwise the buffered entry (and the still-enabled menu item) silently
+// outlives the sheet it was deleted from. Undoing after one of those
+// operations would insert a row from a DIFFERENT, already-discarded sheet
+// into the current one - and RefreshAll()'s autosave would then write that
+// foreign row to disk before anyone had a chance to notice.
+void ClearUndoState() {
+    g_hasUndo = false;
+    g_undoIndex = -1;
+    if (g_hEditMenu) EnableMenuItem(g_hEditMenu, ID_EDIT_UNDO_DELETE, MF_BYCOMMAND | MF_GRAYED);
 }
 
 void DeleteSelectedEntry() {
@@ -1283,6 +1241,7 @@ void DoFileNew() {
     SetWindowTextW(hEditCash, L"");
     g_currentFile.clear();
     CancelEdit();
+    ClearUndoState();
     UpdateTitle();
     RefreshAll();
 }
@@ -1301,11 +1260,16 @@ void DoFileOpen() {
         if (LoadFromFile(file)) {
             g_currentFile = file;
             CancelEdit();
+            ClearUndoState();
             UpdateTitle();
             RefreshAll();
             RememberRecentFile(file);
         } else {
-            MessageBoxW(g_hMainWnd, L"Could not open the selected file.", L"Error", MB_OK | MB_ICONERROR);
+            MessageBoxW(g_hMainWnd,
+                L"Could not open the selected file - it isn't readable, doesn't look like a "
+                L"Fish Balance (.fbd) file, or looks like it was cut off partway through being "
+                L"saved. Nothing has been changed.",
+                L"Error", MB_OK | MB_ICONERROR);
         }
     }
 }
@@ -1321,59 +1285,38 @@ void DoFileSaveAs() {
     ofn.lpstrDefExt = L"fbd";
     ofn.Flags = OFN_OVERWRITEPROMPT;
     if (GetSaveFileNameW(&ofn)) {
-        if (SaveToFile(file)) {
+        std::wstring err;
+        if (SaveToFile(file, &err)) {
             g_currentFile = file;
             UpdateTitle();
             RememberRecentFile(file);
             MessageBoxW(g_hMainWnd, L"Saved.", L"Save", MB_OK | MB_ICONINFORMATION);
         } else {
-            MessageBoxW(g_hMainWnd, L"Could not save the file.", L"Error", MB_OK | MB_ICONERROR);
+            MessageBoxW(g_hMainWnd, (L"Could not save the file: " + err).c_str(), L"Error", MB_OK | MB_ICONERROR);
         }
     }
 }
 
 void DoFileSave() {
     if (g_currentFile.empty()) { DoFileSaveAs(); return; }
-    if (!SaveToFile(g_currentFile))
-        MessageBoxW(g_hMainWnd, L"Could not save the file.", L"Error", MB_OK | MB_ICONERROR);
+    std::wstring err;
+    if (!SaveToFile(g_currentFile, &err))
+        MessageBoxW(g_hMainWnd, (L"Could not save the file: " + err).c_str(), L"Error", MB_OK | MB_ICONERROR);
 }
 
 // ---------------------------------------------------------------------------
 // CSV export (Excel-readable) - bundles every report into one file.
 // ---------------------------------------------------------------------------
 
-std::wstring CsvField(const std::wstring& s) {
-    std::wstring field = s;
-    // Excel treats a field starting with =, +, -, or @ as a formula, which
-    // is a known CSV-injection vector when the field came from free-text
-    // user input. Prefix with a tab to neutralize it as plain text while
-    // keeping it readable (a leading apostrophe would be visible in the
-    // cell; a tab is not).
-    if (!field.empty() && (field[0] == L'=' || field[0] == L'+' || field[0] == L'-' || field[0] == L'@'))
-        field = L"\t" + field;
+// CsvField() now lives in FishBalanceCore.h (unchanged logic).
 
-    bool needQuote = field.find(L',') != std::wstring::npos || field.find(L'"') != std::wstring::npos ||
-                     field.find(L'\n') != std::wstring::npos;
-    if (!needQuote) return field;
-    std::wstring out = L"\"";
-    for (wchar_t c : field) {
-        if (c == L'"') out += L"\"\"";
-        else out.push_back(c);
-    }
-    out += L"\"";
-    return out;
-}
-
-bool ExportToCsv(const std::wstring& path) {
-    FILE* f = _wfopen(path.c_str(), L"wb");
-    if (!f) return false;
-
+bool ExportToCsv(const std::wstring& path, std::wstring* outError = nullptr) {
+    std::string content;
     unsigned char bom[3] = { 0xEF, 0xBB, 0xBF }; // UTF-8 BOM, so Excel reads accents/symbols correctly
-    fwrite(bom, 1, 3, f);
+    content.append(reinterpret_cast<char*>(bom), 3);
 
     auto writeLine = [&](const std::wstring& line) {
-        std::string u8 = WToUtf8(line) + "\r\n";
-        fwrite(u8.data(), 1, u8.size(), f);
+        content += WToUtf8(line) + "\r\n";
     };
     auto csvRow = [&](std::initializer_list<std::wstring> fields) {
         std::wstring line;
@@ -1452,7 +1395,7 @@ bool ExportToCsv(const std::wstring& path) {
     writeLine(L"Breakdown (Supplier > Species > Price)");
     csvRow({ L"Supplier", L"Species", L"Price", L"Kgs", L"Total" });
     {
-        auto data = BuildBreakdownData();
+        auto data = BuildBreakdownData(g_entries);
         double grandKgs = 0, grandAmt = 0;
         for (auto& sg : data) {
             for (auto& pg : sg.products) {
@@ -1467,8 +1410,7 @@ bool ExportToCsv(const std::wstring& path) {
         csvRow({ L"", L"GRAND TOTAL", L"", FormatKg(grandKgs), FormatNum(grandAmt) });
     }
 
-    fclose(f);
-    return true;
+    return WriteFileAtomicUtf8(path, content, outError);
 }
 
 void DoExportCsv() {
@@ -1482,10 +1424,11 @@ void DoExportCsv() {
     ofn.lpstrDefExt = L"csv";
     ofn.Flags = OFN_OVERWRITEPROMPT;
     if (GetSaveFileNameW(&ofn)) {
-        if (ExportToCsv(file))
+        std::wstring err;
+        if (ExportToCsv(file, &err))
             MessageBoxW(g_hMainWnd, L"Exported. This file opens directly in Excel.", L"Export to CSV", MB_OK | MB_ICONINFORMATION);
         else
-            MessageBoxW(g_hMainWnd, L"Could not export the file.", L"Error", MB_OK | MB_ICONERROR);
+            MessageBoxW(g_hMainWnd, (L"Could not export the file: " + err).c_str(), L"Error", MB_OK | MB_ICONERROR);
     }
 }
 
@@ -1597,6 +1540,20 @@ void UpdateManageEmailControls() {
     EnableWindow(g_hManageEmailBtn, FALSE);
 }
 
+// Enables Apply only when there's actually something it could do: at least
+// one name selected in the list, and a non-empty target to rename/merge
+// them to. Previously the button was always clickable and just showed a
+// MessageBox error if either condition wasn't met - this reflects that
+// state up front instead.
+void UpdateManageApplyButton() {
+    if (!g_hManageApplyBtn) return; // not created yet
+    int selCount = (int)SendMessageW(g_hManageList, LB_GETSELCOUNT, 0, 0);
+    wchar_t buf[256];
+    GetWindowTextW(g_hManageTarget, buf, 256);
+    bool hasTarget = !TrimW(buf).empty();
+    EnableWindow(g_hManageApplyBtn, (selCount > 0 && hasTarget) ? TRUE : FALSE);
+}
+
 void ManageSaveEmail() {
     int selCount = (int)SendMessageW(g_hManageList, LB_GETSELCOUNT, 0, 0);
     if (selCount != 1) {
@@ -1625,7 +1582,7 @@ void ManageSaveEmail() {
 
     if (email.empty()) g_supplierEmails.erase(supplier);
     else g_supplierEmails[supplier] = email;
-    SaveSupplierEmails();
+    bool saved = SaveSupplierEmails();
 
     PopulateManageList();
     // Re-select the same supplier so the email field stays populated.
@@ -1633,7 +1590,15 @@ void ManageSaveEmail() {
         if (g_manageValues[i] == supplier) { SendMessageW(g_hManageList, LB_SETSEL, TRUE, (LPARAM)i); break; }
     }
     UpdateManageEmailControls();
-    MessageBoxW(g_hManageWnd, email.empty() ? L"Email cleared." : L"Email saved.", L"Done", MB_OK | MB_ICONINFORMATION);
+    if (saved) {
+        MessageBoxW(g_hManageWnd, email.empty() ? L"Email cleared." : L"Email saved.", L"Done", MB_OK | MB_ICONINFORMATION);
+    } else {
+        MessageBoxW(g_hManageWnd,
+            L"Could not save the email address to disk - the change is still in memory for this "
+            L"session, but will be lost when the app closes unless the save succeeds. Check that "
+            L"emails.txt isn't open in another program and try again.",
+            L"Save Failed", MB_OK | MB_ICONWARNING);
+    }
 }
 
 void ManageApply() {
@@ -1661,6 +1626,63 @@ void ManageApply() {
     for (int idx : idxs)
         if (idx >= 0 && idx < (int)g_manageValues.size()) sourceNames.push_back(g_manageValues[idx]);
 
+    // Supplier email addresses are keyed by supplier name, so a
+    // rename/merge of SUPPLIER names (not species - g_supplierEmails has
+    // no species concept) needs to migrate any saved email(s) too,
+    // otherwise the address becomes silently orphaned under a name that
+    // no longer exists anywhere. This is resolved BEFORE touching
+    // g_entries at all below, so if the user cancels a genuine conflict,
+    // nothing has changed yet - a clean abort, not a half-applied rename.
+    //
+    // Conflict handling: gather every DISTINCT saved email among the
+    // target's own existing email (if any) and each selected source's
+    // email. Zero or one distinct value found means no real conflict -
+    // proceed automatically. Exactly two distinct values (by far the most
+    // common real conflict - merging two suppliers who each have a
+    // different saved address) - ask which to keep. Three or more
+    // distinct values is rare enough that a full picker UI wasn't judged
+    // worth building; the first one found is kept, but the user is told a
+    // conflict existed rather than that being silent.
+    std::wstring resolvedEmail;
+    bool haveResolvedEmail = false;
+    if (g_manageIsSupplier) {
+        std::vector<std::wstring> candidates;
+        auto addCandidate = [&](const std::wstring& email) {
+            if (email.empty()) return;
+            for (auto& c : candidates) if (c == email) return; // already have it
+            candidates.push_back(email);
+        };
+        auto targetIt = g_supplierEmails.find(target);
+        if (targetIt != g_supplierEmails.end()) addCandidate(targetIt->second);
+        for (auto& src : sourceNames) {
+            if (src == target) continue;
+            auto it = g_supplierEmails.find(src);
+            if (it != g_supplierEmails.end()) addCandidate(it->second);
+        }
+
+        if (candidates.size() == 1) {
+            resolvedEmail = candidates[0];
+            haveResolvedEmail = true;
+        } else if (candidates.size() == 2) {
+            std::wstring msg = L"The suppliers being merged have different saved email addresses:\n\n"
+                                L"Yes = keep " + candidates[0] + L"\n"
+                                L"No = keep " + candidates[1] + L"\n"
+                                L"Cancel = don't merge yet, so you can check the addresses first";
+            int r = MessageBoxW(g_hManageWnd, msg.c_str(), L"Which Email Should Be Kept?",
+                                 MB_YESNOCANCEL | MB_ICONQUESTION);
+            if (r == IDCANCEL) return; // nothing has been changed yet - clean abort
+            resolvedEmail = (r == IDYES) ? candidates[0] : candidates[1];
+            haveResolvedEmail = true;
+        } else if (candidates.size() > 2) {
+            resolvedEmail = candidates[0];
+            haveResolvedEmail = true;
+            std::wstring msg = L"Note: the suppliers being merged have " + std::to_wstring(candidates.size()) +
+                                L" different saved email addresses. Kept: " + resolvedEmail +
+                                L"\n\nYou can fix this afterward via Manage Names if it kept the wrong one.";
+            MessageBoxW(g_hManageWnd, msg.c_str(), L"Multiple Emails Found", MB_OK | MB_ICONWARNING);
+        }
+    }
+
     int changed = 0;
     for (auto& e : g_entries) {
         std::wstring& field = g_manageIsSupplier ? e.supplier : e.product;
@@ -1669,13 +1691,42 @@ void ManageApply() {
         }
     }
 
+    bool emailsChanged = false;
+    if (g_manageIsSupplier && haveResolvedEmail) {
+        auto targetIt = g_supplierEmails.find(target);
+        if (targetIt == g_supplierEmails.end() || targetIt->second != resolvedEmail) {
+            g_supplierEmails[target] = resolvedEmail;
+            emailsChanged = true;
+        }
+        for (auto& src : sourceNames) {
+            if (src == target) continue;
+            if (g_supplierEmails.erase(src) > 0) emailsChanged = true;
+        }
+    }
+    bool emailsSaved = true;
+    if (emailsChanged) emailsSaved = SaveSupplierEmails();
+
     if (g_editIndex != -1) CancelEdit();
+    // A pending Undo Delete buffer holds a COPY of a row from before this
+    // rename - if it happened to carry one of the old names, undoing it
+    // after this point would silently reintroduce the spelling variant
+    // this rename/merge was meant to eliminate. Simplest safe rule: any
+    // actual rename invalidates the buffer, rather than trying to track
+    // whether that specific row was affected.
+    if (changed > 0) ClearUndoState();
     RefreshAll();
     PopulateManageList();
     SetWindowTextW(g_hManageTarget, L"");
+    UpdateManageApplyButton();
+    UpdateManageEmailControls(); // selection was lost when the list repopulated above
 
     std::wstring msg = L"Updated " + std::to_wstring(changed) + (changed == 1 ? L" entry." : L" entries.");
-    MessageBoxW(g_hManageWnd, msg.c_str(), L"Done", MB_OK | MB_ICONINFORMATION);
+    if (emailsChanged && !emailsSaved) {
+        msg += L"\n\nWarning: a saved email address was migrated in memory but could not be "
+               L"written to emails.txt - it will be lost if the app closes before this succeeds. "
+               L"Check emails.txt isn't open in another program.";
+    }
+    MessageBoxW(g_hManageWnd, msg.c_str(), L"Done", MB_OK | (emailsChanged && !emailsSaved ? MB_ICONWARNING : MB_ICONINFORMATION));
 }
 
 LRESULT CALLBACK ManageWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -1698,6 +1749,7 @@ LRESULT CALLBACK ManageWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         g_manageIsSupplier = true;
         PopulateManageList();
         UpdateManageEmailControls();
+        UpdateManageApplyButton();
         return 0;
     }
     case WM_SIZE: {
@@ -1705,11 +1757,11 @@ LRESULT CALLBACK ManageWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         GetClientRect(hwnd, &rc);
         MoveWindow(g_hManageRadioSupplier, S(15), S(15), S(100), S(24), TRUE);
         MoveWindow(g_hManageRadioSpecies, S(125), S(15), S(100), S(24), TRUE);
-        MoveWindow(g_hManageHint, S(15), S(45), rc.right - S(30), S(22), TRUE);
+        MoveWindow(g_hManageHint, S(15), S(45), rc.right - S(30), S(38), TRUE);
 
         int listBottom = rc.bottom - S(200);
-        if (listBottom < S(110)) listBottom = S(110);
-        MoveWindow(g_hManageList, S(15), S(72), rc.right - S(30), listBottom - S(72), TRUE);
+        if (listBottom < S(130)) listBottom = S(130);
+        MoveWindow(g_hManageList, S(15), S(90), rc.right - S(30), listBottom - S(90), TRUE);
 
         int emailY = listBottom + S(12);
         MoveWindow(g_hManageEmailLbl, S(15), emailY, S(200), S(22), TRUE);
@@ -1730,10 +1782,16 @@ LRESULT CALLBACK ManageWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
             g_manageIsSupplier = (id == ID_MNG_RADIO_SUPPLIER);
             PopulateManageList();
             UpdateManageEmailControls();
+            UpdateManageApplyButton();
             return 0;
         }
         if (id == ID_MNG_LIST && code == LBN_SELCHANGE) {
             UpdateManageEmailControls();
+            UpdateManageApplyButton();
+            return 0;
+        }
+        if (id == ID_MNG_TARGET && code == EN_CHANGE) {
+            UpdateManageApplyButton();
             return 0;
         }
         if (id == ID_MNG_EMAIL_SAVE) { ManageSaveEmail(); return 0; }
@@ -1809,8 +1867,12 @@ std::vector<RenderedPage> RenderReportPages(int pageWidthPx, int pageHeightPx, i
         lf.lfHeight = -MulDiv(points, dpiY, 72);
         lf.lfWeight = bold ? FW_BOLD : FW_NORMAL;
         const wchar_t* face = L"Segoe UI";
+#ifdef _MSC_VER
+        wcsncpy_s(lf.lfFaceName, LF_FACESIZE, face, _TRUNCATE);
+#else
         wcsncpy(lf.lfFaceName, face, LF_FACESIZE - 1);
         lf.lfFaceName[LF_FACESIZE - 1] = 0;
+#endif
         return CreateFontIndirectW(&lf);
     };
     HFONT hFontTitle = makeFont(18, true);
@@ -1829,6 +1891,18 @@ std::vector<RenderedPage> RenderReportPages(int pageWidthPx, int pageHeightPx, i
     HDC curDC = nullptr;
     int y = 0;
     int pageNum = 0;
+
+    // Hard safety cap on page count: a normal business report (dozens of
+    // suppliers/species) never comes close to this - each page holds
+    // several dozen rows - so this only ever engages on pathological or
+    // unexpectedly large input, and guarantees a hard ceiling on memory
+    // use (this function is shared by both Print Preview and the real
+    // print path, so the cap protects both). Content beyond the cap is
+    // silently dropped rather than growing the page count unboundedly;
+    // there's no in-report "truncated" notice, since a normal user should
+    // never actually reach this limit.
+    const int kMaxPages = 200;
+    bool pageCapHit = false;
 
     auto finishPage = [&]() {
         if (curDC) { DeleteDC(curDC); curDC = nullptr; }
@@ -1852,6 +1926,7 @@ std::vector<RenderedPage> RenderReportPages(int pageWidthPx, int pageHeightPx, i
     };
 
     auto newPage = [&]() {
+        if (pageNum >= kMaxPages) { pageCapHit = true; return; }
         finishPage();
 
         BITMAPINFO bmi{};
@@ -1939,7 +2014,7 @@ std::vector<RenderedPage> RenderReportPages(int pageWidthPx, int pageHeightPx, i
 
     newPage();
 
-    auto data = BuildBreakdownData();
+    auto data = BuildBreakdownData(g_entries);
     double grandKgs = 0, grandAmt = 0;
     for (auto& sg : data) {
         ensureSpace(lineHeight * 2);
@@ -2161,9 +2236,9 @@ void OpenPrintPreview(HWND owner) {
     // Size the preview to the default printer's page, so it's a realistic
     // representation of what will actually print. If there's no default
     // printer configured at all (e.g. a fresh machine with none installed),
-    // fall back to a generic Letter-sized page so preview still works.
-    int pageWidthPx, pageHeightPx, dpiX, dpiY;
-    bool gotPrinter = false;
+    // or getting its info fails, fall back to a generic Letter-sized page
+    // (the declaration defaults below) so preview still works.
+    int pageWidthPx = 850, pageHeightPx = 1100, dpiX = 100, dpiY = 100;
     wchar_t printerName[256];
     DWORD nameSize = 256;
     if (GetDefaultPrinterW(printerName, &nameSize)) {
@@ -2174,17 +2249,27 @@ void OpenPrintPreview(HWND owner) {
             dpiX = GetDeviceCaps(icDC, LOGPIXELSX);
             dpiY = GetDeviceCaps(icDC, LOGPIXELSY);
             DeleteDC(icDC);
-            gotPrinter = true;
         }
     }
-    if (!gotPrinter) {
-        dpiX = dpiY = 100;
-        pageWidthPx = 850;  // 8.5" at 100dpi
-        pageHeightPx = 1100; // 11" at 100dpi
-    }
+
+    // The preview is only ever shown shrunk down to fit a small on-screen
+    // window (see `w` below), so rendering at the printer's full native DPI
+    // (often 600+) wastes enormous amounts of memory for zero visible
+    // benefit - a single 24-bit page at 600 DPI is roughly 100MB, and a
+    // multi-page report could reach several GB. Cap the PREVIEW's DPI
+    // (only the preview - PrintBreakdownReport() still uses the real
+    // printer DPI for actual print quality) while scaling the pixel
+    // dimensions down to match, so the real printer's page proportions
+    // (Letter/A4/etc) are still preserved exactly, just at a screen-
+    // appropriate resolution.
+    const int kPreviewDpiCap = 150;
+    int previewDpiX = std::min(dpiX, kPreviewDpiCap);
+    int previewDpiY = std::min(dpiY, kPreviewDpiCap);
+    int previewWidthPx = MulDiv(pageWidthPx, previewDpiX, dpiX);
+    int previewHeightPx = MulDiv(pageHeightPx, previewDpiY, dpiY);
 
     FreeRenderedPages(g_previewPages);
-    g_previewPages = RenderReportPages(pageWidthPx, pageHeightPx, dpiX, dpiY);
+    g_previewPages = RenderReportPages(previewWidthPx, previewHeightPx, previewDpiX, previewDpiY);
     g_previewPageIndex = 0;
 
     if (g_previewPages.empty()) {
@@ -2230,92 +2315,35 @@ void OpenPrintPreview(HWND owner) {
 // Tools > Manage Supplier / Species Names... (g_supplierEmails).
 // ---------------------------------------------------------------------------
 
+// GreetingForNow/TodayDateString keep their original no-argument signature
+// here (nothing else in main.cpp needs to change) but delegate to the
+// portable, hour/date-parameterized versions in FishBalanceCore.h for the
+// actual logic, reading the current time via GetLocalTime at this one
+// Win32 boundary.
 std::wstring GreetingForNow() {
     SYSTEMTIME st;
     GetLocalTime(&st);
-    if (st.wHour < 12) return L"Good morning";
-    if (st.wHour < 17) return L"Good afternoon";
-    return L"Good evening"; // covers evening hours too, beyond just morning/afternoon
+    return GreetingForHour(st.wHour);
 }
 
 std::wstring TodayDateString() {
     SYSTEMTIME st;
     GetLocalTime(&st);
-    static const wchar_t* months[] = { L"January", L"February", L"March", L"April", L"May", L"June",
-                                        L"July", L"August", L"September", L"October", L"November", L"December" };
-    std::wstring m = (st.wMonth >= 1 && st.wMonth <= 12) ? months[st.wMonth - 1] : L"";
-    return std::to_wstring(st.wDay) + L" " + m + L" " + std::to_wstring(st.wYear);
+    return FormatLongDate(SimpleDate{ st.wYear, st.wMonth, st.wDay });
 }
 
-// Percent-encodes text for use in a mailto: URL (subject/body query values).
-// Operates on the UTF-8 bytes so non-ASCII characters survive intact.
-std::wstring UrlEncodeForMailto(const std::wstring& text) {
-    std::string utf8 = WToUtf8(text);
-    std::wstring out;
-    const wchar_t* hex = L"0123456789ABCDEF";
-    for (unsigned char c : utf8) {
-        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
-            c == '-' || c == '_' || c == '.' || c == '~') {
-            out.push_back((wchar_t)c);
-        } else {
-            out.push_back(L'%');
-            out.push_back(hex[(c >> 4) & 0xF]);
-            out.push_back(hex[c & 0xF]);
-        }
-    }
-    return out;
-}
-
-// Very basic sanity check - not full RFC validation, just enough to catch
-// obvious typos before they get saved.
-bool LooksLikeEmail(const std::wstring& email) {
-    if (email.find(L' ') != std::wstring::npos) return false;
-    size_t at = email.find(L'@');
-    if (at == std::wstring::npos || at == 0 || at == email.size() - 1) return false;
-    size_t dot = email.find(L'.', at);
-    if (dot == std::wstring::npos || dot == email.size() - 1) return false;
-    return true;
-}
-
-// Pads a string with trailing spaces to at least `width` characters, for a
-// best-effort aligned plain-text table (exact alignment isn't guaranteed in
-// every email client, since not all render plain text in a fixed-width
-// font, but this matches in the common case).
-std::wstring PadRight(const std::wstring& s, size_t width) {
-    std::wstring out = s;
-    while (out.size() < width) out.push_back(L' ');
-    return out;
-}
-
-std::wstring BuildSupplierEmailBody(const SupplierGroup& sg) {
-    std::wstring body = GreetingForNow() + L",\r\n\r\n";
-    body += L"Please see prices below\r\n";
-    body += PadRight(L"KG", 7) + PadRight(L"Species", 18) + L"Price\r\n";
-    for (auto& pg : sg.products) {
-        for (auto& pl : pg.prices) {
-            body += PadRight(FormatKg(pl.kgs), 7) + PadRight(pg.species, 18) + FormatMoney(pl.price) + L"\r\n";
-        }
-    }
-    body += L"\r\nKind regards,";
-
-    // mailto: bodies are practically capped well under the URL length some
-    // mail clients/OS versions tolerate - if a supplier has an unusually
-    // long list of line items, fall back to a shorter summary instead of
-    // risking a mailto that silently fails to open or gets truncated.
-    if (body.size() > 1500) {
-        body = GreetingForNow() + L",\r\n\r\nPlease see prices below - " +
-               std::to_wstring(sg.products.size()) + L" species, total weight " +
-               FormatKg(sg.totalKgs) + L" kg.\r\n\r\n(Full line-by-line pricing is in the app - "
-               L"this summary was shortened because the full list was too long for email.)\r\n\r\n"
-               L"Kind regards,";
-    }
-    return body;
-}
+// UrlEncodeForMailto, LooksLikeEmail, PadRight, and BuildSupplierEmailBody
+// now all live in FishBalanceCore.h (unchanged logic; BuildSupplierEmailBody
+// there takes the current hour as an explicit parameter instead of reading
+// the clock internally, so it can be unit-tested with any hour value - the
+// call site in EmailSupplier below passes the real current hour in).
 
 bool EmailSupplier(const std::wstring& email, const SupplierGroup& sg) {
+    SYSTEMTIME st;
+    GetLocalTime(&st);
     std::wstring subject = L"Delivery Summary - " + TodayDateString();
     if (email.empty()) subject += L" - " + sg.supplier; // no To address to identify the draft by, so name it in the subject
-    std::wstring body = BuildSupplierEmailBody(sg);
+    std::wstring body = BuildSupplierEmailBody(sg, st.wHour);
     std::wstring mailto = L"mailto:" + email + L"?subject=" + UrlEncodeForMailto(subject) +
                            L"&body=" + UrlEncodeForMailto(body);
 
@@ -2331,7 +2359,7 @@ bool EmailSupplier(const std::wstring& email, const SupplierGroup& sg) {
 }
 
 void DoEmailSuppliers() {
-    auto data = BuildBreakdownData();
+    auto data = BuildBreakdownData(g_entries);
     if (data.empty()) {
         MessageBoxW(g_hMainWnd, L"There are no entries to email yet.", L"Email Suppliers", MB_OK | MB_ICONINFORMATION);
         return;
@@ -2398,9 +2426,13 @@ void DoEmailSuppliers() {
 void LayoutAll(HWND hwnd) {
     RECT rc;
     GetClientRect(hwnd, &rc);
-    MoveWindow(hTab, 0, 0, rc.right, rc.bottom, TRUE);
+
+    int statusBarHeight = S(24);
+    MoveWindow(hTab, 0, 0, rc.right, rc.bottom - statusBarHeight, TRUE);
+    MoveWindow(hStatusBar, 0, rc.bottom - statusBarHeight, rc.right, statusBarHeight, TRUE);
 
     RECT disp = rc;
+    disp.bottom -= statusBarHeight;
     TabCtrl_AdjustRect(hTab, FALSE, &disp);
 
     int left = disp.left + S(10);
@@ -2424,6 +2456,7 @@ void LayoutAll(HWND hwnd) {
     MoveWindow(hLblNotes, left + S(200), row1b + S(3), S(45), S(22), TRUE);
     MoveWindow(hEditNotes, left + S(248), row1b, S(340), S(22), TRUE);
     MoveWindow(hBtnDuplicate, left + S(600), row1b - S(2), S(190), S(28), TRUE);
+    MoveWindow(hBtnDuplicateSupSpec, left + S(800), row1b - S(2), S(220), S(28), TRUE);
 
     int row2 = row1b + S(36);
     MoveWindow(hBtnDelete, left, row2, S(180), S(28), TRUE);
@@ -2476,6 +2509,31 @@ void ShowTab(int idx) {
     for (HWND h : g_tab4Ctrls) ShowWindow(h, s4);
 }
 
+// Known Win32/visual-styles quirk: a themed ComboBox can fail to paint its
+// border/dropdown-arrow chrome the very first time it appears on screen,
+// rendering correctly only after some later event (a mouse hover, a focus
+// change, etc.) happens to trigger a repaint. Every other control here is
+// created and positioned the exact same way and paints fine immediately,
+// so this is specific to these two combo boxes.
+//
+// This is called twice - once synchronously right after the window becomes
+// visible (in wWinMain), and once more from a short delayed timer (see
+// WM_TIMER) - as a belt-and-suspenders approach, since the exact same
+// single synchronous call that fixed this in v0.9.3 was reported to have
+// stopped reliably fixing it by v0.9.10. The likely explanation is a race
+// with something else (possibly the new status bar control added in
+// v0.9.8, or an internal WM_SIZE-triggered relayout) re-invalidating these
+// controls after the first attempt but before the message loop starts
+// pumping normally - the delayed retry catches that case even if the
+// synchronous one doesn't. This is a genuine "can't fully verify without a
+// live debugger" situation; if it's still not reliable after this, the
+// next things to try would be toggling visibility (SW_HIDE/SW_SHOW) or
+// sending WM_THEMECHANGED directly to the two controls.
+void FixComboBoxFirstPaint() {
+    if (hCmbSupplier) RedrawWindow(hCmbSupplier, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME | RDW_UPDATENOW | RDW_ALLCHILDREN);
+    if (hCmbProduct) RedrawWindow(hCmbProduct, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME | RDW_UPDATENOW | RDW_ALLCHILDREN);
+}
+
 // ---------------------------------------------------------------------------
 // Window procedure
 // ---------------------------------------------------------------------------
@@ -2522,6 +2580,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         hBtnEdit = MakeControl(L"BUTTON", L"Edit Selected Row", WS_VISIBLE | WS_TABSTOP, ID_BTN_EDIT, hwnd);
         hBtnCancelEdit = MakeControl(L"BUTTON", L"Clear / Cancel Edit", WS_VISIBLE | WS_TABSTOP, ID_BTN_CANCEL_EDIT, hwnd);
         hBtnDuplicate = MakeControl(L"BUTTON", L"Duplicate Last Entry", WS_VISIBLE | WS_TABSTOP, ID_BTN_DUPLICATE, hwnd);
+        hBtnDuplicateSupSpec = MakeControl(L"BUTTON", L"Duplicate Supplier && Species", WS_VISIBLE | WS_TABSTOP, ID_BTN_DUPLICATE_SUPSPEC, hwnd);
 
         hLblDate = MakeControl(L"STATIC", L"Date:", WS_VISIBLE, 0, hwnd);
         hDtpDate = MakeControl(DATETIMEPICK_CLASS, L"", WS_VISIBLE | WS_TABSTOP | DTS_SHORTDATEFORMAT, ID_DTP_DATE, hwnd);
@@ -2561,8 +2620,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         hLblOvDiff = MakeControl(L"STATIC", L"Difference: $0.00", WS_VISIBLE, 0, hwnd);
         hListOverview = MakeControl(L"SysListView32", L"", WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | WS_BORDER, ID_LIST_OVERVIEW, hwnd);
         ListView_SetExtendedListViewStyle(hListOverview, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
-        AddColumn(hListOverview, 0, L"Supplier", 280);
-        AddColumn(hListOverview, 1, L"Total ($)", 160);
+        AddColumn(hListOverview, 0, L"Supplier", 220);
+        AddColumn(hListOverview, 1, L"Kgs", 90);
+        AddColumn(hListOverview, 2, L"Total ($)", 130);
 
         // Tab 3
         hBtnPrintPreview = MakeControl(L"BUTTON", L"Print Preview...", WS_VISIBLE | WS_TABSTOP, ID_BTN_PRINT_PREVIEW, hwnd);
@@ -2588,12 +2648,32 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         g_tab1Ctrls = { hLblSupplier, hCmbSupplier, hLblProduct, hCmbProduct, hLblKgs, hEditKgs,
                          hLblPrice, hEditPrice, hBtnAdd, hBtnDelete, hBtnEdit, hBtnCancelEdit, hBtnDuplicate,
+                         hBtnDuplicateSupSpec,
                          hLblDate, hDtpDate, hLblNotes, hEditNotes,
                          hLblFilter, hEditFilter, hListEntries, hGrpRecon,
                          hLblDebtor, hEditDebtor, hLblCash, hEditCash, hLblBook, hLblEntered, hLblDiff };
         g_tab2Ctrls = { hLblOvBook, hLblOvGrand, hLblOvDiff, hListOverview };
         g_tab3Ctrls = { hBtnPrintPreview, hBtnPrintBreakdown, hBtnEmailSuppliers, hListBreakdown };
         g_tab4Ctrls = { hListBySpecies };
+
+        // Status bar: always visible regardless of the active tab (not
+        // added to any g_tabNCtrls array, same as hTab itself) - shows the
+        // running app version and the currently loaded file, kept in sync
+        // with the title bar via UpdateTitle(). Deliberately created LAST,
+        // after every other control, not right after the tab strip where
+        // it originally sat in v0.9.8 - a regression investigation traced
+        // the Supplier/Species combo box first-paint bug's reappearance to
+        // this control's creation order (it's a comctl32 class being
+        // instantiated for the first time in the process, immediately
+        // before the combo boxes, right where they used to be among the
+        // very first controls created back in v0.9.3 when the original fix
+        // was confirmed working). Creating it last restores that original
+        // relative order.
+        hStatusBar = MakeControl(STATUSCLASSNAMEW, L"", WS_VISIBLE | SBARS_SIZEGRIP, 0, hwnd);
+        {
+            int parts[2] = { S(150), -1 }; // part 0: version, fixed width; part 1: filename, extends to the right edge
+            SendMessageW(hStatusBar, SB_SETPARTS, 2, (LPARAM)parts);
+        }
 
         LayoutAll(hwnd);
         ShowTab(0);
@@ -2605,14 +2685,49 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         LoadSupplierEmails();
         if (g_hEditMenu) EnableMenuItem(g_hEditMenu, ID_EDIT_UNDO_DELETE, MF_BYCOMMAND | MF_GRAYED);
 
-        // Silently reload whatever was last auto-saved next to the exe.
-        LoadFromFile(GetExeDir() + L"\\autosave.fbd");
+        // Silently reload whatever was last auto-saved next to the exe. If
+        // the file exists but LoadFromFile rejects it (corrupted, or the
+        // last save was interrupted partway through), do NOT let the
+        // RefreshAll() below silently overwrite it with a blank document -
+        // warn the user and skip this session's initial autosave write
+        // instead, so the unreadable file is left exactly as it was for a
+        // chance at manual recovery.
+        bool autosaveLoadFailed = false;
+        {
+            std::wstring autosavePath = GetExeDir() + L"\\autosave.fbd";
+            DWORD attrs = GetFileAttributesW(autosavePath.c_str());
+            bool autosaveExists = (attrs != INVALID_FILE_ATTRIBUTES) && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
+            if (autosaveExists && !LoadFromFile(autosavePath)) {
+                autosaveLoadFailed = true;
+                MessageBoxW(hwnd,
+                    L"The autosave file next to this program (autosave.fbd) could not be read - "
+                    L"it may be corrupted, or the last save was interrupted partway through.\n\n"
+                    L"To avoid losing that data, it has NOT been overwritten. This session is "
+                    L"starting with a blank sheet instead. The unreadable autosave.fbd is still "
+                    L"in this program's folder - make a copy of it before doing anything else if "
+                    L"you need help recovering the data in it.",
+                    L"Autosave Could Not Be Loaded", MB_OK | MB_ICONWARNING);
+            }
+            // A missing autosave.fbd (first run, or it was deliberately
+            // deleted) is normal and not warned about - LoadFromFile simply
+            // isn't called in that case, leaving g_entries at its default
+            // empty state.
+        }
         // Restore the association with the last named file (if any) so
         // Save/title bar refer to it, without overwriting the freshly
-        // reloaded autosave content.
-        if (!g_settings.lastFile.empty()) g_currentFile = g_settings.lastFile;
-        RefreshAll();
+        // reloaded autosave content. Skipped when the autosave failed to
+        // load, so a later Save can't overwrite a real named file with the
+        // blank sheet this session is starting with instead.
+        if (!autosaveLoadFailed && !g_settings.lastFile.empty()) g_currentFile = g_settings.lastFile;
+        RefreshAll(!autosaveLoadFailed);
         UpdateTitle();
+
+        // Delayed second attempt at the combo box first-paint fix (see
+        // FixComboBoxFirstPaint's comment) - fires shortly after the
+        // window is fully set up and the initial message-processing
+        // settles, catching any late re-invalidation that the synchronous
+        // attempt in wWinMain might miss.
+        SetTimer(hwnd, ID_TIMER_FIRST_PAINT_FIX, 50, nullptr);
         return 0;
     }
 
@@ -2688,11 +2803,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 if (LoadFromFile(path)) {
                     g_currentFile = path;
                     CancelEdit();
+                    ClearUndoState();
                     UpdateTitle();
                     RefreshAll();
                     RememberRecentFile(path); // move to front
                 } else {
-                    MessageBoxW(g_hMainWnd, L"Could not open that file (it may have been moved or deleted).", L"Error", MB_OK | MB_ICONERROR);
+                    MessageBoxW(g_hMainWnd,
+                        L"Could not open that file - it may have been moved or deleted, or it "
+                        L"doesn't look like a valid Fish Balance (.fbd) file anymore. Nothing has "
+                        L"been changed.",
+                        L"Error", MB_OK | MB_ICONERROR);
                 }
             }
             return 0;
@@ -2704,6 +2824,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case ID_BTN_EDIT: EditSelectedEntry(); return 0;
         case ID_BTN_CANCEL_EDIT: CancelEdit(); return 0;
         case ID_BTN_DUPLICATE: DuplicateLastEntry(); return 0;
+        case ID_BTN_DUPLICATE_SUPSPEC: DuplicateSupplierSpecies(); return 0;
         case ID_EDIT_FILTER:
             if (code == EN_CHANGE) RefreshEntriesList();
             return 0;
@@ -2715,7 +2836,17 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         case ID_EDIT_DEBTOR:
         case ID_EDIT_CASH:
-            if (code == EN_CHANGE) RecalcTotals();
+            if (code == EN_CHANGE) {
+                RecalcTotals();
+                // Debounced autosave: restart the timer on every keystroke,
+                // so a burst of typing coalesces into one disk write ~800ms
+                // after the user pauses, rather than writing on every
+                // character. Previously these two fields weren't autosaved
+                // at all until some other action (Add/Edit/Delete) happened
+                // to trigger a refresh - a crash after editing only
+                // Debtor/Cash could lose the change indefinitely.
+                SetTimer(hwnd, ID_TIMER_DEBTOR_CASH_AUTOSAVE, 800, nullptr);
+            }
             return 0;
         case ID_FILE_NEW: DoFileNew(); return 0;
         case ID_FILE_OPEN: DoFileOpen(); return 0;
@@ -2736,13 +2867,38 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         break;
     }
 
-    case WM_DESTROY:
+    case WM_TIMER: {
+        if (wParam == ID_TIMER_DEBTOR_CASH_AUTOSAVE) {
+            KillTimer(hwnd, ID_TIMER_DEBTOR_CASH_AUTOSAVE);
+            AutosaveNow();
+        } else if (wParam == ID_TIMER_FIRST_PAINT_FIX) {
+            KillTimer(hwnd, ID_TIMER_FIRST_PAINT_FIX);
+            FixComboBoxFirstPaint();
+        }
+        return 0;
+    }
+
+    case WM_DESTROY: {
+        KillTimer(hwnd, ID_TIMER_DEBTOR_CASH_AUTOSAVE); // any pending debounced save is superseded by the unconditional one below, which reads the current Debtor/Cash text directly regardless
+        KillTimer(hwnd, ID_TIMER_FIRST_PAINT_FIX);
         SaveSettings();
-        SaveToFile(GetExeDir() + L"\\autosave.fbd");
+        bool ok = SaveToFile(GetExeDir() + L"\\autosave.fbd");
+        if (!ok && !g_autosaveFailWarned) {
+            // Last chance to warn before the process actually exits and
+            // whatever's only in memory is gone for good - worth a pause
+            // here even though the app is mid-shutdown.
+            MessageBoxW(hwnd,
+                L"Warning: the automatic backup (autosave.fbd) could not be saved while closing - "
+                L"the disk may be full, or the file is locked by another program.\n\n"
+                L"The app is about to close. If you have changes you're not sure were saved, check "
+                L"File > Save was used recently before closing again next time.",
+                L"Autosave Failed", MB_OK | MB_ICONWARNING);
+        }
         if (g_normalFont) DeleteObject(g_normalFont);
         if (g_boldFont) DeleteObject(g_boldFont);
         PostQuitMessage(0);
         return 0;
+    }
     }
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
@@ -2813,6 +2969,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
 
     ShowWindow(hwnd, g_settings.maximized ? SW_SHOWMAXIMIZED : nCmdShow);
     UpdateWindow(hwnd);
+
+    // First attempt at the combo box first-paint fix - see
+    // FixComboBoxFirstPaint()'s comment for the full explanation and why
+    // there's also a delayed second attempt via a timer.
+    FixComboBoxFirstPaint();
 
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0)) {

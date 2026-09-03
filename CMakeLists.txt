@@ -6,7 +6,7 @@ add_executable(FishBalanceManager WIN32 main.cpp app_icon.rc)
 target_link_libraries(FishBalanceManager PRIVATE comctl32 comdlg32 shell32 winspool)
 
 if (MSVC)
-    target_compile_options(FishBalanceManager PRIVATE /W4)
+    target_compile_options(FishBalanceManager PRIVATE /W4 /EHsc)
     # We ship app.manifest as an external side-by-side manifest instead of an
     # embedded resource (avoids the RC/CVTRES toolchain entirely). An embedded
     # manifest would take priority over the external one, so make sure MSVC
@@ -31,3 +31,26 @@ add_custom_command(TARGET FishBalanceManager POST_BUILD
         ${CMAKE_CURRENT_SOURCE_DIR}/app.ico
         $<TARGET_FILE_DIR:FishBalanceManager>/app.ico
 )
+
+# --- Automated test suite ---
+# Exercises only the platform-independent logic in FishBalanceCore.h
+# (parsing, formatting, aggregation, CSV/email string-building) - a small,
+# separate console executable with no dependency on the Win32 GUI libs the
+# main app needs, and no window is ever created. tests/run_tests.ps1 is the
+# quick everyday way to build+run this; the target below wires the same
+# suite into CTest so `ctest` (or Visual Studio's Test Explorer, if
+# configured) can run it too.
+enable_testing()
+add_executable(FishBalanceTests
+    tests/test_main.cpp
+    tests/test_parsing.cpp
+    tests/test_formatting.cpp
+    tests/test_fbd_loader.cpp
+    tests/test_aggregation.cpp
+    tests/test_csv_export.cpp
+    tests/test_email.cpp
+)
+if (MSVC)
+    target_compile_options(FishBalanceTests PRIVATE /W4 /EHsc)
+endif()
+add_test(NAME FishBalanceCoreTests COMMAND FishBalanceTests)
