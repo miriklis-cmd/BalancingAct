@@ -62,11 +62,30 @@ implications:
 
 ## Git
 
-The project has a real local git repository, included inside each
-delivered zip. Claude commits changes there, but **cannot push to
-GitHub.com directly** — no persistent credentials or network access to a
-remote. You own the actual GitHub repo and the push step. See README.md
-for the exact commands.
+**Corrected 2026-09-05** (an earlier version of this section claimed
+Claude maintains a real git repository and commits to it - verified
+false: this sandbox has no `.git` folder, no SSH keys, no GitHub token,
+no credential helper. Network access to github.com works, but with
+nothing to authenticate with, so even reading a private repo fails, let
+alone pushing).
+
+Claude **cannot commit or push to GitHub in this environment** — no
+persistent credentials, and this sandbox resets between sessions even if
+it could. You own the actual GitHub repo (`miriklis-cmd/BalancingAct`)
+and the push step, using your own already-authenticated local git setup.
+
+**Standing requirement, not optional, not just for large changes**:
+**after every version bump**, Claude generates a commit message and a
+small `push_update.ps1` PowerShell script (stage everything, commit with
+message, push) for you to run locally, in the same response as the
+version's zip. This replaced an earlier, weaker pattern (a script was
+generated once early in the project, then not regenerated again for many
+subsequent versions, leaving a large gap in real git history that had to
+be caught up in one large "catch-up" commit) - the whole point of doing
+this every time is a real, granular commit history, not another gap.
+
+If a response ships a version bump without this, that's a process
+mistake — say so, the same as any other missed step.
 
 ## Testing responsibility
 
