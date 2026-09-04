@@ -12,6 +12,145 @@ possible, grouped into logical releases.
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.9.16] - Debtor/Cash: subtraction now actually works
+- **Fixed a real bug found during v0.9.15 manual testing**: typing
+  `123+11-21` into Debtor or Cash silently computed `134`, not `113`.
+  `ParseSumExpr` only ever recognized `+` as an operator between terms -
+  a `-` character just got absorbed into whatever term it appeared in,
+  so `"11-21"` was treated as one single term, and `std::stod` on that
+  string silently parses just the `"11"` prefix, dropping the `"-21"`
+  entirely. Not a documented/accepted gap like the parser's other known
+  permissive behaviors (an invalid term like `"oops"` being dropped,
+  `"12x"` contributing just `12`) - this one was a genuine bug that
+  produced a wrong number with no indication anything was off.
+  - Fixed properly: both `+` and `-` are now recognized as operators
+    between terms, with a running sign applied to whichever term
+    follows - `123+11-21` now correctly computes `113`. A leading minus
+    also works (`-50+100` = `50`).
+  - 5 new test cases added to `test_parsing.cpp`, including the exact
+    real-world scenario that surfaced this (`123+11-21` → `113`) as a
+    named regression test, plus confirming plain addition-only
+    expressions are unaffected. Full suite: 83 test cases / 244
+    assertions, all passing, clean under
+    AddressSanitizer/UndefinedBehaviorSanitizer.
+  - The parser's other already-documented permissive behaviors
+    (dropping an unparseable term entirely, accepting `"12x"` as `12`)
+    are deliberately unchanged - only operator support was added here,
+    not term-level validation. Those remain tracked separately in
+    SecurityHardeningRegister.md/ROADMAP.md.
+
+## [0.9.15] - Autosave performance: write on focus loss, not every keystroke
+- **Fixed the real performance cost of v0.9.13/v0.9.14's per-keystroke
+  autosave** - item 1 on the roadmap, now confirmed urgent at the real
+  target volume (500-1000 entries/day). Every keystroke in
+  Supplier/Species/Kgs/Price/Notes/Date/Debtor/Cash was triggering a
+  full, synchronous atomic rewrite of the entire day's file. Analysis:
+  at real volume, the dominant cost is disk I/O frequency (specifically
+  the flush-to-stable-storage step in `WriteFileAtomicUtf8`), not how
+  cheaply the content string gets assembled beforehand - a day's worth
+  of text (tens to ~100KB at 1000 entries) is trivial to build in
+  memory, but the same fixed per-write disk overhead paid once per
+  character adds up fast.
+  - Fixed by switching all six fields from `EN_CHANGE`/`CBN_EDITCHANGE`
+    (fires per keystroke) to `EN_KILLFOCUS`/`CBN_KILLFOCUS` (fires once,
+    when the field loses focus - moving to the next field, clicking a
+    button, switching tabs, etc.). A natural, deterministic checkpoint
+    that needs no timer at all - deliberately avoiding the exact
+    unreliability that sank the v0.9.11-v0.9.13 debounced-timer attempt
+    for Debtor/Cash, since a direct notification has no "did it actually
+    fire" question the way a `SetTimer`/`WM_TIMER` did.
+  - `RecalcTotals()` (Debtor/Cash's live on-screen total) and
+    `ComboAutoComplete()` (Supplier/Species's live suggestions) are
+    unaffected - both stay on their original per-keystroke triggers,
+    since neither does any disk I/O.
+  - **Trade-off, stated plainly**: a crash while a field still has focus
+    can now lose that field's most recent keystrokes since the last
+    focus change - a small, bounded loss (at most one field's recent
+    typing), not the whole draft or day. The existing unconditional
+    final save in `WM_DESTROY` still covers a graceful close regardless
+    of focus state, unchanged.
+  - Full history of this fix (three iterations - no autosave, then an
+    unreliable timer, then unthrottled per-keystroke, now this) is
+    documented directly in the code comment at the fix site, not just
+    here, so the reasoning survives without needing to dig through
+    conversation history.
+
+## [0.9.14] - In-progress "Add Entry" draft survives a crash or power loss
+- **Added: the Add Entry form (Supplier/Species/Kgs/Price/Notes/Date) now
+  persists as you type**, not just after clicking Add Entry — so a crash
+  or power loss no longer loses a row you were in the middle of typing.
+  Requested explicitly (Jack: "in case of crash or power loss, yes").
+  - New `.fbd` format fields: `DRAFT_SUPPLIER=`, `DRAFT_SPECIES=`,
+    `DRAFT_KGS=`, `DRAFT_PRICE=`, `DRAFT_NOTES=`, `DRAFT_DATE=` — written
+    on every save (autosave included) alongside the existing `DEBTOR=`/
+    `CASH=` fields, documented in `DATA_FORMATS.md`. Fully backward
+    compatible: a file with none of these lines (anything saved before
+    this version) just loads with an empty draft.
+  - Every field that previously had no change-tracking at all now does:
+    added `EN_CHANGE` handling for Kgs/Price/Notes, added
+    `DTN_DATETIMECHANGE` handling for the date picker (neither existed
+    before), and extended the existing Supplier/Species autocomplete
+    handlers to also persist the draft.
+  - On load, the draft restores into the form in "add new" mode - not an
+    attempt to resume editing a specific existing row, which would be a
+    much more fragile thing to restore correctly (the underlying entries
+    are already safe in the file regardless of the form's draft state).
+  - "Clear / Cancel Edit" now explicitly persists the cleared state
+    immediately, rather than relying on the `SetWindowTextW` calls that
+    reset the fields to reliably fire their own change notifications
+    (they're programmatic, not genuine keystrokes - a known Win32
+    inconsistency already documented elsewhere in this codebase) -
+    without this, clicking Clear could leave a stale, un-cleared draft on
+    disk that would incorrectly reappear on next launch.
+  - Same design tradeoff as the v0.9.13 Debtor/Cash fix: a direct,
+    synchronous save on every keystroke rather than a debounced timer,
+    favoring guaranteed correctness over write-frequency optimization -
+    now applied consistently across every field in the entry form, not
+    just Debtor/Cash.
+  - 5 new test cases added to `test_fbd_loader.cpp` covering the new
+    format fields: correct parsing, invalid-date rejection (same
+    validation `ParseISODate` already applies everywhere else), backward
+    compatibility with pre-v0.9.14 files, and that draft-only content
+    (no `BEGIN`/`END`/`DEBTOR`/`CASH`) is still recognized as a genuine
+    `.fbd` document rather than rejected as unrelated text. Full suite:
+    80 test cases / 237 assertions, all passing.
+
+## [0.9.13] - Debtor/Cash autosave: removed the debounce timer entirely
+- **Fixed: Debtor/Cash still wasn't reliably autosaving**, confirmed
+  broken even when running the actual built `.exe` directly (ruling out
+  the earlier "Visual Studio's F5 terminates the debuggee rather than
+  closing gracefully" theory from v0.9.11/v0.9.12). Root cause not fully
+  provable without a live debugger, but the `SetTimer`/`WM_TIMER`
+  debounce mechanism itself was the obvious suspect - it's genuinely more
+  complex than every other autosave path in the app, and its correctness
+  depends on `WM_TIMER` messages surviving this app's main message loop
+  (`IsDialogMessageW` processing every message before normal dispatch),
+  which couldn't be independently verified. Rather than keep guessing at
+  an unprovable async mechanism, replaced it with a direct, synchronous
+  call to `AutosaveNow()` on every Debtor/Cash keystroke - the exact same
+  proven-reliable pattern `RefreshAll()` already uses for every
+  Add/Edit/Delete elsewhere in the app. This trades the "coalesce rapid
+  typing into one write" optimization for guaranteed correctness; the
+  file is small enough that a write per keystroke isn't a real
+  performance concern, and it now matches the app's already-established
+  performance profile rather than introducing a new one. (If the
+  separately-tracked `RefreshAll()` performance item is ever addressed,
+  this call site benefits automatically with no further change needed
+  here.) Removed the now-dead timer plumbing entirely (`ID_TIMER_DEBTOR_CASH_AUTOSAVE`
+  and its `WM_TIMER`/`WM_DESTROY` handling) rather than leaving unused,
+  unreliable code in place.
+- **Confirmed working, not actually a bug**: the "which email should be
+  kept" merge-conflict prompt (v0.9.11) fired correctly on what looked
+  like a single-supplier rename. Investigated using the uploaded
+  `emails.txt`: an orphaned email entry for a bare "Jenkins" (with no
+  current entries anywhere in the data - a leftover from a rename made
+  before the v0.9.9 email-migration fix existed) collided with "Jenkins
+  & Son"'s own saved email when renaming the latter to "Jenkins". Working
+  as designed - see ROADMAP.md for the follow-up decision on whether to
+  build a way to see/clean up these pre-existing orphaned entries through
+  the UI (currently invisible there since Manage Names only lists names
+  with current entries).
+
 ## [0.9.12] - Combo box regression investigated: likely root cause found
 - **Investigated the v0.9.11 combo box first-paint regression properly**
   instead of layering on another blind workaround, per Jack's request.

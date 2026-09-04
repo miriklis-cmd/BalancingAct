@@ -90,6 +90,27 @@ TEST_SUITE("ParseSumExpr") {
         // ParseDoubleW, "12x" contributes 12 with the "x" silently ignored.
         CHECK(ParseSumExpr(L"12x+3") == 15);
     }
+    TEST_CASE("REGRESSION: subtraction is a real operator, not silently "
+              "swallowed into the following term") {
+        // The actual bug that motivated this: "123+11-21" used to split
+        // into terms "123" and "11-21" (since only '+' was an operator),
+        // and std::stod on "11-21" silently parsed just the "11" prefix,
+        // dropping the "-21" entirely - giving 134 instead of the correct
+        // 113. Real business scenario: Cash="123+11-21" should compute as
+        // 123 + 11 - 21 = 113.
+        CHECK(ParseSumExpr(L"123+11-21") == doctest::Approx(113));
+        CHECK(ParseSumExpr(L"100-50") == 50);
+        CHECK(ParseSumExpr(L"10-3-2") == 5); // multiple subtractions in a row
+        CHECK(ParseSumExpr(L"10+5-3+2") == 14); // mixed +/-
+    }
+    TEST_CASE("a leading minus negates the first term") {
+        CHECK(ParseSumExpr(L"-50+100") == 50);
+    }
+    TEST_CASE("still sums plain addition-only expressions correctly "
+              "(no regression from adding subtraction support)") {
+        CHECK(ParseSumExpr(L"250.7+1826+2552+286") == doctest::Approx(250.7 + 1826 + 2552 + 286));
+        CHECK(ParseSumExpr(L"1+2+3") == 6);
+    }
 }
 
 TEST_SUITE("FormatDateISO / ParseISODate") {

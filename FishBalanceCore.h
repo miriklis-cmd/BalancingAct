@@ -164,30 +164,44 @@ inline bool ParseDoubleW(const std::wstring& sIn, double& out) {
     }
 }
 
-// Parses simple sums like "250.7+1826+2552+286" (mirrors how the original
-// spreadsheet's Debtor/Cash cells were built up from several manual
-// figures).
+// Parses simple sums/differences like "250.7+1826+2552+286" or
+// "123+11-21" (mirrors how the original spreadsheet's Debtor/Cash cells
+// were built up from several manual figures, including corrections/
+// deductions). Both '+' and '-' are recognized as operators between
+// terms - a '-' negates whichever term follows it, so "123+11-21"
+// correctly computes 113, not 134 (an earlier version of this function
+// only recognized '+', so "11-21" was treated as one term and
+// std::stod silently parsed just its "11" prefix, dropping the "-21"
+// entirely - a real bug, not a documented gap, fixed here).
 //
-// NOTE: this silently drops any term that fails to parse (e.g. "oops"), and
-// - because it uses std::stod directly rather than the stricter
-// ParseDoubleW - a term like "12x" contributes 12 with the trailing "x"
-// silently ignored, rather than being rejected outright. This is a known,
-// already documented gap (see SecurityHardeningRegister.md /
-// ROADMAP.md's Tier 3 items), preserved unchanged here rather than fixed
-// as part of this extraction.
+// NOTE: this still silently drops any term that fails to parse at all
+// (e.g. "oops"), and - because it uses std::stod directly rather than
+// the stricter ParseDoubleW - a term like "12x" contributes 12 with the
+// trailing "x" silently ignored, rather than being rejected outright.
+// This is a known, already documented gap (see
+// SecurityHardeningRegister.md / ROADMAP.md's Tier 3 items), preserved
+// unchanged here - only operator support was added, not term validation.
 inline double ParseSumExpr(const std::wstring& s) {
     double sum = 0;
     std::wstring cur;
+    double sign = 1.0; // applies to whichever term is currently being accumulated
     auto flush = [&]() {
         std::wstring t = TrimW(cur);
         if (!t.empty()) {
-            try { sum += std::stod(t); } catch (...) {}
+            try { sum += sign * std::stod(t); } catch (...) {}
         }
         cur.clear();
     };
     for (wchar_t c : s) {
-        if (c == L'+') flush();
-        else cur.push_back(c);
+        if (c == L'+') {
+            flush();
+            sign = 1.0;
+        } else if (c == L'-') {
+            flush();
+            sign = -1.0;
+        } else {
+            cur.push_back(c);
+        }
     }
     flush();
     return sum;
@@ -365,6 +379,12 @@ struct FbdLoadResult {
     std::wstring debtor;
     std::wstring cash;
     int skippedLines = 0;
+    // In-progress "Add Entry" form draft (typed but not yet committed with
+    // the Add Entry button) - persisted so a crash or power loss doesn't
+    // lose it, the same way a graceful close never did. Empty strings mean
+    // no draft was pending. draftDate is only ever set to a genuinely valid
+    // ISO date (or left empty) - see ParseFbdContent.
+    std::wstring draftSupplier, draftSpecies, draftKgs, draftPrice, draftNotes, draftDate;
 };
 
 inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
@@ -385,8 +405,9 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
 
     std::vector<Entry> newEntries;
     std::wstring debtor, cash;
+    std::wstring draftSupplier, draftSpecies, draftKgs, draftPrice, draftNotes, draftDate;
     bool inData = false;
-    bool sawRecognizedMarker = false; // any of DEBTOR=/CASH=/BEGIN/END actually seen
+    bool sawRecognizedMarker = false; // any of DEBTOR=/CASH=/BEGIN/END/DRAFT_* actually seen
     bool sawBegin = false, sawEnd = false;
     int skippedLines = 0;
     for (auto& line : lines) {
@@ -395,6 +416,30 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
             sawRecognizedMarker = true;
         } else if (line.rfind(L"CASH=", 0) == 0) {
             cash = line.substr(5);
+            sawRecognizedMarker = true;
+        } else if (line.rfind(L"DRAFT_SUPPLIER=", 0) == 0) {
+            draftSupplier = line.substr(15);
+            sawRecognizedMarker = true;
+        } else if (line.rfind(L"DRAFT_SPECIES=", 0) == 0) {
+            draftSpecies = line.substr(14);
+            sawRecognizedMarker = true;
+        } else if (line.rfind(L"DRAFT_KGS=", 0) == 0) {
+            draftKgs = line.substr(10);
+            sawRecognizedMarker = true;
+        } else if (line.rfind(L"DRAFT_PRICE=", 0) == 0) {
+            draftPrice = line.substr(12);
+            sawRecognizedMarker = true;
+        } else if (line.rfind(L"DRAFT_NOTES=", 0) == 0) {
+            draftNotes = line.substr(12);
+            sawRecognizedMarker = true;
+        } else if (line.rfind(L"DRAFT_DATE=", 0) == 0) {
+            // Only accepted if it's a genuinely valid ISO date - a
+            // corrupted/malformed value is dropped rather than being
+            // passed through to whatever tries to parse it later (the
+            // DateTimePicker default of "today" is a safe fallback).
+            std::wstring candidate = line.substr(11);
+            SimpleDate d;
+            if (ParseISODate(candidate, d)) draftDate = candidate;
             sawRecognizedMarker = true;
         } else if (line == L"BEGIN") {
             inData = true;
@@ -461,6 +506,12 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
     result.entries = std::move(newEntries);
     result.debtor = debtor;
     result.cash = cash;
+    result.draftSupplier = draftSupplier;
+    result.draftSpecies = draftSpecies;
+    result.draftKgs = draftKgs;
+    result.draftPrice = draftPrice;
+    result.draftNotes = draftNotes;
+    result.draftDate = draftDate;
     result.skippedLines = skippedLines;
     return result;
 }

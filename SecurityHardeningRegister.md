@@ -170,6 +170,26 @@ replaced or restructured wholesale.
   automatic reporting mechanism. Acceptable for a single-user offline
   tool with no server component to report to.
 
+## Deferred to v2 (flagged for investigation, not permanently accepted)
+
+- **Plaintext storage of `.fbd`/`emails.txt`/`settings.txt` — raised
+  2026-09-05, staying as-is for v1, full design finalized for v2.**
+  Anyone who obtains one of these files (stolen/lost device, a copied
+  backup, an intercepted email) can read its full contents in Notepad —
+  no encryption. Jack: "I don't like the idea of someone taking the
+  `.fbd` file or `.txt` file and knowing what we're doing." Confirmed
+  requirement that shaped the design: each computer runs its own copy of
+  the app, with team members reviewing each other's work across
+  machines - ruling out any single-machine-scoped scheme (plain DPAPI)
+  in favor of a shared business-level key, cached locally per machine via
+  DPAPI, with distribution gated by an AD security group. **Full design,
+  including everything ruled out along the way and why (a custom
+  backend/KMS, machine-bound keys synced via a backend, plain
+  obfuscation) is in NETWORK_ARCHITECTURE.md** - not duplicated here to
+  avoid this register drifting out of sync with the authoritative
+  version. Sequenced as part of Bucket C in ROADMAP.md, after the
+  current single-machine app reaches its "done" state.
+
 ## Process note
 
 Every new feature that constructs a file path, reads external input

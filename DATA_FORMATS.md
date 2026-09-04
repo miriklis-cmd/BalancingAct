@@ -29,6 +29,12 @@ Plain UTF-8 text. Example:
 ```
 DEBTOR=16853.15+340
 CASH=250.7+1826+2552+286
+DRAFT_SUPPLIER=Jcasement
+DRAFT_SPECIES=Garfish
+DRAFT_KGS=13.8
+DRAFT_PRICE=17
+DRAFT_NOTES=
+DRAFT_DATE=2026-08-05
 BEGIN
 Jcasement|Garfish|13.8000|17.0000|2026-08-05|
 Jcasement|Rock Flat|5.5000|12.0000|2026-08-05|Extra fresh
@@ -38,6 +44,16 @@ END
 - `DEBTOR=` / `CASH=` — the raw text typed into those fields on the Data
   Entry tab. Stored as-is (including any `+`-separated sum expression),
   re-parsed on load.
+- `DRAFT_SUPPLIER=` / `DRAFT_SPECIES=` / `DRAFT_KGS=` / `DRAFT_PRICE=` /
+  `DRAFT_NOTES=` / `DRAFT_DATE=` — whatever's currently typed into the
+  "Add Entry" form (Supplier/Species/Kgs/Price/Notes/Date), *before*
+  clicking Add Entry. Written on every save (autosave included) so an
+  in-progress row survives a crash or power loss, not just a graceful
+  close — added in v0.9.14. All optional; a file with none of these
+  lines (any file saved before v0.9.14, or a save with a genuinely empty
+  form) loads with an empty draft, restoring nothing into the form.
+  `DRAFT_DATE=` is validated as a real ISO date on load — an invalid
+  value is silently dropped rather than passed through.
 - `BEGIN` / `END` — bracket the entry rows.
 - Each entry row is pipe-delimited: `Supplier|Species|Kgs|Price|Date|Notes`.
   - Kgs/Price are written with 4 decimal places of precision internally

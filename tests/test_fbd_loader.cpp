@@ -207,3 +207,71 @@ TEST_SUITE("ParseFbdContent - line ending handling") {
         REQUIRE(r.entries.size() == 1);
     }
 }
+
+TEST_SUITE("ParseFbdContent - draft entry form persistence") {
+    TEST_CASE("all six draft fields parse correctly") {
+        std::wstring content =
+            L"DEBTOR=100\n"
+            L"CASH=50\n"
+            L"DRAFT_SUPPLIER=Jcasement\n"
+            L"DRAFT_SPECIES=Garfish\n"
+            L"DRAFT_KGS=13.8\n"
+            L"DRAFT_PRICE=17\n"
+            L"DRAFT_NOTES=call before delivery\n"
+            L"DRAFT_DATE=2026-08-05\n"
+            L"BEGIN\n"
+            L"END\n";
+        auto r = ParseFbdContent(content);
+        REQUIRE(r.ok);
+        CHECK(r.draftSupplier == L"Jcasement");
+        CHECK(r.draftSpecies == L"Garfish");
+        CHECK(r.draftKgs == L"13.8");
+        CHECK(r.draftPrice == L"17");
+        CHECK(r.draftNotes == L"call before delivery");
+        CHECK(r.draftDate == L"2026-08-05");
+    }
+
+    TEST_CASE("a file with no draft lines at all (old files, or a file saved "
+              "with an empty form) has empty draft fields - backward "
+              "compatible with files from before this feature existed") {
+        std::wstring content = L"DEBTOR=1\nCASH=2\nBEGIN\nA|B|1.0|2.0\nEND\n";
+        auto r = ParseFbdContent(content);
+        REQUIRE(r.ok);
+        CHECK(r.draftSupplier.empty());
+        CHECK(r.draftSpecies.empty());
+        CHECK(r.draftKgs.empty());
+        CHECK(r.draftPrice.empty());
+        CHECK(r.draftNotes.empty());
+        CHECK(r.draftDate.empty());
+    }
+
+    TEST_CASE("an invalid DRAFT_DATE is dropped rather than passed through, "
+              "same validation ParseISODate already applies everywhere else") {
+        std::wstring content = L"BEGIN\nEND\nDRAFT_DATE=not-a-date\n";
+        auto r = ParseFbdContent(content);
+        REQUIRE(r.ok);
+        CHECK(r.draftDate.empty());
+    }
+
+    TEST_CASE("a valid DRAFT_DATE on its own (no BEGIN/END/DEBTOR/CASH) is "
+              "still enough to recognize the document as a genuine .fbd "
+              "file, not reject it as unrelated text") {
+        std::wstring content = L"DRAFT_SUPPLIER=Test\n";
+        auto r = ParseFbdContent(content);
+        CHECK(r.ok);
+        CHECK(r.draftSupplier == L"Test");
+    }
+
+    TEST_CASE("draft fields don't interfere with normal entry parsing") {
+        std::wstring content =
+            L"DRAFT_SUPPLIER=NotYetAdded\n"
+            L"BEGIN\n"
+            L"RealSupplier|RealSpecies|1.0|2.0\n"
+            L"END\n";
+        auto r = ParseFbdContent(content);
+        REQUIRE(r.ok);
+        REQUIRE(r.entries.size() == 1);
+        CHECK(r.entries[0].supplier == L"RealSupplier");
+        CHECK(r.draftSupplier == L"NotYetAdded");
+    }
+}

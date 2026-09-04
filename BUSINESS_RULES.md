@@ -5,6 +5,35 @@ aren't obvious from the code alone, and some contradict what might seem
 like a "more correct" default — they're recorded here so they don't get
 accidentally reversed in future work.
 
+## Business model — read this before reasoning about `Price`
+
+**This is a seafood agency, not a buy-and-resell wholesaler.** Suppliers
+send fish on **consignment** — the agent doesn't purchase it upfront.
+Instead, the agent's job is to price and sell each supplier's fish on
+the day to achieve the best possible result, then account back to the
+supplier for what was achieved (less the agent's commission/fee).
+
+This matters for how `Price` (and everything derived from it) should be
+understood:
+- **`Price` is the market price *achieved* when selling a supplier's
+  consigned fish that day** — not a purchase cost paid to the supplier,
+  and not a resale markup on top of one. There is only one price in this
+  business model, not two (no "cost" vs. "sell price" distinction to
+  reason about).
+- **`Supplier`** is who consigned the fish (owns it, gets paid based on
+  what it achieves), not a vendor being paid a purchase price.
+- **Debtor/Cash reconciliation** (Book Reconciliation panel) is checking
+  that money collected from *buyers* for everything sold on suppliers'
+  behalf reconciles against the entered sales — not checking payments
+  made *to* suppliers.
+- Any future price-related feature (price history, outlier warnings,
+  cheapest-supplier highlighting) should be framed as **market-rate
+  benchmarking to inform today's pricing decision** ("what have we
+  achieved for this species recently, so I know what to aim for today"),
+  not as cost-tracking or margin/markup calculation — this distinction
+  was gotten wrong twice during the Price History roadmap discussion
+  (2026-09-05) before being corrected here.
+
 ## Units and formatting
 
 - **Weight (Kg) is always displayed to 1 decimal place**, everywhere in

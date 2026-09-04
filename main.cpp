@@ -90,8 +90,6 @@ enum {
     ID_PREVIEW_PREV = 500, ID_PREVIEW_NEXT, ID_PREVIEW_PRINT, ID_PREVIEW_CLOSE,
     // Up to 8 Recent Files slots
     ID_RECENT_BASE = 900,
-    // Timer for the debounced Debtor/Cash autosave (see WM_TIMER)
-    ID_TIMER_DEBTOR_CASH_AUTOSAVE = 950,
     // One-shot delayed retry for the combo box first-paint fix (see WM_TIMER)
     ID_TIMER_FIRST_PAINT_FIX = 951
 };
@@ -570,6 +568,27 @@ bool SaveToFile(const std::wstring& path, std::wstring* outError = nullptr) {
     writeLine(std::wstring(L"DEBTOR=") + buf);
     GetWindowTextW(hEditCash, buf, 512);
     writeLine(std::wstring(L"CASH=") + buf);
+
+    // In-progress "Add Entry" form state, so it survives a crash or power
+    // loss and not just a graceful close - whatever's currently sitting in
+    // these fields (even if nothing/blank) is written on every save, the
+    // same way Debtor/Cash already are.
+    GetWindowTextW(hCmbSupplier, buf, 512);
+    writeLine(std::wstring(L"DRAFT_SUPPLIER=") + buf);
+    GetWindowTextW(hCmbProduct, buf, 512);
+    writeLine(std::wstring(L"DRAFT_SPECIES=") + buf);
+    GetWindowTextW(hEditKgs, buf, 512);
+    writeLine(std::wstring(L"DRAFT_KGS=") + buf);
+    GetWindowTextW(hEditPrice, buf, 512);
+    writeLine(std::wstring(L"DRAFT_PRICE=") + buf);
+    GetWindowTextW(hEditNotes, buf, 512);
+    writeLine(std::wstring(L"DRAFT_NOTES=") + buf);
+    if (hDtpDate) {
+        SYSTEMTIME st{};
+        DateTime_GetSystemtime(hDtpDate, &st);
+        writeLine(L"DRAFT_DATE=" + FormatDateISO(st));
+    }
+
     writeLine(L"BEGIN");
     for (auto& e : g_entries) {
         std::wstring line = e.supplier + L"|" + e.product + L"|" +
@@ -614,6 +633,26 @@ bool LoadFromFile(const std::wstring& path) {
     g_entries = result.entries;
     SetWindowTextW(hEditDebtor, result.debtor.c_str());
     SetWindowTextW(hEditCash, result.cash.c_str());
+
+    // Restore any in-progress "Add Entry" draft that was pending when this
+    // file was last saved (see SaveToFile) - survives a crash or power
+    // loss, not just a graceful close. Always restored into "add new"
+    // mode, not an attempt to resume editing a specific existing row
+    // (which would be a much more fragile thing to restore correctly) -
+    // just whatever text was sitting in the form.
+    SetWindowTextW(hCmbSupplier, result.draftSupplier.c_str());
+    SetWindowTextW(hCmbProduct, result.draftSpecies.c_str());
+    SetWindowTextW(hEditKgs, result.draftKgs.c_str());
+    SetWindowTextW(hEditPrice, result.draftPrice.c_str());
+    SetWindowTextW(hEditNotes, result.draftNotes.c_str());
+    if (hDtpDate && !result.draftDate.empty()) {
+        SYSTEMTIME st;
+        if (ParseISODate(result.draftDate, st)) DateTime_SetSystemtime(hDtpDate, GDT_VALID, &st);
+    }
+    g_editIndex = -1;
+    g_prevSupplierLen = (int)result.draftSupplier.size();
+    g_prevProductLen = (int)result.draftSpecies.size();
+
     if (result.skippedLines > 0 && g_hMainWnd) {
         std::wstring msg = L"Warning: " + std::to_wstring(result.skippedLines) +
             (result.skippedLines == 1 ? L" row could" : L" rows could") +
@@ -1192,6 +1231,13 @@ void CancelEdit() {
         DateTime_SetSystemtime(hDtpDate, GDT_VALID, &today);
     }
     SetFocus(hCmbSupplier);
+    // Explicit, not relying on the SetWindowTextW calls above to reliably
+    // fire EN_CHANGE/CBN_EDITCHANGE (they're programmatic, not genuine
+    // keystrokes - a known Win32 inconsistency) - without this, clicking
+    // Clear could leave a stale, un-cleared draft on disk that would
+    // incorrectly reappear on next launch despite being explicitly
+    // discarded here.
+    AutosaveNow();
 }
 
 // Loads an existing entry's values into the form so it can be corrected,
@@ -2766,6 +2812,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             ShowTab(TabCtrl_GetCurSel(hTab));
             return 0;
         }
+        if (hdr->hwndFrom == hDtpDate && hdr->code == (UINT)DTN_DATETIMECHANGE) {
+            AutosaveNow(); // persist the in-progress draft - see SaveToFile's DRAFT_* fields
+            return 0;
+        }
         if (hdr->hwndFrom == hListEntries && hdr->code == (UINT)NM_DBLCLK) {
             LPNMITEMACTIVATE nia = (LPNMITEMACTIVATE)lParam;
             if (nia->iItem >= 0 && nia->iItem < (int)g_filteredIndices.size())
@@ -2828,24 +2878,60 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case ID_EDIT_FILTER:
             if (code == EN_CHANGE) RefreshEntriesList();
             return 0;
+        // Supplier/Species/Kgs/Price/Notes below all autosave the
+        // in-progress draft on losing focus, not on every keystroke - see
+        // the Debtor/Cash EN_KILLFOCUS case below for the full reasoning
+        // (disk I/O frequency, not string-building cost, is the real
+        // driver of the write cost this avoids).
         case ID_CMB_SUPPLIER:
             if (code == CBN_EDITCHANGE) ComboAutoComplete(hCmbSupplier, g_prevSupplierLen);
+            if (code == CBN_KILLFOCUS) AutosaveNow(); // persist the in-progress draft - see SaveToFile's DRAFT_* fields
             return 0;
         case ID_CMB_PRODUCT:
             if (code == CBN_EDITCHANGE) ComboAutoComplete(hCmbProduct, g_prevProductLen);
+            if (code == CBN_KILLFOCUS) AutosaveNow();
+            return 0;
+        case ID_EDIT_KGS:
+        case ID_EDIT_PRICE:
+        case ID_EDIT_NOTES:
+            if (code == EN_KILLFOCUS) AutosaveNow(); // persist the in-progress draft - see SaveToFile's DRAFT_* fields
             return 0;
         case ID_EDIT_DEBTOR:
         case ID_EDIT_CASH:
             if (code == EN_CHANGE) {
                 RecalcTotals();
-                // Debounced autosave: restart the timer on every keystroke,
-                // so a burst of typing coalesces into one disk write ~800ms
-                // after the user pauses, rather than writing on every
-                // character. Previously these two fields weren't autosaved
-                // at all until some other action (Add/Edit/Delete) happened
-                // to trigger a refresh - a crash after editing only
-                // Debtor/Cash could lose the change indefinitely.
-                SetTimer(hwnd, ID_TIMER_DEBTOR_CASH_AUTOSAVE, 800, nullptr);
+            }
+            if (code == EN_KILLFOCUS) {
+                // Autosave on losing focus (finished typing this field,
+                // moved to the next), not on every keystroke.
+                //
+                // History, since this has changed twice: originally these
+                // two fields weren't autosaved at all until some other
+                // action triggered a refresh (a crash after editing only
+                // Debtor/Cash could lose the change indefinitely). Fixed
+                // first with a debounced SetTimer/WM_TIMER - that couldn't
+                // be confirmed reliably firing (reported broken even with
+                // a real built .exe, not a debugger-restart artifact), so
+                // it was replaced with a plain synchronous save on every
+                // keystroke instead. That worked correctly, but became a
+                // real performance problem once Debtor/Cash and the
+                // v0.9.14 draft fields were ALL wired the same way - every
+                // keystroke anywhere in the form triggered a full atomic
+                // rewrite of the entire day's file, dominated by disk I/O
+                // (specifically the flush-to-stable-storage step), not by
+                // how cheaply the content was assembled. Reducing WRITE
+                // FREQUENCY is the fix with real leverage here, and
+                // "on focus loss" is a natural, deterministic checkpoint
+                // that needs no timer at all - unlike the debounce
+                // attempt, there's no "did it fire" reliability question,
+                // since EN_KILLFOCUS is a direct, synchronous
+                // notification. Trade-off, stated plainly: a crash while a
+                // field still has focus can now lose that field's most
+                // recent keystrokes since the last focus change - a small,
+                // bounded loss, not the whole draft or day, and a
+                // reasonable price for a meaningful reduction in disk
+                // writes at real business volume (500-1000 entries/day).
+                AutosaveNow();
             }
             return 0;
         case ID_FILE_NEW: DoFileNew(); return 0;
@@ -2868,10 +2954,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_TIMER: {
-        if (wParam == ID_TIMER_DEBTOR_CASH_AUTOSAVE) {
-            KillTimer(hwnd, ID_TIMER_DEBTOR_CASH_AUTOSAVE);
-            AutosaveNow();
-        } else if (wParam == ID_TIMER_FIRST_PAINT_FIX) {
+        if (wParam == ID_TIMER_FIRST_PAINT_FIX) {
             KillTimer(hwnd, ID_TIMER_FIRST_PAINT_FIX);
             FixComboBoxFirstPaint();
         }
@@ -2879,7 +2962,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_DESTROY: {
-        KillTimer(hwnd, ID_TIMER_DEBTOR_CASH_AUTOSAVE); // any pending debounced save is superseded by the unconditional one below, which reads the current Debtor/Cash text directly regardless
         KillTimer(hwnd, ID_TIMER_FIRST_PAINT_FIX);
         SaveSettings();
         bool ok = SaveToFile(GetExeDir() + L"\\autosave.fbd");

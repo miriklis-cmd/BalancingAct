@@ -28,6 +28,37 @@ There are three top-level windows, each with its own `WndProc`:
    Names.
 
 Both popups follow the same lifecycle: `EnableWindow(mainWnd, FALSE)` on
+creation (so the popup behaves modally without actually being a true
+Win32 modal dialog), `EnableWindow(mainWnd, TRUE)` on the popup's
+`WM_DESTROY`.
+
+## When a new feature should be a tab vs. a menu item (2026-09-05)
+
+This came up concretely during the Price History feature discussion and
+is worth recording as a general principle, not just a one-off decision.
+
+**Every tab in this app answers the same underlying question**: "is
+today's sale balanced correctly?" (See BUSINESS_RULES.md's "Business
+model" section — the app's primary purpose is balancing today's sale:
+making sure no product was lost, no price was recorded wrong, no fish
+was attributed to the wrong supplier.) Data Entry, Total Overview,
+Breakdown, and By Species are all different lenses on that one job, used
+every session.
+
+**A feature belongs in the tab row only if it's part of that same daily
+job.** If a feature answers a *different* question — used occasionally,
+not every session, and not about verifying today's balance — it belongs
+behind a menu item opening a separate popup window instead, the same
+pattern already established by Manage Names and Print Preview (see
+"Windows in the app" above). Concrete test case: a tool for pricing an
+unfamiliar species you haven't handled in a year is genuinely useful, but
+it isn't part of "did today balance correctly" - it's an occasional,
+separate lookup - so it belongs as a menu item + popup window, not a
+fifth tab. A feature about *today's* result specifically (e.g. "did we
+price better today than yesterday/last week/last month") is a closer
+call, since it's still fundamentally about today - decide case by case
+rather than assuming every price-related feature is automatically
+"secondary tooling."
 open, `EnableWindow(mainWnd, TRUE)` in their own `WM_DESTROY`. If you add
 another popup, follow this pattern exactly — don't leave the main window
 disabled if the popup closes via an unusual path.
