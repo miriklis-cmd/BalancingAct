@@ -162,3 +162,21 @@ built in. All correctness checking is done by:
 None of this substitutes for an actual compile — always build and run
 after a batch of changes, and report back anything the compiler flags.
 See README.md for the three supported build paths (CMake, MinGW, MSVC).
+
+### `app.rc` — deleted 2026-09-05, do not re-add
+
+An old, vestigial file (`1 24 "app.manifest"` — raw RC syntax to
+**embed** the manifest as a resource) was found still sitting in the
+repo, unreferenced by any of the three build paths. This directly
+conflicts with the deliberate approach all three actually use: the
+manifest ships as an external side-by-side file specifically because an
+embedded manifest takes priority over an external one (see the
+`/MANIFEST:NO` comment in `CMakeLists.txt`). `app.rc` wasn't doing
+anything active, but its presence was a latent footgun — if it were ever
+added to a build's sources without this context, it would silently
+reintroduce the exact manifest conflict already engineered around,
+likely surfacing as confusing, hard-to-trace lost ListView theming
+rather than an obvious build error. Confirmed unused by checking all
+three build paths directly (`CMakeLists.txt`, `build_mingw.bat`,
+`build_msvc.bat` each reference only `app_icon.rc`) before deleting -
+don't re-add it.

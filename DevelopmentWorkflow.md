@@ -87,6 +87,28 @@ this every time is a real, granular commit history, not another gap.
 If a response ships a version bump without this, that's a process
 mistake — say so, the same as any other missed step.
 
+**Technical requirements for the script itself** (a real failure on
+2026-09-05 established these the hard way: a first attempt passed a
+large commit message directly as a `-m` argument, and a literal `&` in
+the message broke PowerShell's argument-passing to the native `git.exe`
+process, fragmenting the message and causing git to reject the whole
+commit as invalid pathspecs — nothing was actually committed, and the
+script then kept going anyway and hit a second, unrelated failure trying
+to push):
+- **Write the commit message to a temp file and use `git commit -F
+  <file>`**, never `-m` with a large/multi-line string. This sidesteps
+  PowerShell's native-command argument-parsing entirely, regardless of
+  what characters end up in the message.
+- **Check `$LASTEXITCODE` after every git invocation** and stop on
+  failure. `$ErrorActionPreference = "Stop"` does NOT automatically do
+  this for native/external commands the way it does for PowerShell's own
+  cmdlet errors - a failed `git commit` will silently let the script
+  continue to `git push` otherwise.
+- **Verify a remote is actually configured before doing anything else**
+  (`git remote` returns something) - fail with a clear, actionable
+  message if not, rather than let `git push` fail confusingly at the end
+  after the commit already succeeded.
+
 ## Testing responsibility
 
 Claude cannot run the Windows executable. All functional testing —
