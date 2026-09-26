@@ -33,6 +33,12 @@ targeted fix.
       and puts focus in Kgs with the value pre-selected
 - [ ] Entering a `|` in Supplier/Species/Notes is rejected with a clear
       message (not silently corrupted)
+- [ ] Supplier/Species/Kgs/Price labels line up vertically with their
+      boxes (v0.9.42 fix)
+- [ ] Supplier/Species combo boxes paint their border/dropdown-arrow
+      immediately on startup, across several fresh launches - a
+      long-standing intermittent bug (v0.9.42 escalation), worth checking
+      more than once since it doesn't always happen
 - [ ] Outlier price flagging (v0.9.23: silent, no dialog): after 4+
       same-day entries for a species in a normal range, an entry way
       outside that range commits immediately with no popup, showing the
@@ -80,7 +86,7 @@ targeted fix.
       title bar shows "(unsaved)" afterwards (not the backup's own
       filename), and File > Save As is required to keep it
 
-## Finalize Day (v0.9.40-0.9.41, ROADMAP.md item 3)
+## Finalize Day (v0.9.40-0.9.42, ROADMAP.md item 3)
 
 - [ ] Debtor/Cash labels line up vertically and neither wraps/clips
       (v0.9.41 fix)

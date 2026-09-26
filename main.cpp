@@ -3,11 +3,16 @@
 //
 // Tab 1 "Data Entry"     - enter Supplier / Species / Kgs / Price rows, and enter the
 //                           Debtor / Cash figures from the books; the app checks that
-//                           Debtor + Cash equals the sum of entered rows.
+//                           Debtor + Cash equals the sum of entered rows. Also has the
+//                           Finalize Day button (ROADMAP.md item 3), which locks the
+//                           sheet once it balances and writes a permanent snapshot to
+//                           history\<date>.fbd.
 // Tab 2 "Total Overview" - a $ total for every supplier, plus the grand total and the
 //                           same book-balance check.
 // Tab 3 "Breakdown"      - entries grouped by Supplier -> Species -> Price, with a
 //                           weight (Kgs) and $ total for each, and subtotals.
+// Tab 4 "By Species"     - Kgs/$ totals grouped by species across every supplier, plus
+//                           the average, highest, and lowest price seen for each.
 //
 // Data is kept in a simple pipe-delimited UTF-8 text file (*.fbd) and is auto-saved
 // next to the .exe after every change, so nothing is lost between sessions. Use
@@ -125,8 +130,16 @@ enum {
     ID_FIN_DTP = 600, ID_FIN_OK, ID_FIN_CANCEL,
     // Up to 8 Recent Files slots
     ID_RECENT_BASE = 900,
-    // One-shot delayed retry for the combo box first-paint fix (see WM_TIMER)
+    // One-shot delayed retries for the combo box first-paint fix (see
+    // WM_TIMER). v0.9.3/v0.9.11/v0.9.12 already tried a synchronous fix,
+    // reordering WM_CREATE, and one 50ms delayed retry - still not fully
+    // reliable per Jack's own v0.9.41 report ("doesn't always happen, but
+    // see screenshot"), so v0.9.42 adds two further, later retries on the
+    // theory that whatever theme-engine/relayout race causes this doesn't
+    // always resolve within 50ms on every machine.
     ID_TIMER_FIRST_PAINT_FIX = 951,
+    ID_TIMER_FIRST_PAINT_FIX2 = 953,
+    ID_TIMER_FIRST_PAINT_FIX3 = 954,
     // Recurring backup-check tick (v0.9.29 fix) - see WM_TIMER. Independent
     // of AutosaveNow()/focus-loss, so an idle screen with unsaved data
     // still gets backed up on schedule, not just when the user happens to
@@ -2144,7 +2157,8 @@ void DoAbout() {
         L"1. Enter each delivery on the Data Entry tab and fill in the Debtor/Cash "
         L"figures from the books to check they balance.\n"
         L"2. See a $ total per supplier on the Total Overview tab.\n"
-        L"3. See a supplier -> species -> price breakdown with weights on the Breakdown tab.\n\n"
+        L"3. See a supplier -> species -> price breakdown with weights on the Breakdown tab.\n"
+        L"4. See Kgs/$ totals per species, plus average/highest/lowest price, on the By Species tab.\n\n"
         L"Tip: on the Data Entry tab, use Tab to move between fields and press Enter after "
         L"Price (or Notes) to add the row and jump straight back to Supplier - handy for entering "
         L"a batch of deliveries quickly. The Date defaults to today; Notes is optional.\n\n"
@@ -2169,6 +2183,12 @@ void DoAbout() {
         L"Use the Filter box above the entries list to find rows quickly, or click a column header "
         L"to sort by it (click again to reverse). Deleting a row asks for confirmation, and "
         L"Edit > Undo Delete brings back the last one you removed.\n\n"
+        L"An unusually high or low price gets a warning marker and red tint in the list automatically "
+        L"(no popup while entering) - double-click a flagged row to review it, or right-click it to "
+        L"clear the flag without reviewing.\n\n"
+        L"Once a day's Debtor + Cash balances exactly, use 'Finalize Day' (Data Entry tab) to lock it "
+        L"in - this writes a permanent copy to a 'history' folder next to the .exe and disables "
+        L"further edits until you use 'Un-finalize Day' to reopen it.\n\n"
         L"If the same supplier or species ended up spelled two different ways, use "
         L"Tools > Manage Supplier / Species Names... to merge them into one. That same window is "
         L"also where you set each supplier's email address (select the supplier, no Species mode).\n\n"
@@ -3024,17 +3044,16 @@ void OpenPrintPreview(HWND owner) {
 // Tools > Manage Supplier / Species Names... (g_supplierEmails).
 // ---------------------------------------------------------------------------
 
-// GreetingForNow/TodayDateString keep their original no-argument signature
-// here (nothing else in main.cpp needs to change) but delegate to the
-// portable, hour/date-parameterized versions in FishBalanceCore.h for the
-// actual logic, reading the current time via GetLocalTime at this one
-// Win32 boundary.
-std::wstring GreetingForNow() {
-    SYSTEMTIME st;
-    GetLocalTime(&st);
-    return GreetingForHour(st.wHour);
-}
-
+// TodayDateString keeps its original no-argument signature here (nothing
+// else in main.cpp needs to change) but delegates to the portable,
+// date-parameterized version in FishBalanceCore.h for the actual logic,
+// reading the current time via GetLocalTime at this one Win32 boundary.
+// (A no-argument GreetingForNow() used to sit here too, wrapping
+// GreetingForHour() the same way - removed as dead code, v0.9.43: the
+// actual email body is built by BuildSupplierEmailBody() in
+// FishBalanceCore.h, which takes the current hour as an explicit
+// parameter from EmailSupplier() below and calls GreetingForHour()
+// directly, so GreetingForNow() had no remaining caller.)
 std::wstring TodayDateString() {
     SYSTEMTIME st;
     GetLocalTime(&st);
@@ -3149,13 +3168,31 @@ void LayoutAll(HWND hwnd) {
     int right = disp.right - S(10);
 
     // ---- Tab 1 ----
-    MoveWindow(hLblSupplier, left, top + S(3), S(65), S(22), TRUE);
+    // v0.9.42: these 4 labels used to sit at top + S(3) (a fixed pixel
+    // nudge, guessed to visually match a plain EDIT box's own text
+    // baseline) while their paired controls sit at top. That guess didn't
+    // hold for the two COMBOBOX controls (Supplier/Species) - a themed
+    // dropdown's closed-box text doesn't vertically center at quite the
+    // same offset a plain EDIT box does, and the mismatch is DPI/font
+    // dependent, not a fixed number of pixels - Jack: "Supplier, species,
+    // kg, price still misaligned." Fixed properly instead of re-guessing
+    // another offset: each label now shares the exact same top AND height
+    // (S(22), matching the visible closed-box height every one of these
+    // controls actually renders at - NOT hCmbSupplier/hCmbProduct's own
+    // S(200), which is their dropped-down list height, not their closed
+    // size) as its paired control, with SS_CENTERIMAGE (set at creation)
+    // doing the vertical centering from real font metrics - the same
+    // mechanism Windows already uses to center the single line of text
+    // inside the neighboring EDIT/COMBOBOX itself, so the two always agree
+    // regardless of DPI or font, instead of two independent guesses that
+    // can drift apart.
+    MoveWindow(hLblSupplier, left, top, S(65), S(22), TRUE);
     MoveWindow(hCmbSupplier, left + S(70), top, S(150), S(200), TRUE);
-    MoveWindow(hLblProduct, left + S(230), top + S(3), S(55), S(22), TRUE);
+    MoveWindow(hLblProduct, left + S(230), top, S(55), S(22), TRUE);
     MoveWindow(hCmbProduct, left + S(290), top, S(150), S(200), TRUE);
-    MoveWindow(hLblKgs, left + S(450), top + S(3), S(35), S(22), TRUE);
+    MoveWindow(hLblKgs, left + S(450), top, S(35), S(22), TRUE);
     MoveWindow(hEditKgs, left + S(488), top, S(70), S(22), TRUE);
-    MoveWindow(hLblPrice, left + S(568), top + S(3), S(45), S(22), TRUE);
+    MoveWindow(hLblPrice, left + S(568), top, S(45), S(22), TRUE);
     MoveWindow(hEditPrice, left + S(616), top, S(70), S(22), TRUE);
     MoveWindow(hBtnAdd, left + S(700), top - S(2), S(110), S(28), TRUE);
 
@@ -3233,22 +3270,38 @@ void ShowTab(int idx) {
 // created and positioned the exact same way and paints fine immediately,
 // so this is specific to these two combo boxes.
 //
-// This is called twice - once synchronously right after the window becomes
-// visible (in wWinMain), and once more from a short delayed timer (see
-// WM_TIMER) - as a belt-and-suspenders approach, since the exact same
-// single synchronous call that fixed this in v0.9.3 was reported to have
-// stopped reliably fixing it by v0.9.10. The likely explanation is a race
-// with something else (possibly the new status bar control added in
-// v0.9.8, or an internal WM_SIZE-triggered relayout) re-invalidating these
-// controls after the first attempt but before the message loop starts
-// pumping normally - the delayed retry catches that case even if the
-// synchronous one doesn't. This is a genuine "can't fully verify without a
-// live debugger" situation; if it's still not reliable after this, the
-// next things to try would be toggling visibility (SW_HIDE/SW_SHOW) or
-// sending WM_THEMECHANGED directly to the two controls.
+// This is called several times - once synchronously right after the window
+// becomes visible (in wWinMain), then again from three separate delayed
+// one-shot timers at increasing delays (see WM_TIMER) - as a belt-and-
+// suspenders approach, since the exact same single synchronous call that
+// fixed this in v0.9.3 was reported to have stopped reliably fixing it by
+// v0.9.10, and even the v0.9.11/v0.9.12 fixes (one 50ms retry, plus
+// reordering WM_CREATE) were still seen failing intermittently as of
+// v0.9.41 ("doesn't always happen, but see screenshot" - Jack). The likely
+// explanation is a race with something else (possibly the status bar
+// control, or an internal WM_SIZE-triggered relayout) re-invalidating
+// these controls after an attempt but before the theme engine has settled
+// - and apparently that race isn't always won within 50ms on every
+// machine, hence the two further, later retries added in v0.9.42.
+//
+// v0.9.42 also escalated the fix itself, not just the retry count/timing:
+// a plain RedrawWindow (even with RDW_FRAME) only invalidates and repaints
+// pixels - it doesn't force ComCtl32's visual-styles engine to redo its
+// theme-handle setup for the control, which is the actual thing failing
+// to happen in time here. Toggling visibility (SW_HIDE then SW_SHOW) forces
+// a full re-show and reliably kicks that theme initialization into
+// actually running, per this function's own earlier note that this was
+// the next thing to try if plain redraw-on-a-timer wasn't enough. Safe to
+// call here because this only ever runs during startup, while Tab 1 (the
+// only tab these two controls live on) is already the visible tab.
 void FixComboBoxFirstPaint() {
-    if (hCmbSupplier) RedrawWindow(hCmbSupplier, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME | RDW_UPDATENOW | RDW_ALLCHILDREN);
-    if (hCmbProduct) RedrawWindow(hCmbProduct, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME | RDW_UPDATENOW | RDW_ALLCHILDREN);
+    HWND boxes[] = { hCmbSupplier, hCmbProduct };
+    for (HWND h : boxes) {
+        if (!h) continue;
+        ShowWindow(h, SW_HIDE);
+        ShowWindow(h, SW_SHOW);
+        RedrawWindow(h, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME | RDW_UPDATENOW | RDW_ALLCHILDREN);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3284,13 +3337,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         // Tab 1
-        hLblSupplier = MakeControl(L"STATIC", L"Supplier:", WS_VISIBLE, 0, hwnd);
+        // v0.9.42: these 4 labels get SS_CENTERIMAGE (Jack: "Supplier,
+        // species, kg, price still misaligned") - see the LayoutAll
+        // comment by their MoveWindow calls for the full reasoning. Every
+        // other label in the app keeps its original top+S(3) offset
+        // unchanged for now, scoped to exactly the row Jack flagged.
+        hLblSupplier = MakeControl(L"STATIC", L"Supplier:", WS_VISIBLE | SS_CENTERIMAGE, 0, hwnd);
         hCmbSupplier = MakeControl(L"COMBOBOX", L"", WS_VISIBLE | WS_VSCROLL | CBS_DROPDOWN | WS_TABSTOP, ID_CMB_SUPPLIER, hwnd);
-        hLblProduct = MakeControl(L"STATIC", L"Species:", WS_VISIBLE, 0, hwnd);
+        hLblProduct = MakeControl(L"STATIC", L"Species:", WS_VISIBLE | SS_CENTERIMAGE, 0, hwnd);
         hCmbProduct = MakeControl(L"COMBOBOX", L"", WS_VISIBLE | WS_VSCROLL | CBS_DROPDOWN | WS_TABSTOP, ID_CMB_PRODUCT, hwnd);
-        hLblKgs = MakeControl(L"STATIC", L"Kgs:", WS_VISIBLE, 0, hwnd);
+        hLblKgs = MakeControl(L"STATIC", L"Kgs:", WS_VISIBLE | SS_CENTERIMAGE, 0, hwnd);
         hEditKgs = MakeControl(L"EDIT", L"", WS_VISIBLE | WS_BORDER | WS_TABSTOP, ID_EDIT_KGS, hwnd);
-        hLblPrice = MakeControl(L"STATIC", L"Price:", WS_VISIBLE, 0, hwnd);
+        hLblPrice = MakeControl(L"STATIC", L"Price:", WS_VISIBLE | SS_CENTERIMAGE, 0, hwnd);
         hEditPrice = MakeControl(L"EDIT", L"", WS_VISIBLE | WS_BORDER | WS_TABSTOP, ID_EDIT_PRICE, hwnd);
         hBtnAdd = MakeControl(L"BUTTON", L"Add Entry", WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON | BS_DEFPUSHBUTTON, ID_BTN_ADD, hwnd);
         hBtnDelete = MakeControl(L"BUTTON", L"Delete Selected Row", WS_VISIBLE | WS_TABSTOP, ID_BTN_DELETE, hwnd);
@@ -3448,12 +3506,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         RefreshAll(!autosaveLoadFailed);
         UpdateTitle();
 
-        // Delayed second attempt at the combo box first-paint fix (see
-        // FixComboBoxFirstPaint's comment) - fires shortly after the
-        // window is fully set up and the initial message-processing
-        // settles, catching any late re-invalidation that the synchronous
-        // attempt in wWinMain might miss.
+        // Delayed retries at the combo box first-paint fix (see
+        // FixComboBoxFirstPaint's comment) - fire at increasing delays
+        // after the window is fully set up, catching any late
+        // re-invalidation the synchronous attempt in wWinMain might miss.
+        // v0.9.42 added the 250ms/1000ms retries after the original 50ms
+        // one-shot alone was still seen to miss intermittently.
         SetTimer(hwnd, ID_TIMER_FIRST_PAINT_FIX, 50, nullptr);
+        SetTimer(hwnd, ID_TIMER_FIRST_PAINT_FIX2, 250, nullptr);
+        SetTimer(hwnd, ID_TIMER_FIRST_PAINT_FIX3, 1000, nullptr);
 
         // v0.9.29 fix: MaybeBackupOnTimer() used to only ever run inside
         // AutosaveNow(), which itself only fires on focus-loss/explicit
@@ -3716,6 +3777,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         if (wParam == ID_TIMER_FIRST_PAINT_FIX) {
             KillTimer(hwnd, ID_TIMER_FIRST_PAINT_FIX);
             FixComboBoxFirstPaint();
+        } else if (wParam == ID_TIMER_FIRST_PAINT_FIX2) {
+            KillTimer(hwnd, ID_TIMER_FIRST_PAINT_FIX2);
+            FixComboBoxFirstPaint();
+        } else if (wParam == ID_TIMER_FIRST_PAINT_FIX3) {
+            KillTimer(hwnd, ID_TIMER_FIRST_PAINT_FIX3);
+            FixComboBoxFirstPaint();
         } else if (wParam == ID_TIMER_BACKUP_CHECK) {
             MaybeBackupOnTimer();
         }
@@ -3724,6 +3791,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_DESTROY: {
         KillTimer(hwnd, ID_TIMER_FIRST_PAINT_FIX);
+        KillTimer(hwnd, ID_TIMER_FIRST_PAINT_FIX2);
+        KillTimer(hwnd, ID_TIMER_FIRST_PAINT_FIX3);
         KillTimer(hwnd, ID_TIMER_BACKUP_CHECK);
         SaveSettings();
         bool ok = SaveToFile(GetExeDir() + L"\\autosave.fbd");

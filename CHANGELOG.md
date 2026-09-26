@@ -12,6 +12,117 @@ possible, grouped into logical releases.
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.9.43] - Full project audit: drift/staleness cleanup, one real bug found
+
+Jack asked for a full audit of every file while testing v0.9.42, plus a
+proposal for splitting up `main.cpp`. This entry covers the audit fixes;
+see ROADMAP.md's "main.cpp architecture decomposition" section for the
+split proposal (not executed - still correctly sequenced after Bucket A/C,
+this was just planning).
+
+**One real bug found: `history\` was never added to `.gitignore`.**
+`backups\` has been gitignored since it was introduced, but the newer
+`history\` folder (Finalize Day, v0.9.40) was missed. Since the exe builds
+directly into this repo folder, `git add -A` in `push_update.ps1` would
+have committed finalized day-files - real supplier/pricing data - straight
+into version control. **If v0.9.40, v0.9.41, or v0.9.42 was already
+pushed with a finalized day on record, check the repo for a
+`history\*.fbd` file that shouldn't be there and remove it from git
+history if so** (this is exactly the kind of thing the v0.9.39 dark-mode
+history rewrite dealt with - ask if a hand and it can be walked through
+again). Fixed going forward by adding `history/` to `.gitignore`.
+
+**Stale documentation/comments found and fixed** (none affect behavior,
+all are drift between what the code does and what it says about itself):
+- `main.cpp`'s own top-of-file header comment described only 3 tabs
+  ("Data Entry", "Total Overview", "Breakdown") - the app has had a 4th
+  ("By Species") since long before this file's header was last touched.
+  Added.
+- `DoAbout()`'s Help > About dialog text had the exact same gap (missing
+  tab 4) - this one ships to Jack, not just other developers reading the
+  source - and also never mentioned Finalize Day or the outlier
+  price-flag review workflow, both real, shipped features. Added all
+  three.
+- `ARCHITECTURE.md` said "there are three top-level windows" - missed
+  `FinalizeWndProc` (added v0.9.40), the 4th. Also had a garbled,
+  duplicated half-paragraph fragment ("open, `EnableWindow(mainWnd,
+  TRUE)`...") left over from an earlier edit, sitting with no context
+  after an unrelated section - removed and replaced with a genuinely
+  useful note on why Finalize Day is a tab-1 button, not a menu item.
+- `README.md` never mentioned Finalize Day or outlier price-flagging at
+  all (both real, shipped features), never mentioned the `backups\`/
+  `history\` folders the app actually creates, and had its own
+  hand-copied `.fbd` format example that had gone stale - missing the
+  `Flagged` field (added v0.9.19) and the `FINALIZED=` field (added
+  v0.9.40). Replaced the duplicated example with a pointer to
+  DATA_FORMATS.md (the actual authoritative copy) specifically so this
+  can't drift out of sync silently again.
+- `Testing.md`'s "Finalize Day" section header still said "v0.9.40-0.9.41"
+  after v0.9.42 added more fixes to the same feature. Updated.
+
+**Dead code removed**: `GreetingForNow()` in `main.cpp` had no remaining
+caller - `BuildSupplierEmailBody()` (FishBalanceCore.h) takes the current
+hour as an explicit parameter from `EmailSupplier()` and calls
+`GreetingForHour()` directly, so this no-argument wrapper was never
+actually invoked anywhere. Removed; `TodayDateString()` right below it
+(which IS still used) kept as-is.
+
+**Found, not fixed - flagged for a future pass, needs a compiler to touch
+safely**: two places where real (not just cosmetic) logic is duplicated
+rather than shared, found during the audit:
+- Book-balance arithmetic (`entered`/`debtor`/`cash`/`book`/`diff`) is
+  computed independently in `RecalcTotals()` and again in
+  `RenderReportPages()` (for the printed report), with `DoFinalizeDay()`'s
+  balance gate depending on `RecalcTotals()`'s result staying in sync via
+  the `g_diffOk` global. Candidate: factor into one testable
+  `ComputeBookBalance()` in FishBalanceCore.h.
+- `ExportToCsv()` hand-rolls its own per-supplier and per-species
+  aggregation instead of calling the already-existing, already-tested
+  `ComputeGroupedTotals()`/`ComputeSpeciesStats()` in FishBalanceCore.h -
+  meaning the CSV export and the on-screen Overview/By Species tabs could
+  silently diverge if that logic ever changes in one place and not the
+  other.
+Neither touched in this pass - both are real functional code paths in a
+financial-balancing app, and changing them without a compiler to verify
+against is a different risk category than fixing a comment.
+
+## [0.9.42] - Supplier/Species/Kgs/Price label alignment, combo box first-paint fix escalated
+
+Two more issues from the same live-testing pass as v0.9.41, both
+pre-existing and unrelated to Finalize Day itself:
+
+- **Supplier/Species/Kgs/Price labels vertically misaligned with their
+  boxes.** These 4 labels sat at a fixed `top + S(3)` pixel nudge, guessed
+  years ago to visually match a plain EDIT box's text baseline - a guess
+  that never held for the two COMBOBOX controls (Supplier/Species), since
+  a themed dropdown's closed-box text doesn't center at the same offset an
+  EDIT box's does, and the mismatch is DPI/font-dependent rather than a
+  fixed pixel count. Jack: "labels to textboxes still misaligned.
+  Supplier, species, kg, price still misaligned." Fixed properly instead
+  of re-guessing another offset: each label now shares the exact same top
+  and height as its paired control and uses `SS_CENTERIMAGE` to center its
+  text from real font metrics - the same mechanism Windows already uses to
+  center the text inside the neighboring EDIT/COMBOBOX, so the two always
+  agree regardless of DPI or font instead of two independent guesses that
+  can drift apart. (Important detail: the label height matches the
+  combo's *closed* height, `S(22)`, not `hCmbSupplier`/`hCmbProduct`'s own
+  `S(200)`, which is their dropped-down list height.)
+- **Supplier/Species combo boxes still occasionally not painting their
+  border/dropdown-arrow until hovered.** A known, long-lived Win32 theming
+  race (see the `[0.9.3]`/`[0.9.11]`/`[0.9.12]` entries below) that three
+  earlier rounds of fixes narrowed but never fully closed - Jack: "Doesnt
+  always happen, but see screenshot for example." Escalated on both axes
+  this function's own comment had already flagged as the next things to
+  try: (1) two more delayed retries (250ms, 1000ms) added alongside the
+  existing 50ms one, on the theory that the race doesn't always resolve
+  that quickly on every machine; (2) the fix itself now toggles the
+  controls' visibility (`SW_HIDE` then `SW_SHOW`) before redrawing, which
+  forces ComCtl32's visual-styles engine to actually redo its theme setup
+  for the control rather than just repainting pixels it may already
+  consider clean - closer to root cause than a plain `RedrawWindow` call
+  alone. Still not provably root-caused without a live debugger, same
+  honesty caveat as the `[0.9.12]` entry.
+
 ## [0.9.41] - Two real bugs found in v0.9.40's first live check
 
 - **Cash label was word-wrapping and getting clipped.** `hLblCash`'s box

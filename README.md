@@ -60,6 +60,22 @@ Current version: see `version.h`, or Help > About in the app.
   each species, so you can spot at a glance if a price varied a lot across
   suppliers or deliveries.
 
+**Outlier price warning**: if a price looks unusually high or low compared
+to that species' other same-day entries, the row gets a warning marker and
+a red tint automatically as soon as you commit it — no interrupting popup.
+Double-click a flagged row to review it (confirm it's correct, or fix it
+on the spot), or right-click it to clear the flag without reviewing.
+
+**Finalize Day** (button on the Data Entry tab): once a day's Debtor +
+Cash balances exactly against what's entered, click "Finalize Day" to lock
+it in. You'll be asked which date it represents (your team doesn't always
+balance strictly by calendar day — e.g. Monday and Tuesday together, dated
+for the Tuesday), and confirming writes a permanent copy to a `history`
+folder next to the exe and disables further edits (entry form,
+Add/Edit/Delete/Duplicate, Debtor, Cash) until you click "Un-finalize Day"
+to reopen it. Finalize is blocked outright if the day doesn't balance —
+there's no way to lock in an unbalanced sheet.
+
 **Tools > Manage Supplier / Species Names...** lists every distinct name
 currently in use (Supplier or Species) with a count of entries for each.
 Select one or more (e.g. "Spanner" and "dam spanner"), type the name you
@@ -168,12 +184,17 @@ embedded directly in the .exe, so it doesn't need `app.ico` alongside it —
 that file is only a fallback the app checks if the embedded icon is ever
 missing.
 
-The app also creates a few small files next to the exe as you use it:
-`autosave.fbd` (automatic backup of your current data), `settings.txt`
+The app also creates a few small files/folders next to the exe as you use
+it: `autosave.fbd` (automatic backup of your current data), `settings.txt`
 (window size/position and last file), `recent.txt` (your Recent Files
-list), and `emails.txt` (supplier email addresses). These aren't required
-to run the app and can be deleted to reset that state, but don't delete
-`autosave.fbd` if you want to keep unsaved work.
+list), `emails.txt` (supplier email addresses), a `backups\` folder
+(rolling timestamped snapshots, taken automatically roughly every 3
+minutes and on every Save — see File > Restore from Backup), and a
+`history\` folder (one permanent file per day you've clicked "Finalize
+Day" on, named by date). These aren't required to run the app and can be
+deleted to reset that state, but don't delete `autosave.fbd` if you want
+to keep unsaved work, and `history\` files are your permanent finalized
+records, not disposable like the others.
 
 ## Note on testing
 
@@ -185,20 +206,11 @@ share the error message and it can be fixed directly.
 
 ## Data file format
 
-`.fbd` files are plain UTF-8 text:
-
-```
-DEBTOR=16853.15+340
-CASH=250.7+1826+2552+286
-BEGIN
-Jcasement|Garfish|13.8000|17.0000|2026-08-05|
-Jcasement|Rock Flat|5.5000|12.0000|2026-08-05|Extra fresh
-...
-END
-```
-
-Each entry line is `Supplier|Species|Kgs|Price|Date|Notes`. Files saved
-before Date/Notes existed only have the first four fields — those still
-load fine, with Date and Notes simply left blank.
-
-You can open/edit them by hand if needed, or write scripts against them.
+`.fbd` files are plain UTF-8 text, pipe-delimited, human-readable and
+hand-editable if needed. **See [DATA_FORMATS.md](DATA_FORMATS.md) for the
+full, authoritative format** (every field, backward-compatibility rules
+for older files, and the `settings.txt`/`recent.txt`/`emails.txt`/CSV
+formats too) — not duplicated here to avoid this section drifting out of
+sync with the real format the way an earlier version of it did (it was
+missing the `Flagged` field added in v0.9.19 and the `FINALIZED=` field
+added in v0.9.40 for quite a while before being caught).

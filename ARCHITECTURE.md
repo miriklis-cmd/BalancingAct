@@ -16,7 +16,7 @@ care; there's no compiler safety net catching mistakes before they ship.
 
 ## Windows in the app
 
-There are three top-level windows, each with its own `WndProc`:
+There are four top-level windows, each with its own `WndProc`:
 
 1. **Main window** (`WndProc`) — the tabbed interface (Data Entry, Total
    Overview, Breakdown, By Species). Controls for all four tabs are
@@ -26,11 +26,16 @@ There are three top-level windows, each with its own `WndProc`:
    real Win32 dialog resource), disables the main window while open.
 3. **Print Preview popup** (`PreviewWndProc`) — same pattern as Manage
    Names.
+4. **Finalize Day date-prompt popup** (`FinalizeWndProc`, added v0.9.40,
+   ROADMAP.md item 3) — same pattern again, opened by the "Finalize Day"
+   button on Tab 1 once Debtor+Cash balances.
 
-Both popups follow the same lifecycle: `EnableWindow(mainWnd, FALSE)` on
-creation (so the popup behaves modally without actually being a true
-Win32 modal dialog), `EnableWindow(mainWnd, TRUE)` on the popup's
-`WM_DESTROY`.
+All three popups follow the same lifecycle: `EnableWindow(mainWnd, FALSE)`
+on creation (so the popup behaves modally without actually being a true
+Win32 modal dialog), `EnableWindow(mainWnd, TRUE)` on the popup's own
+`WM_DESTROY`. If you add another popup, follow this pattern exactly —
+don't leave the main window disabled if the popup closes via an unusual
+path.
 
 ## When a new feature should be a tab vs. a menu item (2026-09-05)
 
@@ -58,10 +63,11 @@ fifth tab. A feature about *today's* result specifically (e.g. "did we
 price better today than yesterday/last week/last month") is a closer
 call, since it's still fundamentally about today - decide case by case
 rather than assuming every price-related feature is automatically
-"secondary tooling."
-open, `EnableWindow(mainWnd, TRUE)` in their own `WM_DESTROY`. If you add
-another popup, follow this pattern exactly — don't leave the main window
-disabled if the popup closes via an unusual path.
+"secondary tooling." Finalize Day (ROADMAP.md item 3) is the concrete
+example of this: it's squarely about "did today balance correctly," so it
+lives as a button directly on Tab 1 rather than a menu item, even though
+confirming its date happens in a small popup window (see "Windows in the
+app" above).
 
 ## Known gotchas (already caused real bugs — don't repeat them)
 
