@@ -4,6 +4,20 @@ This file is the single source of truth for "what's built, what's being
 tested, and what's next." Check here first if you've lost track of where
 things stand — that's exactly what this file is for.
 
+## Status: v0.9.39 — Dark Mode removed, back to the v0.9.33 baseline
+
+v0.9.34 through v0.9.38 built and repeatedly patched a Dark Mode feature
+that never matched what Jack actually wanted, and he asked to scrap it
+entirely and revert to before it started - see CHANGELOG.md's `[0.9.39]`
+entry for the full account. This environment had no saved snapshot of
+v0.9.33 to restore from directly, so Jack sent back his own copy of that
+build and it was restored verbatim (only `version.h` bumped forward to
+0.9.39). Everything below this point, up through the v0.9.33 status
+description that follows, describes that same pre-Dark-Mode baseline.
+Item 11 further down has a closing note on where Dark Mode's own history
+now stands; a "v2" of it may return later once Jack has a clearer mockup
+of what he wants.
+
 ## Status: v0.9.33 — awaiting test feedback
 
 v0.9.0 (Date/Notes/Duplicate Last Entry) is confirmed working — see below.
@@ -712,7 +726,16 @@ performance item plus the feature backlog:
     part of **Bucket C** (see "Definition of done" below), not a
     standalone item - sequenced with the multi-machine work since a
     coherent answer needs to cover both together.
-11. **Dark/light theming — scoped 2026-09-06, not yet built.** Raised via
+11. **Dark/light theming — scoped 2026-09-06, built in v0.9.34-v0.9.38,
+    removed entirely in v0.9.39.** Built as a manual-only Light/Dark
+    toggle, then patched five times (native chrome, tab strip, menu bar,
+    status bar) trying to match what Jack wanted - each fix missed
+    something else, and the tab strip fix in particular was documented as
+    working when it never actually was. Jack asked to scrap it and revert
+    to the v0.9.33 baseline rather than keep patching - see CHANGELOG.md's
+    `[0.9.39]` entry. Everything below this point is the original,
+    pre-build scoping writeup, kept as-is for whenever a "v2" is picked up
+    from a clearer mockup of what's actually wanted. Raised via
     an external AI (Gemini) suggestion for modernizing the UI; that
     suggestion was investigated against the real codebase before being
     accepted and turned out not to be usable verbatim - two of its four
