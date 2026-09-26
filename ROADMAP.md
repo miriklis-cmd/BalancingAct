@@ -4,6 +4,30 @@ This file is the single source of truth for "what's built, what's being
 tested, and what's next." Check here first if you've lost track of where
 things stand — that's exactly what this file is for.
 
+## Status: v0.9.41 — two real bugs fixed from v0.9.40's first live check
+
+Jack's first look at v0.9.40 running found two real bugs (not hypothetical
+- see CHANGELOG.md's `[0.9.41]` entry for full detail): the Cash label's
+box was too narrow and silently word-wrapped/clipped ("labels/text boxes
+are misaligned - one is higher than the other"), and choosing "Start a new
+entry sheet now?" after finalizing left the new sheet still locked (the
+button still read "Un-finalize Day," entry controls still disabled) since
+`g_finalizedDate` wasn't actually cleared for it. Both fixed.
+
+## Status: v0.9.40 — Finalize Day built (ROADMAP.md item 3)
+
+Item 3 below ("Day-rollover with dated filenames") is superseded by a more
+concrete design worked out directly with Jack, now built: **Finalize Day**.
+His actual workflow (Monday+Tuesday often balanced together as one
+Tuesday-dated day; Saturday sales often balanced on Monday with Saturday's
+date; occasional "special week" exceptions) ruled out any automatic
+date-mismatch detection, so instead of a launch/midnight prompt, staff
+explicitly finalize a day once it's genuinely balanced - see CHANGELOG.md's
+`[0.9.40]` entry for the full design and this section's rewritten item 3
+below for the roadmap-level description. This is also the finalization
+trigger Bucket C's SQLite ingestion plan (item 2 below) was always waiting
+on a concrete mechanism for.
+
 ## Status: v0.9.39 — Dark Mode removed, back to the v0.9.33 baseline
 
 v0.9.34 through v0.9.38 built and repeatedly patched a Dark Mode feature
@@ -99,6 +123,47 @@ full detail on every fix).
       (2026-09-25).
 - [x] **The floor fix** ($10 baseline / $12 not flagged / $50 still
       flagged) — confirmed working (2026-09-24).
+
+### New in v0.9.41 — needs its own first check
+
+- [ ] **Cash label reads on one line**, not wrapped/clipped, and lines up
+      vertically with the Debtor label beside it.
+- [ ] **Finalize, then "Start a new entry sheet now?" → Yes**: the
+      resulting blank sheet is fully unlocked — entry controls enabled,
+      button reads "Finalize Day" (not "Un-finalize Day"), title bar/status
+      bar show "(unsaved)", not the just-finalized filename.
+- [ ] The just-finalized file itself is untouched by the above — reopening
+      it (File > Open, or Recent Files) still shows it locked with all its
+      entries intact.
+
+### New in v0.9.40 — needs its own first check
+(run `tests/run_tests.ps1` first — `FishBalanceCore.h`/`test_fbd_loader.cpp`
+changed for the new `FINALIZED=` field)
+
+- [ ] **Finalize is blocked while out of balance.** With Debtor+Cash not
+      matching the entered total, click Finalize Day — should warn and do
+      nothing, no date prompt shown.
+- [ ] **Finalize succeeds once balanced.** Fix the difference to zero,
+      click Finalize Day, confirm the date prompt defaults sensibly, and
+      confirm it writes `history\<date>.fbd` next to the exe.
+- [ ] **Locking actually disables entry.** After finalizing, the entry
+      form, Add/Edit/Delete/Duplicate buttons, and Debtor/Cash fields
+      should all be visibly disabled; the button itself relabels to
+      Un-finalize Day and stays clickable.
+- [ ] **Status bar shows the finalized state.** Should read something like
+      "FINALIZED (2026-09-20) - File: ..." while locked.
+- [ ] **"Start a new entry sheet now?" prompt appears after finalizing**,
+      and choosing Yes clears the list/Debtor/Cash for the next day
+      without touching the file that was just finalized or its lock.
+- [ ] **Un-finalize Day asks for confirmation only** (no reason field),
+      and re-enables everything on Yes.
+- [ ] **Re-opening a finalized file** (via File > Open on the
+      `history\<date>.fbd` file, or the working file that was finalized)
+      restores the locked state correctly on load.
+- [ ] **Old ad-hoc-named files still open fine** and are treated as an
+      ordinary (non-finalized) file, since they have no `FINALIZED=` line.
+- [ ] **Overwrite prompt** if finalizing again onto a date that already has
+      a `history\<date>.fbd` file.
 
 ### New in v0.9.33 — needs its own first check
 
@@ -432,18 +497,40 @@ performance item plus the feature backlog:
    sequenced after Bucket A's single-machine "done" state, not
    concurrent with it. Item 1 (autosave performance) is unblocked by
    this and should still happen first regardless.
-3. **Day-rollover with dated filenames** (raised 2026-09-04, not yet
-   built) — on launch (or at midnight if left running), if today's date
-   doesn't match the currently open file's date, prompt to start a new
-   file named by date (e.g. `2026-09-05.fbd`) or keep working in the
-   current one (for legitimate late-night entries that should count as
-   the prior day). **Now a hard prerequisite for item 2's hybrid
-   architecture**, not just item 5's Price History: the SQLite ingestion
-   trigger *is* the day-rollover confirmation moment, and both features
-   need a single, predictable "history folder" where day-files live and
-   can be enumerated/rebuilt from - there's currently no enforced
-   one-file-per-day naming/location convention at all (Jack's actual
-   files are user-chosen names like `21112.fbd`, not date-based).
+3. **DONE — Finalize Day, replacing the earlier "day-rollover" idea.**
+   Built in v0.9.40. The original framing (raised 2026-09-04: on
+   launch/midnight, detect a date mismatch between today and the open
+   file and prompt) was abandoned once Jack described his team's actual
+   workflow directly: Monday and Tuesday are often balanced together as
+   one Tuesday-dated day (Monday isn't an "official" market day but does
+   see sales); Saturday sales are often balanced on Monday, with
+   Saturday's own date; on "special" weeks (Easter, Christmas) Monday can
+   be an official sale balanced separately from Tuesday. Any automatic
+   "today's date doesn't match this file" detection would be wrong more
+   often than right against that pattern, so this doesn't try to detect
+   anything - staff finalize a day explicitly, whenever they've actually
+   finished balancing it, regardless of what today's calendar date is.
+   - A **Finalize Day** button on Tab 1, blocked outright (no override)
+     unless Debtor+Cash exactly balances against the entered total.
+   - Confirming prompts for the date being finalized (defaults to today,
+     or to the current file's own name if it already looks like an ISO
+     date) and writes a permanent snapshot to a new `history\<date>.fbd`
+     file - the single, predictable, enumerable history-folder convention
+     item 2's SQLite ingestion (below) and item 5's Price History both
+     needed, satisfying the same prerequisite the old day-rollover
+     framing was meant to establish. Old ad-hoc-named files (e.g. Jack's
+     actual `21112.fbd`) get force-converted into a dated file on first
+     use, prompting for the date if it can't be inferred.
+   - Once finalized, every control that could change the numbers is
+     disabled ("grey everything out" - chosen over Jack's own first idea
+     of intercepting each add/delete attempt, for much lower
+     implementation risk and because it reuses the same disable-everything
+     pattern already planned for Bucket C's multi-machine read-only mode,
+     item 5 below) until **Un-finalize Day** (a confirmation dialog, no
+     reason needed) reopens it.
+   - After finalizing, the app asks first ("Start a new entry sheet
+     now?") rather than auto-clearing - see CHANGELOG.md's `[0.9.40]`
+     entry for full detail.
 4. **DONE — Timestamped backups.** Built in v0.9.17 (compile-fixed in
    v0.9.18), confirmed working 2026-09-22 (see "Confirmed" above). A
    `backups\` folder next to the .exe holds rolling
@@ -887,12 +974,10 @@ Full design, reasoning, and explicitly-rejected alternatives in
 **NETWORK_ARCHITECTURE.md** — this section is just the build sequence.
 Proposed internal order, with dependencies noted:
 
-1. **Day-rollover with dated filenames** — this is item 3 in "Next up"
-   above, already sequenced into Bucket A since it has standalone value
-   even single-machine (cleaner "did today balance" checking) - flagged
-   here again because Bucket C's day-finalization trigger (for both
-   SQLite ingestion and the single-writer chain's trustworthiness)
-   depends on it existing first.
+1. **DONE — Finalize Day** — this is item 3 in "Next up" above, built in
+   v0.9.40. Flagged here again because Bucket C's SQLite ingestion (item 6
+   below) and the single-writer chain's trustworthiness depend on the
+   `history\<date>.fbd` convention it established.
 2. **Hosting infrastructure** — stand up the chosen option (NAS,
    self-built Linux/Samba box, or cloud-hosted SMB), join it to AD,
    configure share permissions gated by a security group, set up
