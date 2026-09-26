@@ -33,11 +33,29 @@ targeted fix.
       and puts focus in Kgs with the value pre-selected
 - [ ] Entering a `|` in Supplier/Species/Notes is rejected with a clear
       message (not silently corrupted)
+- [ ] Outlier price flagging (v0.9.23: silent, no dialog): after 4+
+      same-day entries for a species in a normal range, an entry way
+      outside that range commits immediately with no popup, showing the
+      warning marker + red tint in the Entries list
+- [ ] Enter a bad price FIRST for a species (before any other entries that
+      day), then 4+ correctly-priced entries after it - the first entry
+      should retroactively get flagged once the group is large enough,
+      not stay silently wrong; deleting/undoing an entry should also
+      re-check its siblings the same way
+- [ ] Enter 5+ identical (or near-identical) prices for a species, then a
+      price within ~20% of that (e.g. five $10s then a $12) - should NOT
+      be flagged; a genuinely wrong price on the same baseline (e.g. $50)
+      should still be flagged
 
 ## Editing & Deleting
 
 - [ ] Double-click a row loads it into the form; Update Entry saves the
       change; Clear/Cancel Edit discards it
+- [ ] Double-clicking a FLAGGED row shows the review dialog first (No
+      clears the flag without opening the form, Yes proceeds to edit);
+      double-clicking a normal row skips straight to the edit form
+- [ ] Right-click a flagged row shows "Clear flag"; right-click a normal
+      row shows no context menu
 - [ ] Delete asks for confirmation showing the correct row's details
 - [ ] Edit > Undo Delete restores the most recently deleted row
 - [ ] Sorting: click each column header, confirm ascending/descending
@@ -55,6 +73,12 @@ targeted fix.
 - [ ] An **old `.fbd` file** (saved before Date/Notes existed) still loads
       correctly, with blank Date/Notes rather than an error
 - [ ] Window size, position, and maximized state are restored on restart
+- [ ] A `backups\` folder appears next to the .exe with timestamped
+      `backup_YYYYMMDD_HHMMSS.fbd` snapshots after normal use (roughly
+      every 3 minutes) and immediately after File > Save / Save As
+- [ ] File > Restore from Backup... loads a chosen backup correctly,
+      title bar shows "(unsaved)" afterwards (not the backup's own
+      filename), and File > Save As is required to keep it
 
 ## Reports
 

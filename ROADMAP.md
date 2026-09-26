@@ -4,16 +4,204 @@ This file is the single source of truth for "what's built, what's being
 tested, and what's next." Check here first if you've lost track of where
 things stand — that's exactly what this file is for.
 
-## Status: v0.9.16 — awaiting test feedback
+## Status: v0.9.33 — awaiting test feedback
 
 v0.9.0 (Date/Notes/Duplicate Last Entry) is confirmed working — see below.
-v0.9.1–v0.9.15 were never separately confirmed as final before being
-superseded (v0.9.9 additionally failed to compile, fixed in v0.9.10).
-v0.9.16 is a superset of everything and is what should actually be
-tested now (see CHANGELOG.md and SecurityHardeningRegister.md for full
-detail on each fix).
+v0.9.1–v0.9.16 were never separately confirmed as final before being
+superseded (v0.9.9, v0.9.17, and v0.9.19 all failed to compile — fixed
+in v0.9.10, v0.9.18, and v0.9.20 respectively). v0.9.18 was confirmed
+working in full. v0.9.20 fixed v0.9.19's build; v0.9.21 fixed that
+version's warning-dialog wording; v0.9.22 closed the "first entry never
+gets re-checked" gap; v0.9.23 fixed the IQR-floor bug and removed the
+interactive Add Entry dialog. v0.9.24 fixed a real data-loss bug found
+via Jack's own testing - File > Open and the Recent Files menu
+had no unsaved-changes check at all, silently discarding in-progress
+edits. v0.9.25 tightened the rolling backup interval from 10 to 3
+minutes, prompted by that same incident. v0.9.26 made that tighter
+interval not wasteful - a snapshot is now skipped entirely if nothing's
+actually changed since the last one. v0.9.27 adds the source file's
+name to each backup's own filename, so switching between files no
+longer leaves you guessing which snapshot is which. v0.9.28 closes the
+last real exposure window from the v0.9.24 incident - File > Open,
+Recent Files, and Restore from Backup now each take an unconditional
+backup snapshot the instant you confirm the discard prompt, not just on
+the next 3-minute tick or the next explicit Save. v0.9.29 fixes a real
+bug Jack found smoke-testing v0.9.28: the "roughly every 3 minutes"
+rolling backup was never actually driven by a real timer - it only ran
+inside the focus-loss autosave path, so a screen left idle after one
+edit (no further tabbing/clicking) never got backed up no matter how
+long you waited. A genuine recurring `WM_TIMER` now drives it instead.
+v0.9.30 makes the discard-confirmation prompt real "unsaved changes"
+tracking instead of "is there any data at all" - Jack: "should be kinda
+dirty flagged? If something changes, dialog comes up. Once saved, then
+no dialog until something changes again." That's now exactly how it
+behaves. v0.9.31 fixes a second, previously-unnoticed bug behind Jack's
+original "every 3 minute save not working" report: `WriteBackupSnapshot`
+discarded the write's success/failure result outright, so a failing
+rolling backup (unwritable `backups\` folder, disk full, antivirus lock)
+was completely silent - no warning, and its own tracking state was
+updated as if it had succeeded anyway, suppressing any near-term retry.
+Found by going back through the code at Jack's explicit request after he
+corrected his original account (it was v0.9.28, with ~5 active Add Entry
+commits, not a fully idle screen) - the v0.9.29 timer fix alone didn't
+fully explain that. Now checked and warned once, same pattern as the
+existing autosave-failure warning. v0.9.32 fixes one more real gap in
+the same feature, found by Jack while running the v0.9.28 checklist
+directly: File > New never got a backup snapshot before discarding,
+unlike Open/Recent Files/Restore from Backup - now fixed the same way.
+v0.9.33 fixes a smaller UX bug Jack found in the same test pass: Restore
+from Backup wasn't opening to the backups folder - a documented Windows
+quirk (GetOpenFileNameW only honors lpstrInitialDir on the very first
+dialog call ever; after that it reuses whichever folder was last
+navigated to in any prior call, here Desktop from an earlier File >
+Open), now worked around by pre-filling the dialog's file buffer with
+the target folder, which does reliably override it (see CHANGELOG.md for
+full detail on every fix).
+
+### New in v0.9.19 through v0.9.23 — outlier feature, mostly confirmed
+(run the doctest suite first if you haven't since v0.9.23 —
+`FishBalanceCore.h` changed then, not again in v0.9.24 or v0.9.25)
+
+- [x] **Outlier flag sets silently, no dialog at Add Entry** — confirmed
+      working (2026-09-24).
+- [x] **Fixing the flagged entry clears its own flag** — confirmed
+      working (2026-09-24).
+- [x] **Right-click "Clear flag" on a flagged row** — confirmed working
+      (2026-09-24).
+- [x] **Double-click a still-flagged row** shows the review dialog
+      correctly — confirmed working (2026-09-24).
+- [x] **Fewer than 4 same-day entries for a species** — confirmed
+      nothing gets flagged (2026-09-24).
+- [x] **Old `.fbd` files (pre-v0.9.19) still load correctly** —
+      confirmed (2026-09-24) - loading an older file worked fine; this
+      test is also what surfaced the v0.9.24 data-loss bug below, which
+      was a separate, pre-existing issue in File > Open, not something
+      wrong with old-file loading itself.
+- [x] **The original bug report** (first-entry retroactive flagging) —
+      confirmed working (2026-09-24).
+- [x] **Deleting an entry re-checks its siblings** — confirmed working
+      (2026-09-25).
+- [x] **Undo Delete does the same** in reverse — confirmed working
+      (2026-09-25).
+- [x] **The floor fix** ($10 baseline / $12 not flagged / $50 still
+      flagged) — confirmed working (2026-09-24).
+
+### New in v0.9.33 — needs its own first check
+
+- [ ] **Restore from Backup opens to the backups folder.** Use File >
+      Open first (navigate anywhere else, e.g. Desktop, then cancel out
+      or open something), then use File > Restore from Backup - the
+      dialog should open directly into `backups\`, not wherever Open was
+      last pointed.
+
+### New in v0.9.32 — needs its own first check
+
+- [x] **File > New now takes a backup snapshot before discarding.** —
+      confirmed working (2026-09-25).
+- [x] **Clicking No still takes no backup and changes nothing** —
+      confirmed working (2026-09-25).
+
+### New in v0.9.31 — needs its own first check
+
+- [x] **Backups actually appear during normal active data entry.** —
+      confirmed working (2026-09-25); the originally-reported "every 3
+      minute save not working" is resolved.
+- [ ] **Simulate a failure and confirm the warning appears.** Hardest to
+      test directly without deliberately breaking something (e.g.
+      temporarily making the `backups\` folder read-only, or renaming it
+      away so `CreateDirectoryW` can't recreate it somewhere it's not
+      allowed to) - if you can force a failure, confirm a "Backup
+      Snapshot Failed" warning dialog appears once, doesn't repeat on
+      every subsequent attempt, and autosave.fbd/your named file both
+      keep working normally regardless. Not critical to test exhaustively
+      - the important part is that backups quietly work in the normal
+      case above.
+- [x] **No change to normal, successful backup behavior** — confirmed
+      working (2026-09-25).
+
+### New in v0.9.29 — needs its own first check
+
+- [x] **Idle backups actually happen now.** — confirmed working
+      (2026-09-25); the case that was broken through v0.9.17-28 (see
+      CHANGELOG.md's `[0.9.29]` entry) is fixed.
+- [x] **No spam on a genuinely idle, unchanged screen.** — confirmed
+      working (2026-09-25).
+- [x] **Normal active data entry still feels the same** — confirmed
+      working (2026-09-25).
+
+### New in v0.9.30 — needs its own first check
+
+- [x] **No prompt right after a Save.** — confirmed working (2026-09-25).
+- [x] **Prompt comes back after the next real edit.** — confirmed working
+      (2026-09-25).
+- [x] **Debtor/Cash edits count as a real change.** — confirmed working
+      (2026-09-25).
+- [x] **A rename/merge via Manage Names counts as a real change too** —
+      confirmed working (2026-09-25).
+- [x] **File > New, and a fresh File > Open/Recent Files/Restore from
+      Backup, all start clean** — confirmed working (2026-09-25).
+- [x] **Restoring a backup, then switching away without saving it, still
+      doesn't prompt** — confirmed as the wanted behavior (2026-09-25);
+      Jack's happy with it as deliberately implemented (see CHANGELOG.md's
+      `[0.9.30]` entry), no tightening needed. (Separately, while testing
+      this, Jack found Restore from Backup's file dialog wasn't opening to
+      the `backups\` folder - a real but unrelated bug, fixed in v0.9.33,
+      see that entry above.)
+
+### New in v0.9.28 — needs its own first check
+
+- [x] **Switching files now takes a backup snapshot first.** — confirmed
+      working (2026-09-25). This is the direct fix for the exposure
+      window the v0.9.24 incident left open - Jack: "Umm I dunno if we
+      should for switching files? Seeming as I lost work when we did,
+      perhaps we should?"
+- [x] **Clicking No on the discard prompt still takes no backup and
+      changes nothing** — confirmed working (2026-09-25).
+- [x] ~~No spurious snapshot on File > New~~ - **superseded by v0.9.32**:
+      this was based on the wrong assumption that New has nothing to
+      preserve. Jack found the gap directly while testing this very item
+      - File > New now DOES take a snapshot before discarding, same as
+      the other three paths. See the v0.9.32 checklist above instead.
+
+### New in v0.9.24/v0.9.25/v0.9.26/v0.9.27 — needs its own first check
+(no `FishBalanceCore.h` change in any of these, no doctest re-run needed)
+
+- [x] **File > Open warns before discarding unsaved data.** — confirmed
+      working (2026-09-25).
+- [x] **Recent Files does the same** — confirmed working (2026-09-25).
+- [x] **File > New and Restore from Backup still prompt correctly** —
+      confirmed working (2026-09-25).
+- [x] **No prompt when there's nothing to lose** — confirmed working
+      (2026-09-25).
+- [x] ~~Backups appear roughly every 3 minutes when actually editing~~ —
+      superseded by the v0.9.29 checklist above, confirmed there.
+- [x] **No new backup file when nothing's changed** — confirmed working
+      (2026-09-25).
+- [x] **Backup filenames now show the source file.** — confirmed working
+      (2026-09-25).
+- [x] **Pruning still works correctly with the new filename format** —
+      eyeballed and confirmed sane (2026-09-25).
 
 ### Confirmed
+- [x] **Rolling timestamped backups.** `backups\` folder appears next to
+      the .exe with `backup_YYYYMMDD_HHMMSS.fbd` files, both from normal
+      use and immediately after File > Save / Save As — confirmed
+      working (2026-09-22).
+- [x] **File > Restore from Backup...** Loads a chosen backup correctly,
+      title bar shows "(unsaved)" afterwards, File > Save As required to
+      keep it — confirmed working (2026-09-22).
+- [x] **Backup pruning** — not practically testable end-to-end in one
+      sitting (would need 50+ snapshots, i.e. many hours), so verified
+      by a careful re-read of `PruneOldBackups` instead
+      (2026-09-22): the `<=`/`>` threshold check, the fixed-width
+      zero-padded timestamp making a plain lexicographic sort also a
+      correct chronological one, and the delete loop targeting exactly
+      the oldest excess entries were all confirmed correct. One benign,
+      non-blocking edge case noted: a manually-added file matching
+      `backup_*.fbd` but not the timestamp format would sort as
+      "newest" (letters sort after digits) and never get pruned - not a
+      concern for how this folder is actually used, since only
+      `WriteBackupSnapshot` ever writes to it.
 - [x] Focus after Add/Update Entry lands on Supplier
 - [x] Status bar shows version + filename correctly
 - [x] Print Preview opens normally, looks correct
@@ -24,32 +212,13 @@ detail on each fix).
       pre-existing orphaned email entry, not a bug — see the `[0.9.13]`
       changelog entry and "Open questions" below)
 - [x] Debtor/Cash autosave — confirmed working (v0.9.13's real fix)
-- [x] Focus-loss autosave trigger (v0.9.15) — implicitly confirmed
-      working; testing this is exactly what surfaced the v0.9.16
-      subtraction bug, which required the save/reload round-trip to
-      have already worked correctly
-
-### New in v0.9.16 — needs its own first check
-
-- [ ] **Debtor/Cash subtraction now works correctly.** Type an
-      expression with a minus in it - e.g. `123+11-21` - into Debtor or
-      Cash and confirm the Book Total reflects the correct result
-      (113 for that example, not 134). This was a real, silent bug
-      found via your own testing, not a hypothetical.
-
-### New in v0.9.15 — needs its own first check
-
-- [ ] **Autosave now fires on losing focus, not every keystroke** - the
-      main visible difference: type into any field (Supplier, Species,
-      Kgs, Price, Notes, Debtor, Cash) and Tab or click to the next field
-      - the draft/Debtor/Cash should still persist correctly across a
-      force-close, same as v0.9.14's test, just triggered differently
-      now. Also worth a general "does normal data entry still feel
-      right" pass, since this touches every field in the main form.
-      Live on-screen totals (Debtor/Cash) and Supplier/Species
-      autocomplete suggestions should still update immediately per
-      keystroke, unchanged - only the *disk write* moved to focus-loss,
-      not the on-screen feedback.
+- [x] Focus-loss autosave trigger (v0.9.15) — confirmed working by Jack
+      (testing this is exactly what surfaced the v0.9.16 subtraction bug
+      below, which required the save/reload round-trip to have already
+      worked correctly)
+- [x] **Debtor/Cash subtraction (v0.9.16).** `123+11-21` correctly
+      computes 113, not 134 — confirmed working by Jack. This was a
+      real, silent bug found via his own testing, not a hypothetical.
 
 ### Still needs testing (carried over, not yet confirmed)
 
@@ -129,23 +298,26 @@ reason on each:
       meant; re-tested properly and it's correct)
 - [x] **Startup with a normal, intact `autosave.fbd` loads it exactly as
       before** — **CONFIRMED** working
-- [ ] **General feel of the app** — one real bug found and fixed this
+- [x] **General feel of the app** — one real bug found and fixed this
       round: the Manage Names hint text was visibly cut off (see
-      CHANGELOG.md's `[0.9.6]` entry). Also flagged, not yet resolved:
-      Supplier/Species fields aren't cleared after Add Entry (they stay
-      populated from the last entry, only Kgs/Price/Notes clear) — this
-      is confirmed to be **pre-existing behavior, unchanged since before
-      any of this work started**, not a regression, and matches the
-      documented Tab/Enter batch-entry workflow in README.md (likely
-      intentional, so several rows for the same supplier can be entered
-      quickly) — awaiting a decision on whether this should change.
+      CHANGELOG.md's `[0.9.6]` entry). The open question about
+      Supplier/Species not clearing after Add Entry is **resolved**:
+      Supplier stays populated (supports fast batch entry for one
+      supplier), Species clears; the "Duplicate Last Entry" and
+      "Duplicate Supplier & Species" buttons cover the rest — confirmed
+      correct by Jack (2026-09-24).
 - [ ] **Clean build check**: rebuilding (CMake, MinGW, or MSVC) produces
-      zero warnings and zero errors — **not yet reconfirmed for the main
-      app specifically.** What's been confirmed clean since the
-      `C4530`/`C4701`/`C4996` fixes is the *separate* `tests/`
-      test-suite build (`run_tests.ps1`), not a fresh "Build All" of the
-      actual `FishBalanceManager` project itself — please rebuild that
-      one too to confirm.
+      zero warnings and zero errors — **still not confirmed for the main
+      app specifically.** The 2026-09-24 build log only shows
+      `FishBalanceTests.exe`'s 8 steps (all `tests\*.cpp.obj` + linking)
+      - `FishBalanceManager.exe`/`main.cpp.obj` don't appear at all,
+      most likely because it was already up to date from an earlier
+      build and Ninja skipped it as nothing-to-do. To actually confirm
+      this, use **Build > Rebuild All** (not "Build All") from Visual
+      Studio's CMake menu, which forces every target to recompile
+      regardless of whether it looks up to date - or just check that
+      the resulting log includes `main.cpp.obj` and
+      `FishBalanceManager.exe`'s link step this time.
 - [x] **Combo box first-paint check** (see CHANGELOG.md's `[0.9.3]`
       entry) — **CONFIRMED** working
 
@@ -258,9 +430,39 @@ performance item plus the feature backlog:
    can be enumerated/rebuilt from - there's currently no enforced
    one-file-per-day naming/location convention at all (Jack's actual
    files are user-chosen names like `21112.fbd`, not date-based).
-4. **Timestamped backups** — right now autosave overwrites a single file;
-   add a rolling history of backups you can recover from if something
-   gets overwritten by mistake.
+4. **DONE — Timestamped backups.** Built in v0.9.17 (compile-fixed in
+   v0.9.18), confirmed working 2026-09-22 (see "Confirmed" above). A
+   `backups\` folder next to the .exe holds rolling
+   `backup_YYYYMMDD_HHMMSS_<sourcefile>.fbd` snapshots (the source-file
+   label added in v0.9.27, below), taken at most once every 3
+   minutes (tightened from 10 in v0.9.25, after a real data-loss
+   incident where no backup yet existed for the lost work) off the
+   autosave path plus once on every explicit File > Save/Save As,
+   capped at the 50 most recent - a deliberate choice made with Jack
+   NOT to raise alongside the interval tightening, so the rolling
+   coverage window is now ~2.5 hours rather than a full business day
+   (more frequent recent coverage, traded against less total history).
+   **v0.9.26**: a timer-triggered snapshot is skipped entirely if the
+   content hasn't actually changed since the last one - the tighter
+   3-minute interval alone would otherwise have written a duplicate
+   file every 3 minutes even while just browsing/sorting with no real
+   edits. **v0.9.27**: each backup's filename now includes which source
+   file was open at the time (e.g. `..._21112.fbd`, or `..._unsaved.fbd`
+   with no named file open) - Jack: working across multiple files in a
+   session left no way to tell which snapshot belonged to which file.
+   The label goes AFTER the timestamp specifically so `PruneOldBackups`'
+   sort-by-name-equals-sort-by-time logic keeps working correctly. File
+   > Restore from Backup... browses and loads one (doesn't
+   auto-adopt it as the current named file - explicit Save As required
+   to keep it). **v0.9.28**: File > Open, Recent Files, and Restore from
+   Backup now each take an unconditional snapshot the moment the discard
+   prompt is confirmed, before the switch overwrites anything in
+   memory - directly closing the exposure window the v0.9.24 incident
+   left open (a rolling-timer or explicit-Save snapshot might not exist
+   yet for in-progress work at the moment of a switch). Jack: "Umm I
+   dunno if we should for switching files? Seeming as I lost work when
+   we did, perhaps we should?" See CHANGELOG.md's `[0.9.17]`/`[0.9.25]`/
+   `[0.9.26]`/`[0.9.27]`/`[0.9.28]` entries for full detail.
 5. **Price history/trend per species over time — fleshed out
    2026-09-04, core questions answered, business model corrected
    2026-09-05.** Originally just "a new tab showing how a species'
@@ -416,34 +618,83 @@ performance item plus the feature backlog:
      item 7's own spec.
 6. **Highlight cheapest supplier per species** — surfaced on the
    Breakdown or By Species tab.
-7. **Warn if a price looks like a typo/outlier — spec'd out 2026-09-04,
-   genuinely simple, no new architecture needed.** Concrete example from
-   Jack: "if 90% of all Blue Grenadier sold today was between $5-$10 and
-   someone types $25, that's probably a typo." Scope, corrected from the
-   original draft: this only needs **today's data**, already sitting in
-   `g_entries` in memory - no file I/O, no cross-day queries, no
-   dependency on the flat-file-vs-SQLite decision or on item 5's Price
-   History feature. Could be built as a standalone quick win independent
-   of everything else on this list.
-   - **Mechanism**: on committing a new entry (`CommitEntryForm`),
-     before accepting the price, gather every other already-added
-     entry's price for the same species today from `g_entries`. If
-     there's a reasonable baseline (some minimum count - e.g. at least
-     2-3 existing entries for that species today, so a single prior
-     entry can't itself define "normal"), compute a plausible range
-     (open question: simple min/max of what's already there, vs. a
-     percentile/stddev-based range less thrown off by an earlier
-     outlier) and check the new price against it.
-   - **Soft warning, not a hard block** - e.g. "This price ($25.00) is
-     unusual for Blue Grenadier today (other entries range $5.00–
-     $10.00). Add anyway?" with a way to proceed regardless, since a
-     genuinely unusual-but-correct price should never be un-enterable.
-   - **Open question**: compare within the same supplier only, or across
-     all suppliers for that species today? Leaning toward all suppliers
-     (a bigger, more stable baseline on a normal day), but worth deciding
-     before building.
-   - No dependency on item 5 or the architecture decision - this can be
-     picked up any time.
+7. **DONE — Outlier price warning.** Built in v0.9.19 (compile-fixed in
+   v0.9.20 — a missing C++17 standard setting in `CMakeLists.txt`,
+   unrelated to the feature logic itself; wording corrected in
+   v0.9.21 — the original message claimed to show "other entries
+   range," but the numbers shown were actually Tukey's fences, which
+   deliberately sit outside that real range; two real fixes in v0.9.23
+   from Jack's own live testing — see below), awaiting test
+   confirmation (see checklist above). Final design, decided across
+   several conversations after investigating (and rejecting most of) an
+   external AI suggestion for the surrounding UI work:
+   - **Range method**: Tukey's fences (IQR-based, `Q1 - 1.5*IQR` to
+     `Q3 + 1.5*IQR`) - chosen over plain min/max after discussing real
+     daily volume (100-500 entries/day, ~250 species on file, ~50 used
+     daily, some species as few as 5 sales/day and some 100) - IQR
+     degrades sensibly at both ends of that range where min/max
+     wouldn't. Minimum baseline: 4 other same-day entries for that
+     species before the check runs at all.
+   - **IQR floor, added v0.9.23 - a real bug, not a tuning tweak**:
+     found via live testing - five identical $10 entries then a
+     genuinely normal $12 sixth entry triggered the warning, because a
+     zero-spread baseline gives IQR=0, collapsing the fence to exactly
+     the baseline price with zero tolerance for ANY deviation. Fixed by
+     flooring the IQR used in the fence at 20% of the baseline's own
+     median price (chosen with Jack against his exact numbers - $10
+     baseline, fence becomes $7-$13, $12 passes, a genuine $50 typo
+     still doesn't). Only ever widens the fence for low-variance data;
+     doesn't change anything for a baseline that already has real
+     spread.
+   - **Scope**: all suppliers pooled per species per date, not
+     same-supplier-only - confirmed given the business is a consignment
+     agency achieving one market price per species per day, not a
+     per-supplier price (see BUSINESS_RULES.md).
+   - **Known, accepted gap — narrowed in v0.9.22, not fully closed**:
+     originally, a typo on the very FIRST entry of a species that day had
+     no baseline to be checked against, and stayed silently wrong even
+     once later entries gave it a real baseline - nothing ever went back
+     and re-asked "does this old entry still look right?" **v0.9.22
+     fixes exactly that part**: every commit, delete, or undo-delete now
+     silently re-checks the WHOLE species/date group, not just the one
+     entry that changed - confirmed against Jack's own real numbers
+     (bonito at $1111/$11/$11/$11/$111 - the $1111 entry gets correctly
+     flagged once the group reaches 5). What's still NOT closed: this is
+     still same-day-only, by design - a species with a bad first entry
+     and never more than 3 OTHER entries that day still can't be
+     checked at all (below the minimum baseline), regardless of
+     ordering. Properly closing that needs cross-day history - item 5's
+     territory (and realistically Bucket C's). Jack raised this
+     explicitly as a possible future use for historical data, not
+     committed to yet.
+   - **The flag is "live" at the group level, not just per-entry**
+     (v0.9.22): `ReevaluateOutlierFlagsForSpeciesOnDate` re-runs the
+     leave-one-out check for every entry in a species/date group after
+     anything that changes that group's prices - not just the entry
+     being committed. This means a flag is a live reflection of the
+     CURRENT data, not a permanent decision: an entry manually cleared
+     (right-click "Clear flag", or "No" in `ReviewOrEditEntry`) can be
+     silently re-flagged later if a subsequent change to a SIBLING
+     entry's price makes it look unusual again. Deliberate, not an
+     oversight - discussed directly with Jack, who wants exactly this
+     ("that first outlier will allow every entry to be wrong").
+   - **UI: no interactive dialog at Add Entry, as of v0.9.23** - the
+     original design showed a Yes/No `MessageBox` at commit time (a
+     custom-captioned dialog like "Force Save Anyway" was considered
+     and rejected in favor of matching every other dialog in the app).
+     Removed at Jack's explicit request after live use: a modal
+     interrupting every flagged entry broke his keyboard-driven
+     data-entry flow at real volume. `CommitEntryForm` now silently
+     sets the flag and commits - never blocks. The double-click/Edit
+     Selected review dialog (`ReviewOrEditEntry`) is unchanged and is
+     now the ONLY interactive dialog left in this feature; it remains
+     the deliberate "I'm looking at this row" review path. Flagged
+     rows get a warning-glyph marker in the Price cell plus the whole
+     row tinted (both, after comparing mockups - marker-only was
+     considered and rejected in favor of the fuller visual).
+   - **`priceFlagged` persists** as a 7th `.fbd` field, backward
+     compatible with older files. See CHANGELOG.md's `[0.9.19]` entry
+     for the full technical detail.
 8. **Print/PDF for Overview & By Species tabs** — currently Print Preview
    and printing only cover the Breakdown tab.
 9. **Filter/search on the summary tabs** — currently only the raw Entries
@@ -461,6 +712,120 @@ performance item plus the feature backlog:
     part of **Bucket C** (see "Definition of done" below), not a
     standalone item - sequenced with the multi-machine work since a
     coherent answer needs to cover both together.
+11. **Dark/light theming — scoped 2026-09-06, not yet built.** Raised via
+    an external AI (Gemini) suggestion for modernizing the UI; that
+    suggestion was investigated against the real codebase before being
+    accepted and turned out not to be usable verbatim - two of its four
+    snippets would produce a duplicate-case-label **compile error** as
+    given (this app already has a `WM_NOTIFY` handler with
+    `NM_CUSTOMDRAW` bold-Totals logic, and a `WM_CTLCOLORSTATIC` handler
+    doing the green/red Debtor/Cash balance coloring - the suggestion
+    assumed neither existed), and its manifest change would have
+    silently reintroduced the exact embedded-vs-external-manifest
+    conflict `ARCHITECTURE.md` already documents fixing once (the
+    deleted `app.rc`). **This item is Claude's own write-up of the real
+    scope, using Gemini's four phases only as a naming/direction guide**
+    - Jack's explicit instruction was "gemini's is a guide, not
+    verbatim," and the code, when built, will be written against this
+    app's actual layout/font/custom-draw machinery, not pasted from the
+    suggestion.
+    - **User-facing behavior**: a Light/Dark theme, switchable three
+      ways - manually (a menu setting, persisted in `settings.txt` like
+      window position already is), automatically following Windows'
+      own light/dark setting, or automatically by time of day. Exact
+      default and whether all three coexist (e.g. "Auto" meaning
+      "follow Windows" specifically, with time-of-day as a separate
+      option) - open question, needs Jack's decision before building.
+    - **Belongs as a menu item, not a tab** — per `ARCHITECTURE.md`'s
+      tab-vs-menu principle, this doesn't answer "did today balance,"
+      so it's a Tools or a new View menu entry, following the same
+      popup-window-free pattern as a simple preference toggle.
+    - **What already exists and doesn't need rebuilding**:
+      - ComCtl32 v6 (needed for any modern control rendering) is already
+        requested via the external `app.manifest` - Gemini's linker
+        `/manifestdependency` pragma is redundant *and* actively
+        dangerous (see above) and must not be added.
+      - A font system already exists (`g_normalFont`/`g_boldFont`, built
+        once from `NONCLIENTMETRICS` at startup, applied via
+        `WM_SETFONT`, cleaned up on shutdown) - **do not add a second,
+        parallel font system** the way Gemini's `ApplyShellTheme` does
+        (which also leaks a `CreateFontW` handle every time it'd be
+        called). **Font choice is an explicit open discussion for when
+        this is picked up, not decided here** - keep the current
+        system-metrics font (`NONCLIENTMETRICS`, respects whatever the
+        user's actually configured in Windows, zero extra risk) vs. a
+        fixed choice like Segoe UI Variable (more deliberately "modern"
+        look, but ignores the user's own Windows font/scaling settings,
+        and needs its own availability fallback on older Windows
+        versions where it isn't installed) - **Claude's starting lean is
+        toward keeping the current `NONCLIENTMETRICS` approach**, but
+        this should be a real pros/cons conversation before building,
+        not defaulted to silently.
+      - `NM_CUSTOMDRAW` on the report ListViews already exists (bolds
+        "Total" rows) - theming extends this handler, it doesn't add a
+        second one.
+    - **What's genuinely new**:
+      - `ThemeMode { Light, Dark }` + a theme-colors struct (background,
+        card/panel, primary/secondary text, border, zebra-row color),
+        similar in shape to Gemini's `AppTheme` but as static data, not
+        a redesign of how controls are created.
+      - `AppSettings` gains a theme-mode field, persisted/restored the
+        same way window position already is.
+      - Windows' own light/dark setting can be read from the registry
+        (`HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\
+        Personalize\AppsUseLightTheme`) - **v1 should just check this
+        once at startup**, not live-track it; reacting live to the user
+        flipping Windows' setting mid-session (via
+        `WM_SETTINGCHANGE`/`"ImmersiveColorSet"`) is a reasonable v2
+        stretch, not a v1 requirement.
+      - Title bar/frame dark mode via `DwmSetWindowAttribute` with
+        `DWMWA_USE_IMMERSIVE_DARK_MODE` (value `20` on current Windows
+        10/11 - define it locally rather than relying on a specific SDK
+        header version) - **requires linking `dwmapi.lib`
+        (`-ldwmapi` for MinGW)**, which none of the three build paths
+        (`CMakeLists.txt`, `build_msvc.bat`, `build_mingw.bat`) do today
+        - a real, if small, build-script change needed alongside the
+        code.
+      - `WM_CTLCOLORSTATIC`/`WM_CTLCOLOREDIT` extended (not replaced) in
+        all three `WndProc`s (main window, Manage Names, Print Preview)
+        to theme labels/edit fields while preserving the existing
+        green/red diff-balance coloring logic, now theme-aware instead
+        of hardcoded `RGB()` values.
+      - `NM_CUSTOMDRAW` extended (not replaced) on all four report
+        ListViews, plus Manage Names' list, for theme-aware text/row
+        background colors and optional zebra striping, layered on top
+        of (not instead of) the existing bold-Totals logic.
+      - Any painted panel/"card" background must use `S()`-scaled
+        coordinates recomputed inside the existing `LayoutAll()`/each
+        popup's `WM_SIZE` handler, never fixed pixel literals the way
+        Gemini's `RECT cardRect = {16, 50, 800, 180}` example was - this
+        app's controls are repositioned dynamically on every resize, so
+        a fixed-position painted decoration would drift out from under
+        them exactly the way the v0.8.0 DPI bug happened.
+      - **Known Windows limitation worth deciding on up front**: native
+        ListView headers, scrollbars, and combo dropdown lists don't
+        reliably support dark mode through documented APIs alone - real
+        dark-mode chrome (the way Explorer/Notepad do it) uses
+        undocumented calls (`SetWindowTheme` with
+        `"DarkMode_Explorer"`/`"ItemsView"`, `uxtheme.dll`'s unexported
+        `SetPreferredAppMode`). Decide before starting whether v1 ships
+        with light-styled headers/scrollbars on an otherwise dark body
+        (documented APIs only, lower risk) or takes on the undocumented-
+        API route for full native chrome theming (higher risk, harder
+        to verify without a compiler).
+    - **Sequencing recommendation, not yet confirmed with Jack**: this
+      is single-machine UI/UX work, so it's **Bucket A scope**, not
+      gated on Bucket C. But it's also the most visually invasive,
+      hardest-to-verify-without-a-compiler change proposed for this app
+      so far - touches all three `WndProc`s, the layout code, and every
+      ListView's custom draw. Recommend building it **after** items 6-9
+      (smaller, already-spec'd, lower-risk wins) rather than folding it
+      into the same batch of changes, and building it in its own small,
+      individually-buildable increments the same way Bucket B plans to
+      (e.g.: manual toggle + basic background/text colors first and
+      confirmed working, *then* Windows-setting/time-of-day auto-
+      detection, *then* ListView zebra striping, *then* DWM title-bar
+      theming) rather than one large change.
 
 ## Definition of "done" for this app (decided 2026-09-01, sequencing
 extended 2026-09-05)

@@ -154,3 +154,153 @@ TEST_SUITE("ComputeSpeciesStats") {
         CHECK(result.rows[0].avgPrice == doctest::Approx(5.0));
     }
 }
+
+TEST_SUITE("GatherOtherPricesForSpeciesOnDate") {
+    TEST_CASE("only entries matching both product AND date are included") {
+        std::vector<Entry> entries;
+        Entry a; a.supplier = L"S1"; a.product = L"Grenadier"; a.date = L"2026-09-22"; a.price = 7; entries.push_back(a);
+        Entry b; b.supplier = L"S2"; b.product = L"Grenadier"; b.date = L"2026-09-22"; b.price = 8; entries.push_back(b);
+        Entry c; c.supplier = L"S1"; c.product = L"Grenadier"; c.date = L"2026-09-21"; c.price = 99; entries.push_back(c); // wrong date
+        Entry d; d.supplier = L"S1"; d.product = L"Garfish";   d.date = L"2026-09-22"; d.price = 99; entries.push_back(d); // wrong species
+        auto prices = GatherOtherPricesForSpeciesOnDate(entries, L"Grenadier", L"2026-09-22", -1);
+        REQUIRE(prices.size() == 2);
+        CHECK(prices[0] == doctest::Approx(7.0));
+        CHECK(prices[1] == doctest::Approx(8.0));
+    }
+
+    TEST_CASE("excludeIndex leaves that entry's own price out of its own baseline") {
+        std::vector<Entry> entries;
+        Entry a; a.supplier = L"S1"; a.product = L"Grenadier"; a.date = L"2026-09-22"; a.price = 50; entries.push_back(a);
+        Entry b; b.supplier = L"S2"; b.product = L"Grenadier"; b.date = L"2026-09-22"; b.price = 7;  entries.push_back(b);
+        auto prices = GatherOtherPricesForSpeciesOnDate(entries, L"Grenadier", L"2026-09-22", 0);
+        REQUIRE(prices.size() == 1);
+        CHECK(prices[0] == doctest::Approx(7.0));
+    }
+
+    TEST_CASE("excludeIndex of -1 excludes nothing") {
+        std::vector<Entry> entries;
+        Entry a; a.supplier = L"S1"; a.product = L"Grenadier"; a.date = L"2026-09-22"; a.price = 50; entries.push_back(a);
+        auto prices = GatherOtherPricesForSpeciesOnDate(entries, L"Grenadier", L"2026-09-22", -1);
+        REQUIRE(prices.size() == 1);
+    }
+}
+
+TEST_SUITE("ComputeOutlierRange") {
+    TEST_CASE("fewer than 4 prices: returns false, no range computed") {
+        OutlierRange range;
+        CHECK(ComputeOutlierRange({5.0, 6.0, 7.0}, range) == false);
+    }
+
+    TEST_CASE("exactly 4 prices (even count) - hand-checked Tukey's fences") {
+        // Sorted: 3, 5, 8, 12. Q1 = mean(3,5) = 4. Q3 = mean(8,12) = 10.
+        // IQR = 6. low = 4 - 9 = -5. high = 10 + 9 = 19.
+        OutlierRange range;
+        REQUIRE(ComputeOutlierRange({12.0, 3.0, 8.0, 5.0}, range) == true);
+        CHECK(range.low == doctest::Approx(-5.0));
+        CHECK(range.high == doctest::Approx(19.0));
+    }
+
+    TEST_CASE("5 prices (odd count) - hand-checked Tukey's fences, middle "
+              "element excluded from both halves") {
+        // Sorted: 2, 4, 6, 8, 10. Lower half {2,4} -> Q1=3. Upper half
+        // {8,10} -> Q3=9 (the middle element, 6, is in neither half).
+        // IQR = 6. low = 3 - 9 = -6. high = 9 + 9 = 18.
+        OutlierRange range;
+        REQUIRE(ComputeOutlierRange({10.0, 2.0, 6.0, 4.0, 8.0}, range) == true);
+        CHECK(range.low == doctest::Approx(-6.0));
+        CHECK(range.high == doctest::Approx(18.0));
+    }
+
+    TEST_CASE("Jack's own example: most Blue Grenadier $5-$10, a $25 entry "
+              "falls outside the computed range, a normal $7 does not") {
+        std::vector<double> baseline = {5.0, 6.0, 7.0, 8.0, 9.0, 10.0};
+        OutlierRange range;
+        REQUIRE(ComputeOutlierRange(baseline, range) == true);
+        CHECK(25.0 > range.high);
+        CHECK_FALSE(7.0 < range.low);
+        CHECK_FALSE(7.0 > range.high);
+    }
+
+    TEST_CASE("v0.9.23 floor fix: five identical $10 entries used to give "
+              "IQR=0 and flag ANY deviation - Jack hit this with a "
+              "genuinely normal $12 sixth entry. With the 20% floor, $12 "
+              "is now within range, but a real typo like $50 still isn't") {
+        std::vector<double> baseline = {10.0, 10.0, 10.0, 10.0, 10.0};
+        OutlierRange range;
+        REQUIRE(ComputeOutlierRange(baseline, range) == true);
+        CHECK(range.low == doctest::Approx(7.0));  // 10 - 1.5*(0.20*10)
+        CHECK(range.high == doctest::Approx(13.0)); // 10 + 1.5*(0.20*10)
+        CHECK_FALSE(12.0 > range.high);  // the genuine false positive Jack reported
+        CHECK_FALSE(12.0 < range.low);
+        CHECK(50.0 > range.high);        // a real typo still gets caught
+    }
+
+    TEST_CASE("the floor only ever widens the fence, never narrows a "
+              "baseline that already has real spread (re-checks the "
+              "existing even/odd-count cases above still hold)") {
+        OutlierRange range;
+        REQUIRE(ComputeOutlierRange({12.0, 3.0, 8.0, 5.0}, range) == true);
+        CHECK(range.low == doctest::Approx(-5.0));
+        CHECK(range.high == doctest::Approx(19.0));
+    }
+}
+
+TEST_SUITE("ReevaluateOutlierFlagsForSpeciesOnDate") {
+    TEST_CASE("Jack's reported scenario: a first-entry typo isn't caught "
+              "until enough LATER entries exist to check it against - "
+              "this is exactly the gap this function closes") {
+        // Real numbers from the bug report: $1111 typo entered first,
+        // then four correctly-priced $11/$11/$11/$111 entries after it.
+        std::vector<Entry> entries;
+        for (double p : {1111.0, 11.0, 11.0, 11.0, 111.0}) {
+            Entry e; e.supplier = L"J Casement"; e.product = L"bonito";
+            e.date = L"2026-09-22"; e.kgs = 111.0; e.price = p;
+            entries.push_back(e);
+        }
+        ReevaluateOutlierFlagsForSpeciesOnDate(entries, L"bonito", L"2026-09-22");
+        CHECK(entries[0].priceFlagged == true);  // the $1111 typo
+        CHECK(entries[1].priceFlagged == false);
+        CHECK(entries[2].priceFlagged == false);
+        CHECK(entries[3].priceFlagged == false);
+        CHECK(entries[4].priceFlagged == false); // the $111 entry that finally exposed it
+    }
+
+    TEST_CASE("with only 4 total entries (so each one's own leave-one-out "
+              "baseline is just 3), nothing is flagged - below minimum") {
+        std::vector<Entry> entries;
+        for (double p : {1111.0, 11.0, 11.0, 11.0}) {
+            Entry e; e.supplier = L"S"; e.product = L"bonito"; e.date = L"2026-09-22";
+            e.kgs = 1; e.price = p;
+            entries.push_back(e);
+        }
+        ReevaluateOutlierFlagsForSpeciesOnDate(entries, L"bonito", L"2026-09-22");
+        for (auto& e : entries) CHECK(e.priceFlagged == false);
+    }
+
+    TEST_CASE("entries for a different species or date are left untouched") {
+        std::vector<Entry> entries;
+        Entry a; a.supplier=L"S"; a.product=L"bonito";  a.date=L"2026-09-22"; a.price=1111; a.priceFlagged=true; entries.push_back(a);
+        Entry b; b.supplier=L"S"; b.product=L"garfish";  b.date=L"2026-09-22"; b.price=1111; b.priceFlagged=true; entries.push_back(b); // different species
+        Entry c; c.supplier=L"S"; c.product=L"bonito";  c.date=L"2026-09-21"; c.price=1111; c.priceFlagged=true; entries.push_back(c); // different date
+        ReevaluateOutlierFlagsForSpeciesOnDate(entries, L"bonito", L"2026-09-22");
+        // Only entries[0] is in-scope; the other two keep whatever flag they had.
+        CHECK(entries[1].priceFlagged == true);
+        CHECK(entries[2].priceFlagged == true);
+    }
+
+    TEST_CASE("a previously-flagged entry is un-flagged once the data around "
+              "it changes enough to no longer look unusual") {
+        std::vector<Entry> entries;
+        for (double p : {1111.0, 11.0, 11.0, 11.0, 111.0}) {
+            Entry e; e.supplier = L"S"; e.product = L"bonito"; e.date = L"2026-09-22";
+            e.kgs = 1; e.price = p;
+            entries.push_back(e);
+        }
+        ReevaluateOutlierFlagsForSpeciesOnDate(entries, L"bonito", L"2026-09-22");
+        REQUIRE(entries[0].priceFlagged == true); // confirmed flagged first, same as above
+
+        entries[0].price = 11.0; // "fixing" the typo, as if the user edited it
+        ReevaluateOutlierFlagsForSpeciesOnDate(entries, L"bonito", L"2026-09-22");
+        CHECK(entries[0].priceFlagged == false);
+    }
+}

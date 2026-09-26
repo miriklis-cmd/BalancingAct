@@ -16,6 +16,7 @@ The single record type the whole app is built around (defined in
 | `price`    | `double`      | Price per kg; displayed to 2 decimal places        |
 | `date`     | `std::wstring`| ISO `YYYY-MM-DD`; empty if not set (older files)   |
 | `notes`    | `std::wstring`| Optional free text; cannot contain `\|`             |
+| `priceFlagged` | `bool`    | Set when the price was flagged as a same-day outlier at commit time and saved anyway (ROADMAP.md item 7); cleared automatically next time the entry is committed with a price that no longer looks unusual |
 
 `Total()` is computed on demand (`kgs * price`), never stored.
 
@@ -55,15 +56,19 @@ END
   `DRAFT_DATE=` is validated as a real ISO date on load — an invalid
   value is silently dropped rather than passed through.
 - `BEGIN` / `END` — bracket the entry rows.
-- Each entry row is pipe-delimited: `Supplier|Species|Kgs|Price|Date|Notes`.
+- Each entry row is pipe-delimited:
+  `Supplier|Species|Kgs|Price|Date|Notes|Flagged`.
   - Kgs/Price are written with 4 decimal places of precision internally
     (display rounding to 1dp/2dp happens only when rendering, never on
     the stored value).
-  - **Backward compatibility**: rows with only 4 fields (no Date/Notes)
-    are accepted — this is the pre-v0.9.0 format. Date/Notes default to
-    empty in that case.
-  - Rows that don't parse into exactly 4 or 6 fields are skipped, and the
-    user is warned with a count (see BUSINESS_RULES.md).
+  - `Flagged` is `1` if `priceFlagged` is true, `0` otherwise - added
+    v0.9.19 (ROADMAP.md item 7).
+  - **Backward compatibility**: rows with only 4 fields (no Date/Notes/
+    Flagged) are accepted — this is the pre-v0.9.0 format. Rows with 6
+    fields (Date/Notes but no Flagged) are accepted — this is the
+    pre-v0.9.19 format. Both default the missing field(s) to empty/false.
+  - Rows that don't parse into exactly 4, 6, or 7 fields are skipped, and
+    the user is warned with a count (see BUSINESS_RULES.md).
 
 `autosave.fbd` (next to the exe) uses this same format and is
 continuously overwritten on every data change. Named files created via

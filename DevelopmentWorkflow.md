@@ -115,3 +115,47 @@ Claude cannot run the Windows executable. All functional testing —
 does the feature work, does the UI look right, does the build even
 succeed — happens on your machine. See Testing.md for the running
 checklist of what to verify after each build.
+
+`run_tests.bat` (project root, added 2026-09-22) unblocks every file in
+the project folder (Windows marks files extracted from a downloaded zip
+as "from the internet," which blocks scripts even under a correctly-set
+`RemoteSigned` execution policy) and then runs `tests\run_tests.ps1` -
+run this instead of `run_tests.ps1` directly after extracting a new
+zip. It bypasses execution policy for just that one run rather than
+requiring you to change it, so there's nothing to set up front or
+remember afterward. Needs `cl.exe` on PATH (a "Developer Command
+Prompt/PowerShell for VS" window), same as `run_tests.ps1` itself.
+
+## Project folder layout — what goes where in the zip
+
+```
+<project root>/
+  main.cpp, FishBalanceCore.h, version.h, resource.h, CMakeLists.txt, ...
+  app.manifest, app.ico, app_icon.rc      <- added to project 2026-09-21
+  tests/
+    run_tests.ps1, doctest.h, doctest_setup.h, test_*.cpp
+```
+
+`CMakeLists.txt` lists its test sources as `tests/test_main.cpp` etc.,
+and the test `.cpp` files themselves `#include "../FishBalanceCore.h"` -
+both require the whole test suite (`run_tests.ps1`, `doctest.h`,
+`doctest_setup.h`, all `test_*.cpp`) to live inside a `tests\` subfolder
+one level below the project root, never flat alongside `main.cpp`.
+
+This broke once (v0.9.18-era) - Claude's project-knowledge view of these
+files carries no folder information, so every zip up to that point
+flattened the whole test suite to the project root. You'd been merging
+zips into your existing correctly-structured local folder, so it mostly
+went unnoticed until a stray root-level `run_tests.ps1` got run directly
+and failed to find `../FishBalanceCore.h`. Fixed by explicitly nesting
+`tests/` in the zip - Claude has the real content of every test-suite
+file, this was purely a packaging-path mistake, not missing content.
+
+`app.manifest`, `app.ico`, and `app_icon.rc` were a related but separate
+gap: unlike the test suite, they weren't in Claude's project knowledge
+at all (no trace, not even a stray reference), so no accurate copy could
+be shipped and Claude didn't try to guess (especially `app.ico`, a
+binary icon file - a guess would just ship a different icon than the
+real one). **Added to the project 2026-09-21** — all three now ship at
+the project root in every zip, alongside `main.cpp`, matching
+`CMakeLists.txt`'s references to them.

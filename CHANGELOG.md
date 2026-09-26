@@ -12,6 +12,501 @@ possible, grouped into logical releases.
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.9.33] - Restore from Backup now reliably opens to the backups folder
+- **Jack, smoke-testing Restore from Backup**: "shouldnt it take me to
+  backup folder? it didnt. last folder i used in open was desktop and
+  went there instead."
+- Root cause: this is documented Windows behavior, not a logic bug -
+  `GetOpenFileNameW`'s `lpstrInitialDir` is only honored the very first
+  time a process ever shows that common dialog. On every later call
+  (regardless of which of our functions triggered it - File > Open,
+  Restore from Backup, whichever came first), Windows reuses whatever
+  folder the user last navigated to in *any* prior call, ignoring
+  `lpstrInitialDir` entirely. `DoRestoreFromBackup()`'s `lpstrInitialDir`
+  was already correctly set to the backups folder - it was just being
+  silently overridden by the earlier File > Open into Desktop.
+- Fix: `lpstrFile` is now pre-filled with the backups folder path (plus a
+  trailing backslash, no filename) before the dialog opens. A path
+  supplied in `lpstrFile` takes priority over Windows' remembered folder,
+  unlike `lpstrInitialDir` - this reliably forces the dialog to open in
+  `backups\` every time, regardless of where any other file dialog was
+  last used. `lpstrInitialDir` is kept as a harmless fallback for a
+  genuine first-ever call.
+
+## [0.9.32] - File > New now takes a backup snapshot before discarding too
+- **Jack found this directly while smoke-testing v0.9.28's checklist**:
+  added an entry, did File > New, confirmed the discard prompt, checked
+  `backups\` afterward - nothing there.
+- v0.9.28 gave File > Open, Recent Files, and Restore from Backup an
+  unconditional backup snapshot right before discarding unsaved data, but
+  deliberately left File > New out, reasoned at the time as "New already
+  clears to a blank sheet, nothing to preserve." That reasoning was
+  backwards: it's not the new blank sheet that needs protecting, it's
+  whatever unsaved work is being thrown away to reach it - exactly the
+  same risk as the other three paths, and exactly the kind of gap the
+  v0.9.24 data-loss incident this whole feature exists to close.
+- Fix: `DoFileNew()` now calls `WriteBackupSnapshot()` right after the
+  discard prompt is confirmed, same pattern and same place in the flow as
+  `DoFileOpen()`/`DoRestoreFromBackup()`/the Recent Files handler.
+- This also means the old v0.9.28 checklist item "no spurious snapshot on
+  File > New" is now wrong on purpose - New backing up before a genuine
+  discard is the correct, intended behavior as of this version.
+
+## [0.9.31] - Rolling backup snapshots now warn on failure instead of failing silently
+- **Jack's report**: "Every 3 minute save not working" — after v0.9.29
+  added the real `WM_TIMER` for `MaybeBackupOnTimer()`, Jack retested and
+  corrected his original account: it was actually v0.9.28, and he'd made
+  "maybe 5" separate Add Entry commits over roughly a minute before
+  checking `backups\` after about 3 minutes and finding nothing. He asked
+  to "look properly at the code" rather than re-diagnose from his own
+  uncertain recollection of timing.
+- On inspection, `MaybeBackupOnTimer()`'s guard (`g_lastBackupTick != 0 &&
+  ...`) does **not** skip the very first call of a session — with 5 Add
+  Entry commits, each routing through `RefreshAll()` → `AutosaveNow()` →
+  `MaybeBackupOnTimer()`, a backup snapshot should have been written on
+  the very first commit regardless of the v0.9.29 timer fix. So the
+  missing-timer explanation, while real and worth fixing, didn't fully
+  account for what Jack described.
+- Root cause found: `WriteBackupSnapshot(const std::string&)` called
+  `WriteFileAtomicUtf8(path, content)` and **discarded its return value**.
+  A failed write (backups\ folder unwritable, disk full, antivirus lock,
+  etc.) was completely silent — no warning shown to Jack — and worse,
+  `g_lastBackupContent`/`g_lastBackupTick` were still updated as if the
+  snapshot had succeeded. That meant `MaybeBackupOnTimer()`'s "nothing
+  changed since last snapshot" skip logic believed a (non-existent)
+  snapshot was already current, and its interval guard believed one had
+  just been taken — both suppressing any near-term retry. A persistently
+  failing backup folder could go bad indefinitely without any sign
+  anything was wrong, unlike autosave.fbd's failures (which already warn
+  via `g_autosaveFailWarned`/`AutosaveNow`).
+- Fix: `WriteBackupSnapshot` now checks `WriteFileAtomicUtf8`'s return
+  value. On success, behavior is unchanged. On failure: shows a one-time
+  warning dialog (same warn-once/reset-on-recovery pattern as autosave's
+  own failure warning, via a new `g_backupFailWarned` flag), and — new —
+  deliberately does **not** update `g_lastBackupContent`/`g_lastBackupTick`
+  on failure, so the very next autosave (e.g. the next field's focus loss)
+  retries immediately instead of waiting out a full 3-minute interval
+  believing a snapshot already succeeded.
+- This is a real, previously-unnoticed bug independent of the v0.9.29
+  timer fix, and a credible full explanation for backups Jack expected
+  but didn't see even while actively entering data. It doesn't rule out
+  the v0.9.29 fix also having mattered (both could have compounded), but
+  it closes the gap that the timer fix alone left open.
+
+## [0.9.30] - Discard prompt now tracks real unsaved changes, not just "any data"
+- **Jack's request after smoke-testing v0.9.28**: "should be kinda?
+  dirty flagged?. If something changes, dialog comes up. Once saved,
+  then no dialog until something changes again." Previously,
+  `ConfirmDiscardCurrentData` fired whenever there was *any* data on
+  screen (entries, or Debtor/Cash text) regardless of whether it had
+  just been saved - so File > Save followed immediately by File > Open
+  still asked to confirm, even though nothing was actually at risk.
+- **Fix**: new `g_dirty` flag, set `true` on every actual data change -
+  `CommitEntryForm` (add/update), `DeleteSelectedEntry`, `UndoDelete`,
+  a rename/merge via Manage Names that actually changed anything, and
+  Debtor/Cash `EN_CHANGE` (every keystroke, matching how those fields
+  already autosave on focus-loss) - and set back to `false` on every
+  point where the in-memory state provably matches something durable on
+  disk again: File > New (blank sheet, nothing to lose), a successful
+  File > Open/Recent Files/Restore from Backup load, a successful
+  File > Save/Save As, and the startup autosave.fbd reload.
+  `ConfirmDiscardCurrentData` now checks `g_dirty` instead of "is there
+  any data at all."
+- **Deliberately NOT cleared by**: autosave.fbd writes or rolling backup
+  snapshots (including the v0.9.28 file-switch snapshot) - those are
+  safety nets running in the background, not the user's own deliberate
+  "I'm done with this" action the prompt exists to key off.
+- **One subtlety worth documenting**: `SetWindowTextW` on the Debtor/Cash
+  fields fires `EN_CHANGE` the same as a real keystroke does, so the
+  clear-to-blank calls in `DoFileNew` and the Debtor/Cash restores inside
+  `LoadFromFile` would otherwise mark the sheet dirty immediately after
+  a load. Each of those call sites explicitly sets `g_dirty = false`
+  *after* the load/clear completes, so the flag ends up correct despite
+  the intermediate `EN_CHANGE` noise.
+- No `FishBalanceCore.h` change - pure `main.cpp` logic, no doctest
+  re-run needed.
+
+## [0.9.29] - Fix: rolling backups didn't actually run on a real timer
+- **Real gap Jack found while smoke-testing v0.9.28**: made an edit, then
+  left the app idle - no backup ever appeared, no matter how long he
+  waited. Reported as "every 3 minute save not working."
+- **Root cause**: `MaybeBackupOnTimer()` was never wired to an actual
+  `WM_TIMER`. It only ran *inside* `AutosaveNow()`, which itself only
+  fires on focus-loss (`EN_KILLFOCUS`/`CBN_KILLFOCUS`) or an explicit
+  action like Save. So "roughly every 3 minutes" only held true while
+  actively tabbing/clicking between fields - the moment you stopped
+  interacting with the form (cursor still in a field, no more focus
+  changes), the elapsed-time check inside `MaybeBackupOnTimer()` never
+  got evaluated again, regardless of how much real time passed. Exactly
+  the case - unsaved edit, then idle - this feature exists to protect.
+- **Fix**: a new recurring `WM_TIMER` (`ID_TIMER_BACKUP_CHECK`, ticking
+  every 30 seconds, started in the main window's `WM_CREATE` and killed
+  in `WM_DESTROY`) now calls `MaybeBackupOnTimer()` directly, independent
+  of any UI activity. 30 seconds is just the polling granularity, not the
+  backup interval - `MaybeBackupOnTimer()`'s own `kBackupIntervalMs`
+  (3 minutes) and no-change-skip logic (v0.9.26) are unchanged and still
+  decide whether anything actually gets written on each tick.
+- Autosave-on-focus-loss still also calls `MaybeBackupOnTimer()` as
+  before (harmless - the interval/no-change checks make a redundant call
+  a no-op), so active data entry behaves exactly as it did in v0.9.17-28.
+  The only real-world difference is idle screens with unsaved data now
+  actually get backed up on schedule.
+- No `FishBalanceCore.h` change - pure `main.cpp` logic, no doctest
+  re-run needed.
+
+## [0.9.28] - Backup snapshot taken on every file switch, not just Save
+- **Real gap Jack flagged**: "Umm I dunno if we should for switching
+  files? Seeming as I lost work when we did, perhaps we should?" - in
+  reference to the v0.9.24 data-loss incident. That fix made File > Open
+  and Recent Files *ask* before discarding unsaved data, but the
+  confirmation prompt is not itself a backup - answering "Yes, discard"
+  still destroys whatever wasn't saved yet if nothing had backed it up
+  in the meantime (the rolling timer might be up to 3 minutes stale, and
+  there might be no explicit Save at all for in-progress work).
+- **Fix**: `DoFileOpen`, the Recent Files menu handler, and
+  `DoRestoreFromBackup` now each call `WriteBackupSnapshot()`
+  unconditionally, immediately after the user confirms the discard
+  prompt and immediately before `LoadFromFile` overwrites `g_entries` in
+  memory. This is the same unconditional snapshot explicit Save/Save As
+  already took (see `[0.9.17]`) - switching files is now treated as an
+  equally deliberate, equally backup-worthy action, not just a read.
+- Whatever was on screen right before the switch is now always
+  recoverable via File > Restore from Backup, even if it was never
+  explicitly saved and the rolling timer hadn't ticked yet - closing the
+  last real exposure window this class of incident depends on.
+- No `FishBalanceCore.h` change - pure `main.cpp` logic, no doctest
+  re-run needed.
+
+## [0.9.27] - Backup filenames now show which source file they're from
+- **Real gap Jack flagged**: with backups just named
+  `backup_YYYYMMDD_HHMMSS.fbd`, there was no way to tell which source
+  file a snapshot belonged to if you'd worked in more than one `.fbd`
+  file in a session - a real problem in Restore from Backup's file
+  list, where picking the wrong one is exactly the kind of mistake this
+  feature exists to protect against.
+- **Fix**: new `CurrentFileLabelForBackup()` extracts the current named
+  file's base name (no path, no extension - e.g. `21112` for
+  `...\21112.fbd`), or `unsaved` if no named file is open yet.
+  Filenames become `backup_YYYYMMDD_HHMMSS_<label>.fbd` - visible
+  directly in the standard Open dialog Restore from Backup already
+  uses, no new UI needed.
+- **The label goes AFTER the timestamp, deliberately** - the timestamp
+  has to stay the leading, fixed-width part of the filename for
+  `PruneOldBackups`' "sort by name = sort by time" logic to keep
+  working. A label placed first would sort backups by source file
+  before time, breaking chronological pruning outright. Hand-verified
+  the sort order still holds: two backups with different timestamps
+  sort correctly regardless of the label, since string comparison
+  resolves on the fixed-width timestamp portion first; only a
+  same-second collision (effectively impossible in practice) would ever
+  fall through to comparing labels, which is a harmless tiebreak.
+- `PruneOldBackups`' `backup_*.fbd` glob still matches both old- and
+  new-format filenames, so nothing already in an existing `backups\`
+  folder needs to change.
+- No `FishBalanceCore.h` change - pure `main.cpp` logic, no doctest
+  re-run needed.
+
+## [0.9.26] - Rolling backups now skip writing when nothing's changed
+- **Real waste identified by Jack**: with the interval down to 3
+  minutes (v0.9.25), a snapshot was still being written every 3 minutes
+  regardless of whether the underlying data had actually changed since
+  the last one - e.g. just switching tabs or sorting a column can
+  trigger `AutosaveNow()`, and if that happened to land on a
+  3-minute-elapsed check, a byte-identical duplicate file got written
+  for no reason.
+- **Fix**: `MaybeBackupOnTimer` now builds the current `.fbd` content
+  and compares it against the last snapshot's content before writing -
+  if nothing's changed, it skips the write entirely (no new file, no
+  disk write, no wasted slot in the 50-backup cap), but still resets
+  the timer so it doesn't re-check on every subsequent no-op autosave
+  before the next full interval.
+  - `WriteBackupSnapshot` split into a content-taking version and a
+    no-arg convenience overload (used by explicit Save/Save As, which
+    remain unconditional - "you just explicitly saved" is still worth
+    its own snapshot regardless of content match).
+  - New `g_lastBackupContent` tracks what was actually last written, so
+    the comparison has something real to check against.
+- No `FishBalanceCore.h` change - pure `main.cpp` logic, no doctest
+  re-run needed.
+
+## [0.9.25] - Rolling backup interval tightened to 3 minutes
+- **Prompted by a real loss**: Jack lost in-progress edits to the
+  v0.9.24 File > Open bug (fixed that version), and it turned out no
+  rolling backup existed yet for that work - the 10-minute interval
+  hadn't elapsed, and no explicit Save had happened either. Tightening
+  this doesn't undo that loss, but shrinks the exposure window for
+  other ways work could still be lost before a fix exists (a crash, a
+  power cut) - not just the File > Open case, which v0.9.24 already
+  closed off entirely.
+- `kBackupIntervalMs` changed from 10 to 3 minutes.
+- **Deliberate tradeoff, decided with Jack**: the 50-backup cap was NOT
+  raised to match - at 3 minutes, 50 backups covers roughly 2.5 hours
+  of rolling history, down from a full business day at the old
+  10-minute/50-cap combination. Jack chose more frequent recent
+  coverage over full-day coverage; noted here so it's a known,
+  deliberate choice if it comes up again later.
+- Every place that mentioned "every 10 minutes" updated to match: the
+  About dialog, the "No Backups Yet" message, and `Testing.md`'s
+  checklist. `CHANGELOG.md`'s `[0.9.17]` entry is left as-is - it's a
+  historical record of what was true at that version, not something
+  retroactively corrected.
+- No `FishBalanceCore.h` change - pure `main.cpp` constant + message
+  text, no doctest re-run needed.
+
+## [0.9.24] - Fix: File > Open / Recent Files could silently discard
+  unsaved data
+- **Real data-loss bug, confirmed via Jack's own testing**: opened an
+  old `.fbd` file, then went back to the file he'd been editing - his
+  in-progress edits were gone. Root cause: `DoFileOpen()` had **no
+  unsaved-changes check at all** - it loaded the newly-selected file
+  immediately, and since `RefreshAll()` autosaves on every load, this
+  also overwrote `autosave.fbd` with the new file's content, wiping out
+  the only on-disk copy of the in-progress work too. The Recent Files
+  menu had the identical gap. File > New already had this exact kind of
+  check ("Discard the current data and start a new sheet?"), and
+  Restore from Backup (v0.9.17) had its own near-identical inline copy
+  - Open and Recent Files were simply missing it.
+- **Fix**: new shared `ConfirmDiscardCurrentData()`, used by all four
+  places that can replace the on-screen sheet (New, Open, Recent Files,
+  Restore from Backup) instead of three separate, driftable copies of
+  similar logic. Checks entries, Debtor, and Cash (not just entries,
+  which is what New's old inline check did) before prompting; prompts
+  only when there's actually something to lose.
+- No `FishBalanceCore.h` change - pure `main.cpp` logic, no doctest
+  re-run needed this time.
+- **If you lost work to this bug**: check `backups\` via File > Restore
+  from Backup - a rolling snapshot from before the file switch may
+  still have it, depending on timing (see ROADMAP.md item 4).
+
+## [0.9.23] - Two fixes from live testing: IQR floor + silent flagging
+- **Real bug found via live testing**: five identical $10 entries for a
+  species, then a genuinely normal $12 sixth entry, triggered the
+  outlier warning. Root cause confirmed: a baseline with zero price
+  spread gives IQR=0, which collapses Tukey's fence to exactly the
+  baseline price itself - ANY deviation at all, even a cent, was being
+  flagged. Not a tuning issue, a real defect in the formula for
+  low-variance data (likely common for steadier species).
+  - **Fix**: `ComputeOutlierRange` now floors the IQR used in the fence
+    at a percentage of the baseline's own median price (20%, chosen
+    with Jack after checking it against his exact numbers - $10
+    baseline, $12 now within the resulting $7-$13 fence). Only ever
+    widens the fence for a tight/low-variance baseline; every existing
+    test case with real spread in the data is unaffected (hand-checked
+    and covered by a new doctest case confirming the floor doesn't
+    change anything when it isn't needed).
+- **Removed the interactive Yes/No dialog from Add Entry**, at Jack's
+  explicit request: a modal interrupting every flagged entry broke his
+  keyboard-driven data-entry flow at real volume (100-500 entries/day).
+  `CommitEntryForm` now silently sets `priceFlagged` and commits -
+  never blocks, never interrupts. The double-click/Edit Selected review
+  dialog (`ReviewOrEditEntry`) is unchanged and remains the deliberate
+  review path. Combined with v0.9.22's whole-group re-evaluation, a
+  false-positive flag will often clear itself automatically as more
+  similar-priced entries come in, without any user action.
+- New doctest coverage in `tests/test_aggregation.cpp` for the floor fix
+  (Jack's exact $10/$12 numbers, plus confirmation a genuine $50 typo
+  still gets caught, plus a regression check that existing spread-in-
+  the-data cases are unaffected). **`FishBalanceCore.h` changed again -
+  run the doctest suite before testing this build.**
+
+## [0.9.22] - Outlier check now re-evaluates the whole species/date group
+- **Closes a real gap Jack hit with live data**: a typo entered as the
+  FIRST entry for a species that day had no baseline to be checked
+  against (below the minimum of 4), silently became part of the data,
+  and was never re-evaluated just because later, correctly-priced
+  entries came in around it - even once there were enough of them to
+  make the typo obvious. Confirmed with Jack's own numbers: bonito at
+  $1111, $11, $11, $11, $111 - the $1111 entry was never flagged, even
+  after the 5th entry gave it a real baseline to be judged against.
+- **New `ReevaluateOutlierFlagsForSpeciesOnDate`** (`FishBalanceCore.h`):
+  after anything that changes which prices exist for a species/date - a
+  commit (add/edit), a delete, or an undo-delete - every entry in that
+  group is silently re-checked leave-one-out against the CURRENT full
+  set, not just the entry that triggered the change. Using the same
+  bonito numbers: once the 5th entry existed, re-evaluating the whole
+  group correctly flagged the $1111 entry and left the other four
+  alone (hand-verified and covered by a new doctest case using these
+  exact numbers).
+- **The flag is now live at the group level, not just per-entry**: an
+  entry manually cleared (right-click "Clear flag", or "No" in
+  `ReviewOrEditEntry`) can be silently re-flagged later if a
+  SUBSEQUENT change to a sibling entry's price makes it look unusual
+  again. This is a deliberate behavior change, not an oversight - see
+  ROADMAP.md item 7 for the reasoning.
+- Wired into `CommitEntryForm` (after add/edit), `DeleteSelectedEntry`,
+  and `UndoDelete` - deletion/undo needed the product/date captured
+  before the vector mutation invalidates the entry reference.
+- New doctest coverage in `tests/test_aggregation.cpp`: Jack's exact
+  reported scenario as a named test case, a below-minimum-baseline
+  case, a different-species/date isolation case, and an unflag-on-fix
+  case. **`FishBalanceCore.h` changed again - run the doctest suite
+  before testing this build.**
+
+## [0.9.21] - Outlier warning wording fix
+- **The v0.9.19 warning text was factually wrong**, not just off-brief:
+  it said "other entries range $X-$Y", but $X-$Y was Tukey's fences (the
+  computed threshold), not the actual range of today's other entries -
+  those fences deliberately sit outside the real observed spread by
+  design, so the sentence was describing the wrong thing entirely, not
+  just phrased differently than requested.
+- **Rewritten to match Jack's original wording**, and one-sided: shows
+  only the bound actually crossed ("the dynamic limit calculated for
+  today is max $X/kg" for a too-high price, "min $X/kg" for a too-low
+  one) rather than always showing both — which also resolves the
+  factual problem above, since "the dynamic limit" correctly describes
+  what the number is.
+  - `CommitEntryForm`'s warning and `ReviewOrEditEntry`'s re-evaluated
+    review dialog both updated to match.
+  - The low-bound display no longer needs the `displayLow` negative-
+    clamp workaround from v0.9.19 - showing the low bound only when it
+    was actually crossed means it's mathematically guaranteed positive
+    at that point (price >= 0 by validation, and price < low to trigger
+    that branch).
+  - Button captions remain plain `MessageBox` Yes/No (a custom-captioned
+    popup like Jack's original mockup was considered and explicitly
+    declined - see ROADMAP.md item 7) - the distinction is in the
+    sentence, not the buttons.
+- No `FishBalanceCore.h` change - pure message text in `main.cpp`, no
+  doctest re-run needed this time.
+
+## [0.9.20] - Fix: v0.9.19 build failure (C++17 inline variable)
+- **v0.9.19 did not compile via the CMake/Ninja path** —
+  `error C7525: inline variables require at least '/std:c++17'` on
+  `FishBalanceCore.h`'s `kMinBaselineForOutlierCheck` constant, added in
+  v0.9.19. Root cause, found on investigation: `CMakeLists.txt` never
+  set a C++ standard at all - unlike `build_msvc.bat`
+  (`/std:c++17`) and `build_mingw.bat` (`-std=c++17`), which both
+  already specified it correctly. This is a pre-existing gap between
+  the three build paths that simply never surfaced before, because
+  nothing in the codebase had needed a genuinely C++17-only construct
+  through the CMake path until this one variable.
+- **Two-part fix**:
+  1. Changed `kMinBaselineForOutlierCheck` from `inline const` (a
+     C++17-only "inline variable") to `static const` - functionally
+     identical for a header-only constant that's never address-taken
+     across translation units, and valid in any C++ standard back to
+     C++98.
+  2. Added `set(CMAKE_CXX_STANDARD 17)` /
+     `set(CMAKE_CXX_STANDARD_REQUIRED ON)` to `CMakeLists.txt`, matching
+     the two `.bat` scripts, so this class of mismatch can't quietly
+     recur the next time a genuine C++17 feature is used.
+- Every other `inline` in `FishBalanceCore.h` is on a function (fine in
+  any standard) - checked the whole file to confirm this was the only
+  inline-variable case.
+- No behavior change from v0.9.19's intended design.
+
+## [0.9.19] - Outlier price warning (ROADMAP.md item 7)
+- **New: warns when a price looks like a typo, compared against that
+  species' other entries on the same date (all suppliers pooled).**
+  Same-day only, deliberately - no cross-day history, no dependency on
+  item 5 (Price History) or the flat-file-vs-SQLite decision behind it.
+  - **Range method**: Tukey's fences (IQR-based) - `Q1 - 1.5*IQR` to
+    `Q3 + 1.5*IQR`, computed via median-of-halves quartiles. Needs at
+    least 4 other entries for that species/date before it runs at all -
+    below that, no check, no warning, no flag.
+  - **Soft warning, never a hard block**: a standard Yes/No `MessageBox`
+    ("Click Yes to go back and fix it, No to save it as entered
+    anyway") - a genuinely unusual but correct price is always
+    enterable.
+  - **New `priceFlagged` field on `Entry`**, persisted as a 7th
+    pipe-delimited field in `.fbd` (`Supplier|Species|Kgs|Price|Date|
+    Notes|Flagged`) - backward compatible with both the pre-v0.9.19
+    6-field format and the pre-v0.9.0 4-field format.
+  - **Flagged rows are marked in the Entries list**: a warning glyph
+    prefixed on the Price cell, plus the whole row tinted (reusing the
+    app's existing red for the Debtor/Cash "out of balance" text) - via
+    a new `NM_CUSTOMDRAW` handler on that list.
+  - **The flag is "live," not set-once**: `CommitEntryForm` re-runs the
+    same check on every commit, add or update, excluding the row being
+    edited from its own baseline. Fixing a bad entry's own price
+    correctly re-evaluates and clears its own flag; it does not
+    retroactively re-check other entries that were flagged because of
+    it.
+  - **Two ways to review/dismiss a flagged row**: double-click (or Edit
+    Selected) re-evaluates it live and shows the same-style dialog
+    before falling through to the normal edit form - "No" clears the
+    flag without opening the form at all. Right-click → "Clear flag" is
+    a faster direct dismiss for when the row's already obviously fine at
+    a glance (new `WM_CONTEXTMENU` handler, only shown on flagged rows).
+  - `FishBalanceCore.h` changed (`Entry.priceFlagged`, the `.fbd`
+    parser, and two new portable functions -
+    `GatherOtherPricesForSpeciesOnDate` and `ComputeOutlierRange`) - new
+    doctest coverage added in `tests/test_fbd_loader.cpp` (7-field
+    parsing, backward compat with 4/6-field rows, a 5-field rejection
+    case) and `tests/test_aggregation.cpp` (the IQR math, hand-checked
+    for both even and odd baseline counts, plus Jack's own $5-$10/$25
+    Blue Grenadier example). **Run the doctest suite before testing
+    this build.**
+  - `DATA_FORMATS.md` updated for the new field and row format.
+
+## [0.9.18] - Fix: v0.9.17 build failure (MaybeBackupOnTimer)
+- **v0.9.17 did not compile** — `error C3861: 'MaybeBackupOnTimer':
+  identifier not found` at the `AutosaveNow()` call site. Root cause:
+  `AutosaveNow()` calls `MaybeBackupOnTimer()`, but that function (along
+  with `WriteBackupSnapshot`/`PruneOldBackups`/`BackupDir`) wasn't
+  defined until further down the file - a plain declaration-before-use
+  ordering mistake, not caught by the structural brace/paren balance
+  check used in place of an actual compiler (that check verifies
+  matching braces/parens, not that every identifier used is declared
+  first - a real gap, noted for next time).
+- **Fix**: added a forward declaration for `MaybeBackupOnTimer()` next
+  to the file's other forward declarations, the same pattern already
+  used for every other function called before its definition in this
+  file (`RefreshAll`, `CancelEdit`, etc.). No other new v0.9.17 symbol
+  had this problem - checked every definition/call-site pair for
+  `BuildFbdSaveContent`, `BackupDir`, `PruneOldBackups`,
+  `WriteBackupSnapshot`, `DoRestoreFromBackup` and confirmed each is
+  defined before (or forward-declared before) every place it's called.
+- No behavior change from v0.9.17's intended design - same rolling
+  backup feature, same throttling, same Restore from Backup menu item.
+  The v0.9.17 test checklist in ROADMAP.md still applies once this
+  version actually builds.
+
+## [0.9.17] - Timestamped rolling backups (ROADMAP.md item 4)
+- **New: `backups\` folder next to the .exe, holding rolling timestamped
+  snapshots of the current sheet** — right up until now, autosave only
+  ever overwrote a single `autosave.fbd`, so a mistake (a bad merge, an
+  accidental File > New/Open discarding unsaved work, or anything else
+  that silently clobbers the current data) had no way to recover an
+  earlier version. Snapshots are named `backup_YYYYMMDD_HHMMSS.fbd`.
+  - **Throttled, not per-autosave**: autosave already fires on every
+    field focus-loss during normal data entry (v0.9.15) - snapshotting
+    every single one of those would flood the folder with near-identical
+    files at real volume (500-1000 entries/day). A snapshot is taken at
+    most once every 10 minutes from the autosave path
+    (`MaybeBackupOnTimer`), plus one unconditional snapshot on every
+    explicit File > Save / Save As (a deliberate user action, worth its
+    own point-in-time copy regardless of the timer).
+  - **Rolling cap of 50 backups** — oldest snapshots are pruned once the
+    count exceeds that, so the folder doesn't grow unbounded
+    (`PruneOldBackups`, sorts by the sortable timestamp embedded in the
+    filename).
+  - **New menu item: File > Restore from Backup...** — a standard Open
+    dialog pointed at the `backups\` folder, reusing the same strict
+    `LoadFromFile`/`ParseFbdContent` validation as opening any other
+    `.fbd` file, so a corrupted or non-.fbd file is rejected the same
+    way. Deliberately does **not** set the restored backup as the
+    current named file - the user reviews it on screen first and must
+    explicitly File > Save As to keep it, rather than the very next
+    autosave/backup cycle silently starting to overwrite a
+    timestamp-named backup file as if it were the real document.
+  - Best-effort and silent on individual failure (no warning dialog like
+    the real `autosave.fbd` write has) - missing one rolling snapshot
+    isn't worth interrupting data entry over, since `autosave.fbd` and/or
+    the named file remain the actual save path this feature backs up,
+    not replaces.
+  - Refactored `SaveToFile` to extract its content-building logic into a
+    new `BuildFbdSaveContent()`, reused by both the real save path and
+    the backup snapshot writer - identical output, no behavior change to
+    existing saves, just avoids a second copy of that logic drifting out
+    of sync.
+  - `backups\` added to `.gitignore` alongside `autosave.fbd` and the
+    other per-machine runtime files - these are user data generated at
+    runtime, not project source.
+  - `FishBalanceCore.h` untouched by this change (pure Win32/file-I/O
+    addition in `main.cpp`), so the doctest suite doesn't need
+    re-running for this one - see DevelopmentWorkflow.md.
+
 ## [0.9.16] - Debtor/Cash: subtraction now actually works
 - **Fixed a real bug found during v0.9.15 manual testing**: typing
   `123+11-21` into Debtor or Cash silently computed `134`, not `113`.
