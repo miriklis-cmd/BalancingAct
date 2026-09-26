@@ -3,12 +3,14 @@
 #include "../FishBalanceCore.h"
 
 // A reminder for anyone adding fixtures here: the real .fbd row format is
-// Supplier|Species|Kgs|Price|Date|Notes (6 fields, 5 pipes) or the older
-// Supplier|Species|Kgs|Price (4 fields, 3 pipes) for backward compatibility.
-// A stray extra pipe silently produces a 5-field row, which the parser
-// correctly treats as "wrong field count" rather than whatever you meant to
-// test - count your pipes carefully. (This bit an earlier draft of this
-// exact test file - see the git history / CHANGELOG if curious.)
+// Supplier|Species|Kgs|Price|Date|Notes|Flagged (7 fields, 6 pipes),
+// Supplier|Species|Kgs|Price|Date|Notes (6 fields, 5 pipes, pre-v0.9.19 -
+// Flagged defaults to false), or the older Supplier|Species|Kgs|Price
+// (4 fields, 3 pipes) for backward compatibility. A stray extra pipe
+// silently produces a 5-field row, which the parser correctly treats as
+// "wrong field count" rather than whatever you meant to test - count your
+// pipes carefully. (This bit an earlier draft of this exact test file -
+// see the git history / CHANGELOG if curious.)
 
 TEST_SUITE("ParseFbdContent - valid documents") {
     TEST_CASE("a normal, well-formed file with Date/Notes loads correctly") {
@@ -42,6 +44,34 @@ TEST_SUITE("ParseFbdContent - valid documents") {
         REQUIRE(r.entries.size() == 1);
         CHECK(r.entries[0].date.empty());
         CHECK(r.entries[0].notes.empty());
+        CHECK(r.entries[0].priceFlagged == false);
+    }
+
+    TEST_CASE("backward compatibility: pre-v0.9.19 6-field format (Date/Notes "
+              "but no priceFlagged column) defaults priceFlagged to false") {
+        std::wstring content = L"BEGIN\nA|B|1.0|2.0|2026-08-05|some notes\nEND\n"; // 5 pipes = 6 fields
+        auto r = ParseFbdContent(content);
+        REQUIRE(r.ok);
+        REQUIRE(r.entries.size() == 1);
+        CHECK(r.entries[0].date == L"2026-08-05");
+        CHECK(r.entries[0].notes == L"some notes");
+        CHECK(r.entries[0].priceFlagged == false);
+    }
+
+    TEST_CASE("a 7-field row with priceFlagged=1 loads as flagged") {
+        std::wstring content = L"BEGIN\nA|B|1.0|2.0|2026-08-05|notes|1\nEND\n"; // 6 pipes = 7 fields
+        auto r = ParseFbdContent(content);
+        REQUIRE(r.ok);
+        REQUIRE(r.entries.size() == 1);
+        CHECK(r.entries[0].priceFlagged == true);
+    }
+
+    TEST_CASE("a 7-field row with priceFlagged=0 loads as not flagged") {
+        std::wstring content = L"BEGIN\nA|B|1.0|2.0|2026-08-05|notes|0\nEND\n";
+        auto r = ParseFbdContent(content);
+        REQUIRE(r.ok);
+        REQUIRE(r.entries.size() == 1);
+        CHECK(r.entries[0].priceFlagged == false);
     }
 
     TEST_CASE("a file with BEGIN/END but zero entries (fresh sheet, only "
@@ -166,9 +196,19 @@ TEST_SUITE("ParseFbdContent - v0.9.1 regression: field validation parity with "
 }
 
 TEST_SUITE("ParseFbdContent - malformed rows") {
-    TEST_CASE("a row with the wrong field count (neither 4 nor 6) is skipped "
+    TEST_CASE("a row with the wrong field count (not 4, 6, or 7) is skipped "
               "and counted") {
         std::wstring content = L"BEGIN\nA|B|C\nEND\n"; // 2 pipes = 3 fields
+        auto r = ParseFbdContent(content);
+        REQUIRE(r.ok);
+        CHECK(r.entries.empty());
+        CHECK(r.skippedLines == 1);
+    }
+
+    TEST_CASE("a 5-field row (between the two valid pre-flag/pre-outlier "
+              "counts) is still rejected, not silently accepted as one or "
+              "the other") {
+        std::wstring content = L"BEGIN\nA|B|1.0|2.0|2026-08-05\nEND\n"; // 4 pipes = 5 fields
         auto r = ParseFbdContent(content);
         REQUIRE(r.ok);
         CHECK(r.entries.empty());

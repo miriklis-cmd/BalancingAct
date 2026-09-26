@@ -1,121 +1,122 @@
-# Run from inside your local BalancingAct repo folder, AFTER copying the
-# v0.9.16 zip's contents into it (overwriting existing files, adding new
-# ones - tests/, NETWORK_ARCHITECTURE.md, FishBalanceCore.h, etc.)
+# push_update.ps1 - commit and push the v0.9.29-v0.9.33 updates
 #
-# Usage (from inside the repo folder):
+# Run from the repo root with:
 #   powershell -ExecutionPolicy Bypass -File .\push_update.ps1
 #
-# Fixed from the previous version, which failed two ways: (1) a literal
-# '&' in the commit message broke PowerShell's argument-passing to the
-# native git.exe process, fragmenting the message and causing git to
-# reject the whole commit as invalid pathspecs - fixed by writing the
-# message to a temp file and using `git commit -F`, which sidesteps
-# command-line argument parsing entirely, regardless of what characters
-# are in the message; (2) the script didn't check $LASTEXITCODE after
-# each git call, so it kept going after the commit had already failed -
-# fixed by checking explicitly and stopping on any real failure.
+# Follows DevelopmentWorkflow.md's Git section:
+# - commit message goes through a temp file + `git commit -F`, never `-m`
+#   with a large/multi-line string (a literal `&` in a message previously
+#   broke PowerShell's argument-passing to git.exe)
+# - $LASTEXITCODE is checked after every git invocation
+# - a remote is confirmed to exist before doing anything else
+#
+# This one script covers five version bumps at once (v0.9.29-v0.9.33)
+# since push_update.ps1 wasn't regenerated between them - it's a single
+# commit covering all five, not five separate commits, since they were
+# never pushed individually in between.
 
 $ErrorActionPreference = "Stop"
 
-function Assert-Success($step) {
+function Test-LastExit($stepName) {
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "FAILED at: $step (exit code $LASTEXITCODE)" -ForegroundColor Red
+        Write-Host "FAILED at step: $stepName (exit code $LASTEXITCODE)" -ForegroundColor Red
         exit 1
     }
 }
 
-# Check a remote actually exists before doing anything else - this repo
-# folder may never have been connected to GitHub with `git remote add`.
-$remotes = git remote
-if (-not $remotes) {
-    Write-Host "No git remote configured in this folder." -ForegroundColor Red
-    Write-Host "Run this once, then re-run this script:" -ForegroundColor Yellow
-    Write-Host "  git remote add origin https://github.com/miriklis-cmd/BalancingAct.git" -ForegroundColor Yellow
+# 1. Verify a remote is actually configured before doing anything else.
+$remotes = git remote 2>&1
+Test-LastExit "git remote"
+if ([string]::IsNullOrWhiteSpace($remotes)) {
+    Write-Host "FAILED: no git remote configured in this repo. Add one (e.g. 'git remote add origin <url>') before running this script." -ForegroundColor Red
     exit 1
 }
 
-Write-Host "Staging all changes..." -ForegroundColor Cyan
+# 2. Stage everything.
 git add -A
-Assert-Success "git add"
+Test-LastExit "git add -A"
 
-Write-Host "Committing..." -ForegroundColor Cyan
-$commitMessage = @"
-Catch-up sync: v0.9.1 through v0.9.16 (data integrity, testing, UX, docs)
+# 3. Write the commit message to a temp file and commit with -F.
+$commitMessage = @'
+v0.9.29-v0.9.33: real backup timer, dirty-flag discard prompt, silent backup-failure fix, File > New backup gap, Restore dialog folder fix
 
-This is a catch-up commit covering everything since the last real sync
-point (v0.9.0 confirmed working) - not a per-version history, since
-intermediate snapshots weren't preserved. Grouped by category:
+v0.9.29 - Every-3-minutes rolling backup wasn't actually driven by a
+real timer:
+- Jack: "Every 3 minute save not working." MaybeBackupOnTimer() only
+  ever ran inside the focus-loss autosave path - a screen left idle
+  after one edit (no further tabbing/clicking) never got backed up no
+  matter how long it sat.
+- Fix: a genuine recurring WM_TIMER (ID_TIMER_BACKUP_CHECK, 30s poll)
+  now drives it independently of focus-loss activity.
 
-Data-integrity fixes (external audit follow-up):
-- LoadFromFile: transactional loading, rejects malformed/truncated/NaN-
-  laden files instead of silently corrupting the recovery autosave
-- Undo Delete no longer contaminates a different sheet after New/Open/
-  Recent Files/rename
-- Total Overview tab: fixed showing Kgs under the "Total (`$)" column
-- Every save path (.fbd, settings.txt, recent.txt, emails.txt, CSV) now
-  atomic and checked, not a truncate-and-hope
-- Supplier email addresses now migrate correctly on rename/merge, with a
-  user prompt when merged suppliers have conflicting saved emails
-- Debtor/Cash and the in-progress Add Entry draft now persist reliably
-  (autosave on focus-loss, not per-keystroke - a real performance fix at
-  business volume of 500-1000 entries/day)
-- Debtor/Cash expression parser: subtraction now works correctly
-  (123+11-21 computes 113, not 134)
-- Print Preview memory use capped (150 DPI preview cap + page limit)
+v0.9.30 - Discard-confirmation prompt now tracks real unsaved changes:
+- Jack: "should be kinda? dirty flagged?. If something changes, dialog
+  comes up. Once saved, then no dialog until something changes again."
+- Fix: new g_dirty flag, set on every real data mutation (entry
+  commit/delete/undo, Debtor/Cash edit, Manage Names apply), cleared on
+  New/Open/Recent Files/Restore from Backup/Save/Save As/startup.
+  ConfirmDiscardCurrentData() now checks g_dirty instead of "is there
+  any data at all."
 
-Testing infrastructure (new):
-- FishBalanceCore.h: platform-independent core logic extracted from
-  main.cpp, zero Win32 dependency
-- doctest-based suite in tests/ - 83 test cases / 244 assertions,
-  covering parsing, formatting, aggregation, CSV/email logic, and a
-  regression test for every fixed bug above
+v0.9.31 - Rolling backup snapshots now warn on failure instead of
+failing silently:
+- Jack retested v0.9.29's fix and corrected his original account: it
+  was actually v0.9.28, with ~5 active Add Entry commits over roughly a
+  minute, not a fully idle screen - asked to "look properly at the
+  code" rather than re-diagnose from his own uncertain recollection.
+- Root cause found: WriteBackupSnapshot() discarded
+  WriteFileAtomicUtf8's return value outright. A failing write (locked/
+  unwritable backups\ folder, disk full) was completely silent, and its
+  own tracking state (g_lastBackupContent/g_lastBackupTick) was updated
+  as if it had succeeded anyway - suppressing any near-term retry.
+- Fix: return value now checked; on failure, warns once (new
+  g_backupFailWarned flag, same pattern as the existing autosave-
+  failure warning) and deliberately does NOT update the tracking state,
+  so the very next autosave retries immediately instead of waiting out
+  a full interval believing a snapshot already succeeded.
 
-Build quality:
-- Zero warnings under MSVC /W4 (was 12), all genuinely fixed not
-  suppressed - CMakeLists.txt /EHsc, real safe-CRT usage under MSVC,
-  portable fallback under MinGW, uninitialized-variable false positives
-  cleaned up
-- NOMINMAX fix for a std::min/std::max + windows.h macro collision
+v0.9.32 - File > New now takes a backup snapshot before discarding too:
+- Jack found this directly while smoke-testing the v0.9.28 checklist:
+  added an entry, File > New, confirmed the discard prompt, checked
+  backups\ - nothing there.
+- v0.9.28 gave Open/Recent Files/Restore from Backup an unconditional
+  snapshot before discarding, but left File > New out on the reasoning
+  "New already clears to a blank sheet, nothing to preserve" - backwards,
+  since it's the data being discarded that needs protecting, not the new
+  blank sheet.
+- Fix: DoFileNew() now calls WriteBackupSnapshot() right after the
+  discard prompt is confirmed, same as the other three paths.
 
-UI/UX:
-- Combo box first-paint rendering bug fixed
-- Manage Names hint text no longer cut off
-- Status bar added (version + current filename)
-- Data entry workflow: Species clears after Add Entry (Supplier stays),
-  new Duplicate Supplier and Species button, Manage Names Apply button
-  reflects whether there's actually anything to apply
+v0.9.33 - Restore from Backup now reliably opens to the backups folder:
+- Jack: "shouldnt it take me to backup folder? it didnt. last folder i
+  used in open was desktop and went there instead."
+- Documented Windows quirk: GetOpenFileNameW only honors lpstrInitialDir
+  on the very first time a process ever shows that dialog; after that it
+  reuses whatever folder was last navigated to in ANY prior call.
+- Fix: pre-fill lpstrFile with the backups folder path (trailing
+  backslash, no filename) before opening the dialog - a path in
+  lpstrFile takes priority over the remembered folder, unlike
+  lpstrInitialDir, so this reliably forces the dialog into backups\
+  every time.
 
-Architecture and planning (docs):
-- ARCHITECTURE.md: tab-vs-menu-item placement principle
-- BUSINESS_RULES.md: corrected business model documentation (consignment
-  agency, not buy-resell - Price is market price achieved, not cost)
-- NETWORK_ARCHITECTURE.md (new): full multi-machine/encryption/hosting
-  design - shared-key encryption with local DPAPI caching, AD-gated
-  access, single-writer file locking with read-only fallback, SQLite
-  hybrid reporting layer
-- SecurityHardeningRegister.md: encryption plan finalized, cross-
-  referenced rather than duplicated
-- ROADMAP.md: three-bucket sequencing (A: single-machine complete; C:
-  multi-machine/security; B: main.cpp decomposition), Price History
-  feature fully spec'd
-
-Process fix:
-- DevelopmentWorkflow.md: corrected an inaccurate claim that Claude
-  maintains a real git repo and commits to it (verified false - no
-  credentials exist in Claude's sandbox). Established that a fresh
-  commit-and-push script is generated after every version bump from now
-  on, in PowerShell (.ps1), written via a temp file to avoid the
-  argument-passing bug that broke this exact script the first time.
-"@
+See CHANGELOG.md's [0.9.29]/[0.9.30]/[0.9.31]/[0.9.32]/[0.9.33] entries
+for full detail. Full smoke-test pass (20 items, v0.9.24 through
+v0.9.33) completed and confirmed by Jack on 2026-09-25 - see ROADMAP.md.
+'@
 
 $tempFile = [System.IO.Path]::GetTempFileName()
 Set-Content -Path $tempFile -Value $commitMessage -Encoding UTF8
+
 git commit -F $tempFile
-Assert-Success "git commit"
-Remove-Item $tempFile
+$commitExitCode = $LASTEXITCODE
+Remove-Item $tempFile -ErrorAction SilentlyContinue
+if ($commitExitCode -ne 0) {
+    Write-Host "FAILED at step: git commit (exit code $commitExitCode)" -ForegroundColor Red
+    exit 1
+}
 
-Write-Host "Pushing to origin..." -ForegroundColor Cyan
+# 4. Push.
 git push
-Assert-Success "git push"
+Test-LastExit "git push"
 
-Write-Host "Done." -ForegroundColor Green
+Write-Host "Done: v0.9.29-v0.9.33 committed and pushed." -ForegroundColor Green

@@ -2,6 +2,17 @@ cmake_minimum_required(VERSION 3.15)
 project(FishBalanceManager LANGUAGES CXX)
 enable_language(RC)
 
+# Explicitly require C++17, matching build_msvc.bat's /std:c++17 and
+# build_mingw.bat's -std=c++17. Without this, MSVC's CMake/Ninja path
+# silently falls back to an older default standard (unlike the two
+# direct-invocation .bat scripts) - a pre-existing gap between the three
+# build paths that only surfaced once FishBalanceCore.h needed a genuine
+# C++17-only feature (v0.9.19's ComputeOutlierRange). Fixed here at the
+# root rather than just avoiding C++17 features going forward, so this
+# doesn't quietly resurface the next time a newer construct is used.
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 add_executable(FishBalanceManager WIN32 main.cpp app_icon.rc)
 target_link_libraries(FishBalanceManager PRIVATE comctl32 comdlg32 shell32 winspool)
 

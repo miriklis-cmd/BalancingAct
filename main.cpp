@@ -66,7 +66,30 @@
 
 static std::vector<Entry> g_entries;
 static bool g_autosaveFailWarned = false; // avoid repeating the same warning on every single autosave attempt while a problem persists (e.g. disk full) - reset once a save succeeds again
+static bool g_backupFailWarned = false; // v0.9.31: same warn-once/reset-on-recovery pattern as g_autosaveFailWarned, but for rolling backup snapshots (see WriteBackupSnapshot)
 static std::wstring g_currentFile; // empty = unsaved / using autosave only
+
+// v0.9.30: tracks whether anything has actually changed since the last
+// explicit Save/Save As or the last successful load (New/Open/Recent
+// Files/Restore from Backup/startup). ConfirmDiscardCurrentData() uses
+// this instead of "is there any data at all" - Jack: "should be kinda
+// dirty flagged - if something changes, dialog comes up. Once saved,
+// then no dialog until something changes again." Deliberately does NOT
+// get cleared by autosave.fbd writes or rolling backup snapshots - those
+// are safety nets, not the deliberate "I'm done with this" save the
+// prompt exists to protect.
+static bool g_dirty = false;
+
+// Rolling timestamped backups (ROADMAP.md item 4). Autosave fires on every
+// focus-loss during normal data entry (see ARCHITECTURE.md's data flow
+// notes) - far too often to snapshot every time without flooding the
+// backups folder - so snapshots are throttled to at most one every
+// kBackupIntervalMs, plus one unconditional snapshot on every explicit
+// named-file Save/Save As (a deliberate user action, not just a keystroke).
+static ULONGLONG g_lastBackupTick = 0;
+static std::string g_lastBackupContent; // content of the most recent backup snapshot - see MaybeBackupOnTimer's no-change skip (v0.9.26)
+const ULONGLONG kBackupIntervalMs = 3ULL * 60ULL * 1000ULL; // 3 minutes (was 10 - tightened 2026-09-24 after a real data-loss incident; cap stayed at 50 by choice, so this trades full-day rolling coverage for ~2.5hr of more frequent snapshots)
+const int kMaxBackups = 50; // rolling cap - oldest snapshots pruned beyond this
 
 // ---------------------------------------------------------------------------
 // Control IDs
@@ -75,7 +98,7 @@ static std::wstring g_currentFile; // empty = unsaved / using autosave only
 enum {
     ID_FILE_NEW = 1, ID_FILE_OPEN, ID_FILE_SAVE, ID_FILE_SAVEAS, ID_FILE_PRINT, ID_FILE_PRINT_PREVIEW,
     ID_FILE_EXPORT_CSV, ID_FILE_EMAIL_SUPPLIERS, ID_FILE_EXIT, ID_FILE_ABOUT, ID_EDIT_UNDO_DELETE,
-    ID_TOOLS_MANAGE_NAMES,
+    ID_TOOLS_MANAGE_NAMES, ID_FILE_RESTORE_BACKUP, ID_ENTRY_CLEAR_FLAG,
     ID_TAB = 100,
     ID_CMB_SUPPLIER = 200, ID_CMB_PRODUCT, ID_EDIT_KGS, ID_EDIT_PRICE, ID_BTN_ADD, ID_BTN_DELETE,
     ID_BTN_EDIT, ID_BTN_CANCEL_EDIT, ID_EDIT_FILTER, ID_DTP_DATE, ID_EDIT_NOTES, ID_BTN_DUPLICATE,
@@ -91,7 +114,12 @@ enum {
     // Up to 8 Recent Files slots
     ID_RECENT_BASE = 900,
     // One-shot delayed retry for the combo box first-paint fix (see WM_TIMER)
-    ID_TIMER_FIRST_PAINT_FIX = 951
+    ID_TIMER_FIRST_PAINT_FIX = 951,
+    // Recurring backup-check tick (v0.9.29 fix) - see WM_TIMER. Independent
+    // of AutosaveNow()/focus-loss, so an idle screen with unsaved data
+    // still gets backed up on schedule, not just when the user happens to
+    // tab between fields.
+    ID_TIMER_BACKUP_CHECK = 952
 };
 
 // ---------------------------------------------------------------------------
@@ -210,6 +238,7 @@ void ClearUndoState();
 void RefreshEntriesList();
 void RefreshOverviewList();
 void RefreshBySpeciesList();
+void MaybeBackupOnTimer(); // ROADMAP.md item 4 - defined below AutosaveNow, which calls it
 void RefreshBreakdownList();
 void RememberRecentFile(const std::wstring& path);
 void RebuildRecentMenu();
@@ -558,7 +587,13 @@ bool SaveSupplierEmails() {
 // File persistence (simple pipe-delimited UTF-8 text format, *.fbd)
 // ---------------------------------------------------------------------------
 
-bool SaveToFile(const std::wstring& path, std::wstring* outError = nullptr) {
+// Builds the full .fbd content string (Debtor/Cash, in-progress draft
+// entry-form fields, then BEGIN/entries/END) from the current on-screen
+// and in-memory state. Factored out of SaveToFile so the rolling-backup
+// snapshot writer (WriteBackupSnapshot, see ROADMAP.md item 4) can build
+// the exact same content without duplicating this logic - identical
+// output to what SaveToFile has always written, just named and reused.
+std::string BuildFbdSaveContent() {
     std::string content;
     auto writeLine = [&](const std::wstring& line) {
         content += WToUtf8(line) + "\n";
@@ -593,11 +628,15 @@ bool SaveToFile(const std::wstring& path, std::wstring* outError = nullptr) {
     for (auto& e : g_entries) {
         std::wstring line = e.supplier + L"|" + e.product + L"|" +
                              ToFixed(e.kgs, 4) + L"|" + ToFixed(e.price, 4) + L"|" +
-                             e.date + L"|" + e.notes;
+                             e.date + L"|" + e.notes + L"|" + (e.priceFlagged ? L"1" : L"0");
         writeLine(line);
     }
     writeLine(L"END");
-    return WriteFileAtomicUtf8(path, content, outError);
+    return content;
+}
+
+bool SaveToFile(const std::wstring& path, std::wstring* outError = nullptr) {
+    return WriteFileAtomicUtf8(path, BuildFbdSaveContent(), outError);
 }
 
 // Loads and STRICTLY validates a .fbd file. This function is now just the
@@ -800,6 +839,7 @@ void RefreshEntriesList() {
         std::wstring kgsS = FormatKg(e.kgs);
         ListView_SetItemText(hListEntries, row, 2, const_cast<LPWSTR>(kgsS.c_str()));
         std::wstring priceS = FormatMoney(e.price);
+        if (e.priceFlagged) priceS = L"\u26A0 " + priceS; // ROADMAP.md item 7 - see the NM_CUSTOMDRAW row tint below too
         ListView_SetItemText(hListEntries, row, 3, const_cast<LPWSTR>(priceS.c_str()));
         std::wstring totalS = FormatMoney(e.Total());
         ListView_SetItemText(hListEntries, row, 4, const_cast<LPWSTR>(totalS.c_str()));
@@ -1003,6 +1043,7 @@ void AutosaveNow() {
     bool ok = SaveToFile(GetExeDir() + L"\\autosave.fbd");
     if (ok) {
         g_autosaveFailWarned = false; // problem (if any) has cleared - a future failure should warn again
+        MaybeBackupOnTimer();
     } else if (!g_autosaveFailWarned && g_hMainWnd) {
         g_autosaveFailWarned = true;
         MessageBoxW(g_hMainWnd,
@@ -1013,6 +1054,132 @@ void AutosaveNow() {
             L"repeat again until autosave succeeds at least once.",
             L"Autosave Failed", MB_OK | MB_ICONWARNING);
     }
+}
+
+std::wstring BackupDir() { return GetExeDir() + L"\\backups"; }
+
+// Deletes the oldest backup snapshots once there are more than kMaxBackups
+// of them. Filenames embed a sortable YYYYMMDD_HHMMSS timestamp (see
+// WriteBackupSnapshot), so a plain lexicographic sort is also a
+// chronological sort - oldest names sort first.
+void PruneOldBackups() {
+    std::wstring dir = BackupDir();
+    std::vector<std::wstring> names;
+    WIN32_FIND_DATAW fd{};
+    HANDLE h = FindFirstFileW((dir + L"\\backup_*.fbd").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+            names.push_back(fd.cFileName);
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+
+    if ((int)names.size() <= kMaxBackups) return;
+    std::sort(names.begin(), names.end());
+    size_t toDelete = names.size() - (size_t)kMaxBackups;
+    for (size_t i = 0; i < toDelete; i++) {
+        _wremove((dir + L"\\" + names[i]).c_str());
+    }
+}
+
+// Extracts a filesystem-safe label for which file was open when a backup
+// snapshot was taken - just the base filename without path or extension
+// (e.g. "21112" for "...\21112.fbd"), or "unsaved" if no named file is
+// open yet (working from autosave.fbd only). Always safe to use directly
+// in a filename: it comes from a path that was itself already a valid,
+// successfully-opened Windows filename.
+std::wstring CurrentFileLabelForBackup() {
+    if (g_currentFile.empty()) return L"unsaved";
+    size_t slash = g_currentFile.find_last_of(L"\\/");
+    std::wstring name = (slash == std::wstring::npos) ? g_currentFile : g_currentFile.substr(slash + 1);
+    size_t dot = name.find_last_of(L'.');
+    if (dot != std::wstring::npos) name = name.substr(0, dot);
+    return name.empty() ? L"unsaved" : name;
+}
+
+// Writes a timestamped snapshot of `content` to the backups folder,
+// independent of wherever autosave/Save is writing to.
+//
+// v0.9.31: this used to be "best-effort and silent on failure" - the
+// WriteFileAtomicUtf8 return value was discarded outright, so a failed
+// write (disk full, backups\ folder unwritable, antivirus lock, etc.) was
+// completely invisible: no warning shown, and g_lastBackupContent/
+// g_lastBackupTick were still updated as if the snapshot had succeeded,
+// which also suppressed the near-term retry that MaybeBackupOnTimer's
+// no-change skip would otherwise have allowed. Jack reported "every 3
+// minute save not working" after several real Add Entry commits and
+// couldn't explain it purely by the missing WM_TIMER (fixed in v0.9.29) -
+// this silent failure is the other real candidate: unlike autosave.fbd
+// (which does warn - see AutosaveNow), a failing rolling backup gave no
+// sign anything was wrong. Now checked and warned once, same pattern as
+// g_autosaveFailWarned, reset the next time a snapshot actually succeeds.
+void WriteBackupSnapshot(const std::string& content) {
+    std::wstring dir = BackupDir();
+    CreateDirectoryW(dir.c_str(), nullptr); // no-op (fails harmlessly) if it already exists
+
+    SYSTEMTIME st{};
+    GetLocalTime(&st);
+    wchar_t stamp[32];
+    swprintf(stamp, 32, L"%04d%02d%02d_%02d%02d%02d",
+             st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+    // Source-file label goes AFTER the timestamp, not before - v0.9.27,
+    // Jack: "if I'm opening different files I won't know which one it's
+    // snapshotting." The timestamp must stay the leading, fixed-width part
+    // of the filename for PruneOldBackups' "sort by name = sort by time"
+    // logic to keep working; a label before it would sort backups by
+    // source file first, breaking chronological pruning entirely.
+    std::wstring path = dir + L"\\backup_" + stamp + L"_" + CurrentFileLabelForBackup() + L".fbd";
+
+    std::wstring writeError;
+    bool ok = WriteFileAtomicUtf8(path, content, &writeError);
+    if (ok) {
+        g_backupFailWarned = false; // problem (if any) has cleared - a future failure should warn again
+        g_lastBackupContent = content;
+        g_lastBackupTick = GetTickCount64();
+        PruneOldBackups();
+    } else if (!g_backupFailWarned && g_hMainWnd) {
+        g_backupFailWarned = true;
+        std::wstring msg =
+            L"Warning: a rolling backup snapshot could not be saved just now (" + writeError + L").\n\n"
+            L"Your current data is still safe in memory, and autosave.fbd is a separate file "
+            L"unaffected by this. If you haven't saved to a named file recently, use File > Save "
+            L"now to make sure nothing is lost. This warning won't repeat again until a backup "
+            L"snapshot succeeds.";
+        MessageBoxW(g_hMainWnd, msg.c_str(), L"Backup Snapshot Failed", MB_OK | MB_ICONWARNING);
+        // Deliberately NOT updating g_lastBackupContent/g_lastBackupTick on
+        // failure - previously they were updated unconditionally, which made
+        // MaybeBackupOnTimer think this snapshot had already been taken and
+        // wait out the full interval again before trying once more. Leaving
+        // them untouched means the very next AutosaveNow (e.g. on the next
+        // field's focus loss) retries immediately instead of waiting.
+    }
+}
+
+// Convenience overload for callers (explicit Save/Save As) that haven't
+// already built the content themselves.
+void WriteBackupSnapshot() { WriteBackupSnapshot(BuildFbdSaveContent()); }
+
+// Called after every successful autosave - takes a rolling snapshot only
+// if kBackupIntervalMs has elapsed since the last one, so continuous
+// focus-loss autosaving during normal data entry doesn't flood the
+// backups folder with near-identical files. v0.9.26: also skips writing
+// entirely if nothing has actually changed since the last snapshot - no
+// point spending a file (and disk write) on a duplicate of what's already
+// there just because the interval happened to elapse while the sheet sat
+// idle or the user was only browsing/sorting without editing anything.
+void MaybeBackupOnTimer() {
+    ULONGLONG now = GetTickCount64();
+    if (g_lastBackupTick != 0 && (now - g_lastBackupTick) < kBackupIntervalMs) return;
+
+    std::string content = BuildFbdSaveContent();
+    if (content == g_lastBackupContent) {
+        // Nothing changed - reset the timer anyway so we don't re-check
+        // (rebuild + compare) on every subsequent no-op autosave before
+        // the next full interval is actually up.
+        g_lastBackupTick = now;
+        return;
+    }
+    WriteBackupSnapshot(content);
 }
 
 void RefreshAll(bool doAutosave) {
@@ -1070,6 +1237,26 @@ void CommitEntryForm() {
     DateTime_GetSystemtime(hDtpDate, &dtpVal);
     std::wstring date = FormatDateISO(dtpVal);
 
+    // Outlier price check (ROADMAP.md item 7) - "is this price a typo?"
+    // against this species' OTHER entries on this same date, all
+    // suppliers pooled. Excludes the row being edited from its own
+    // baseline, so fixing entry 1's typo re-evaluates entry 1 correctly
+    // rather than comparing it to itself. Silent as of v0.9.23 - no
+    // interrupting dialog here (changed at Jack's request: a modal on
+    // every keystroke-driven Add Entry broke his data-entry flow at real
+    // volume). A flagged price is committed exactly as entered, just
+    // marked in the Entries list (warning glyph + red tint) for review
+    // later via double-click or right-click "Clear flag" - never a hard
+    // block, nothing here ever refuses to accept a genuinely unusual but
+    // correct price. Combined with v0.9.22's whole-group re-evaluation, a
+    // false-positive flag will often clear itself automatically once more
+    // similar-priced entries come in, without the user doing anything.
+    int outlierExcludeIdx = (g_editIndex >= 0 && g_editIndex < (int)g_entries.size()) ? g_editIndex : -1;
+    std::vector<double> outlierBaseline = GatherOtherPricesForSpeciesOnDate(g_entries, product, date, outlierExcludeIdx);
+    OutlierRange outlierRange;
+    bool priceFlagged = ComputeOutlierRange(outlierBaseline, outlierRange) &&
+                         (price < outlierRange.low || price > outlierRange.high);
+
     if (g_editIndex >= 0 && g_editIndex < (int)g_entries.size()) {
         // Updating an existing row.
         Entry& e = g_entries[g_editIndex];
@@ -1079,6 +1266,7 @@ void CommitEntryForm() {
         e.price = price;
         e.date = date;
         e.notes = notes;
+        e.priceFlagged = priceFlagged;
         g_editIndex = -1;
         SetWindowTextW(hBtnAdd, L"Add Entry");
     } else {
@@ -1090,8 +1278,17 @@ void CommitEntryForm() {
         e.price = price;
         e.date = date;
         e.notes = notes;
+        e.priceFlagged = priceFlagged;
         g_entries.push_back(e);
     }
+
+    // Re-check every entry for this species/date, not just the one just
+    // committed - a new/edited price can change whether an EARLIER entry
+    // still looks normal too (see ROADMAP.md item 7's discussion of the
+    // "first entry poisons the baseline" gap this closes).
+    ReevaluateOutlierFlagsForSpeciesOnDate(g_entries, product, date);
+
+    g_dirty = true; // v0.9.30 - an add/update means there's something to lose again
 
     SetWindowTextW(hEditKgs, L"");
     SetWindowTextW(hEditPrice, L"");
@@ -1191,10 +1388,16 @@ void DeleteSelectedEntry() {
 
     g_undoEntry = e;
     g_undoIndex = sel;
+    std::wstring undoProduct = e.product, undoDate = e.date; // captured before erase invalidates e
     g_hasUndo = true;
     if (g_hEditMenu) EnableMenuItem(g_hEditMenu, ID_EDIT_UNDO_DELETE, MF_BYCOMMAND | MF_ENABLED);
 
     g_entries.erase(g_entries.begin() + sel);
+    g_dirty = true; // v0.9.30
+    // Removing this entry can change whether its siblings still look like
+    // outliers (the baseline they're judged against just shrank) - see
+    // ReevaluateOutlierFlagsForSpeciesOnDate / ROADMAP.md item 7.
+    ReevaluateOutlierFlagsForSpeciesOnDate(g_entries, undoProduct, undoDate);
     // Deleting shifts every later index down by one, and may remove the
     // row currently loaded in the form - simplest and safest is to just
     // drop out of edit mode rather than try to track the shift.
@@ -1208,6 +1411,10 @@ void UndoDelete() {
     if (idx < 0) idx = 0;
     if (idx > (int)g_entries.size()) idx = (int)g_entries.size();
     g_entries.insert(g_entries.begin() + idx, g_undoEntry);
+    g_dirty = true; // v0.9.30
+    // Restoring it can equally change whether siblings still look normal -
+    // same reasoning as the delete path above, symmetric in reverse.
+    ReevaluateOutlierFlagsForSpeciesOnDate(g_entries, g_undoEntry.product, g_undoEntry.date);
     g_hasUndo = false;
     if (g_hEditMenu) EnableMenuItem(g_hEditMenu, ID_EDIT_UNDO_DELETE, MF_BYCOMMAND | MF_GRAYED);
     if (g_editIndex != -1) CancelEdit();
@@ -1266,6 +1473,65 @@ void LoadEntryIntoForm(int idx) {
     SendMessageW(hCmbSupplier, CB_SETEDITSEL, 0, MAKELPARAM(0, -1));
 }
 
+// Entry point for reviewing/editing a row from the Entries list (double-
+// click, or Edit Selected) - ROADMAP.md item 7. An unflagged row goes
+// straight into the normal edit form, same as always. A flagged row shows
+// the same-style Yes/No warning again first, re-evaluated live against
+// today's CURRENT other entries (excluding this row) - so if whatever was
+// skewing the baseline has since been fixed, this reflects that instead of
+// repeating stale numbers. "Yes" proceeds into the normal edit form for a
+// closer look/fix; "No" clears the flag without opening the edit form at
+// all - the same outcome as the right-click "Clear flag" menu item, just
+// reached via a review step instead of a direct dismiss.
+void ReviewOrEditEntry(int idx) {
+    if (idx < 0 || idx >= (int)g_entries.size()) return;
+    Entry& e = g_entries[idx];
+    if (e.priceFlagged) {
+        std::vector<double> baseline = GatherOtherPricesForSpeciesOnDate(g_entries, e.product, e.date, idx);
+        OutlierRange range;
+        bool stillOutlier = ComputeOutlierRange(baseline, range) && (e.price < range.low || e.price > range.high);
+        wchar_t msg[512];
+        if (stillOutlier) {
+            bool tooHigh = e.price > range.high;
+            double limit = tooHigh ? range.high : range.low; // low is guaranteed >0 here - see CommitEntryForm's identical logic
+            swprintf(msg, 512,
+                L"This entry is $%.2f/kg for %s on %s.\n"
+                L"The dynamic limit calculated for today is %s $%.2f/kg.\n\n"
+                L"Still looks like a typo?\n\n"
+                L"Click Yes to edit it, No to leave it as-is.",
+                e.price, e.product.c_str(), e.date.c_str(), tooHigh ? L"max" : L"min", limit);
+        } else {
+            swprintf(msg, 512,
+                L"This entry's price ($%.2f) was flagged earlier as unusual for %s on %s, but no "
+                L"longer looks unusual against the current entries. Click Yes to edit it anyway, "
+                L"No to clear the flag and leave it as-is.",
+                e.price, e.product.c_str(), e.date.c_str());
+        }
+        int r = MessageBoxW(g_hMainWnd, msg, L"Flagged Price", MB_YESNO | MB_ICONWARNING);
+        if (r == IDNO) {
+            e.priceFlagged = false;
+            RefreshAll();
+            return; // Dismissed - no edit form opened.
+        }
+        // Yes - fall through into the normal edit form below.
+    }
+    LoadEntryIntoForm(idx);
+}
+
+// Right-click "Clear flag" (ROADMAP.md item 7) - a faster dismiss than
+// ReviewOrEditEntry's dialog for when you can already see at a glance the
+// price is fine and don't need the re-evaluated review text. Acts on
+// whichever row the WM_CONTEXTMENU handler below selected just before
+// showing the popup.
+void ClearSelectedEntryFlag() {
+    int selRow = ListView_GetNextItem(hListEntries, -1, LVNI_SELECTED);
+    if (selRow < 0 || selRow >= (int)g_filteredIndices.size()) return;
+    int idx = g_filteredIndices[selRow];
+    if (idx < 0 || idx >= (int)g_entries.size()) return;
+    g_entries[idx].priceFlagged = false;
+    RefreshAll();
+}
+
 void EditSelectedEntry() {
     int selRow = ListView_GetNextItem(hListEntries, -1, LVNI_SELECTED);
     if (selRow < 0) {
@@ -1273,21 +1539,57 @@ void EditSelectedEntry() {
         return;
     }
     if (selRow < 0 || selRow >= (int)g_filteredIndices.size()) return;
-    LoadEntryIntoForm(g_filteredIndices[selRow]);
+    ReviewOrEditEntry(g_filteredIndices[selRow]);
+}
+
+// Confirms before something is about to silently replace all on-screen
+// data (File > New, File > Open, a Recent File, Restore from Backup).
+// Returns true if it's safe to proceed (nothing meaningful to lose, or the
+// user confirmed discarding it), false if the caller should abort and
+// leave the current data untouched. `actionPhrase` completes the sentence
+// "Discard the current data and <actionPhrase>?".
+//
+// v0.9.24: File > Open and the Recent Files menu had NO such check at
+// all - confirmed as a real bug via Jack's own report: opening a
+// different file silently discarded unsaved edits in memory, with no
+// warning, and (since RefreshAll() autosaves on every load) also
+// overwrote autosave.fbd with the newly-opened file's content, wiping out
+// the only on-disk copy of that in-progress work too. File > New already
+// had this check (Discard the current data and start a new sheet?) and
+// Restore from Backup had its own near-identical inline copy - both now
+// route through this one shared function instead of three separate,
+// driftable copies of the same logic.
+bool ConfirmDiscardCurrentData(const wchar_t* actionPhrase) {
+    // v0.9.30: was "is there any data at all" (g_entries non-empty or
+    // Debtor/Cash non-blank) - correct but overly blunt, since it kept
+    // warning even immediately after an explicit Save, when there was
+    // nothing actually at risk of being lost. Now keyed off g_dirty
+    // instead, so it only asks when something has genuinely changed
+    // since the last save/load.
+    if (!g_dirty) return true;
+    wchar_t msg[256];
+    swprintf(msg, 256, L"Discard the current data and %s?", actionPhrase);
+    int r = MessageBoxW(g_hMainWnd, msg, L"Confirm", MB_YESNO | MB_ICONQUESTION);
+    return r == IDYES;
 }
 
 void DoFileNew() {
-    if (!g_entries.empty()) {
-        int r = MessageBoxW(g_hMainWnd, L"Discard the current data and start a new sheet?", L"New",
-                             MB_YESNO | MB_ICONQUESTION);
-        if (r != IDYES) return;
-    }
+    if (!ConfirmDiscardCurrentData(L"start a new sheet")) return;
+    // v0.9.32: File > New was the one discard path v0.9.28 missed - it was
+    // reasoned as "already clears to a blank sheet, nothing to preserve,"
+    // but that's backwards: it's not the new blank sheet that needs
+    // protecting, it's whatever unsaved work is about to be thrown away to
+    // get there, exactly like Open/Recent Files/Restore from Backup. Jack
+    // found this directly: added an entry, did File > New, confirmed the
+    // discard prompt, checked backups\ - nothing there.
+    WriteBackupSnapshot();
     g_entries.clear();
-    SetWindowTextW(hEditDebtor, L"");
+    SetWindowTextW(hEditDebtor, L""); // triggers EN_CHANGE, which sets g_dirty - explicitly cleared below
     SetWindowTextW(hEditCash, L"");
     g_currentFile.clear();
     CancelEdit();
     ClearUndoState();
+    g_dirty = false; // v0.9.30 - fresh blank sheet, nothing to lose yet
     UpdateTitle();
     RefreshAll();
 }
@@ -1303,10 +1605,19 @@ void DoFileOpen() {
     ofn.lpstrDefExt = L"fbd";
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
     if (GetOpenFileNameW(&ofn)) {
+        if (!ConfirmDiscardCurrentData(L"open the selected file")) return;
+        // v0.9.28: take an unconditional backup snapshot of whatever is about
+        // to be discarded, before LoadFromFile overwrites g_entries in memory.
+        // This closes the exposure window the v0.9.24 data-loss incident
+        // found - confirming "discard and open" isn't itself a backup, only
+        // an acknowledgement, so the data being discarded still needs its own
+        // snapshot the same way an explicit Save already gets one.
+        WriteBackupSnapshot();
         if (LoadFromFile(file)) {
             g_currentFile = file;
             CancelEdit();
             ClearUndoState();
+            g_dirty = false; // v0.9.30 - freshly loaded, matches disk
             UpdateTitle();
             RefreshAll();
             RememberRecentFile(file);
@@ -1317,6 +1628,72 @@ void DoFileOpen() {
                 L"saved. Nothing has been changed.",
                 L"Error", MB_OK | MB_ICONERROR);
         }
+    }
+}
+
+// Lets the user browse the rolling backups folder (see WriteBackupSnapshot)
+// and load one to recover from a mistake. Deliberately does NOT set
+// g_currentFile to the backup's path - a restored backup should be
+// reviewed and explicitly Saved/Saved As by the user, not silently treated
+// as "the" named file and overwritten by the next autosave/backup cycle.
+void DoRestoreFromBackup() {
+    std::wstring dir = BackupDir();
+    DWORD attrs = GetFileAttributesW(dir.c_str());
+    if (attrs == INVALID_FILE_ATTRIBUTES || !(attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+        MessageBoxW(g_hMainWnd,
+            L"No backups folder exists yet. Rolling backups are taken automatically as you "
+            L"work (roughly every 3 minutes) and every time you use File > Save - there just "
+            L"isn't one yet this session.",
+            L"No Backups Yet", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+
+    wchar_t file[MAX_PATH] = L"";
+    // v0.9.33: lpstrInitialDir alone isn't enough - GetOpenFileNameW only
+    // honors it the very first time this process ever shows the dialog.
+    // After that (e.g. an earlier File > Open into some other folder),
+    // Windows reuses whatever folder was last navigated to, regardless of
+    // lpstrInitialDir. Jack: "if i click restore from backup - shouldnt it
+    // take me to backup folder? it didnt... last folder i used in open was
+    // desktop and went there instead." The documented workaround is to
+    // pre-fill lpstrFile itself with the target folder (trailing backslash,
+    // no filename) - a path in lpstrFile takes priority over the
+    // remembered folder, unlike lpstrInitialDir.
+    std::wstring initialFile = dir + L"\\";
+    wcsncpy_s(file, MAX_PATH, initialFile.c_str(), _TRUNCATE);
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = g_hMainWnd;
+    ofn.lpstrFilter = L"Fish Balance Backups (*.fbd)\0*.fbd\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFile = file;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrInitialDir = dir.c_str(); // kept as a fallback for the true first-ever call
+    ofn.lpstrDefExt = L"fbd";
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+    if (!GetOpenFileNameW(&ofn)) return;
+
+    if (!ConfirmDiscardCurrentData(L"load this backup (nothing on disk is touched unless you Save afterwards)")) return;
+
+    // v0.9.28: same reasoning as DoFileOpen - snapshot what's about to be
+    // discarded before the restore overwrites it in memory.
+    WriteBackupSnapshot();
+
+    if (LoadFromFile(file)) {
+        g_currentFile.clear();
+        CancelEdit();
+        ClearUndoState();
+        g_dirty = false; // v0.9.30 - freshly loaded; note a subsequent Save As will re-clear it too
+        UpdateTitle();
+        RefreshAll();
+        MessageBoxW(g_hMainWnd,
+            L"Backup loaded. Review the data, then use File > Save As to keep it if this is "
+            L"what you wanted.",
+            L"Backup Loaded", MB_OK | MB_ICONINFORMATION);
+    } else {
+        MessageBoxW(g_hMainWnd,
+            L"Could not load that backup - it isn't readable or doesn't look like a valid "
+            L".fbd file. Nothing has been changed.",
+            L"Error", MB_OK | MB_ICONERROR);
     }
 }
 
@@ -1334,8 +1711,10 @@ void DoFileSaveAs() {
         std::wstring err;
         if (SaveToFile(file, &err)) {
             g_currentFile = file;
+            g_dirty = false; // v0.9.30 - explicit save, matches disk again
             UpdateTitle();
             RememberRecentFile(file);
+            WriteBackupSnapshot(); // deliberate user Save - always worth its own snapshot, not just the timer
             MessageBoxW(g_hMainWnd, L"Saved.", L"Save", MB_OK | MB_ICONINFORMATION);
         } else {
             MessageBoxW(g_hMainWnd, (L"Could not save the file: " + err).c_str(), L"Error", MB_OK | MB_ICONERROR);
@@ -1348,6 +1727,10 @@ void DoFileSave() {
     std::wstring err;
     if (!SaveToFile(g_currentFile, &err))
         MessageBoxW(g_hMainWnd, (L"Could not save the file: " + err).c_str(), L"Error", MB_OK | MB_ICONERROR);
+    else {
+        g_dirty = false; // v0.9.30 - explicit save, matches disk again
+        WriteBackupSnapshot(); // deliberate user Save - always worth its own snapshot, not just the timer
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1503,6 +1886,11 @@ void DoAbout() {
         L"file (if any) is currently open. Use File > Save As... to keep a permanent copy you can "
         L"refer back to later, and File > Open... to load it again (File > Recent Files remembers "
         L"your last few).\n\n"
+        L"A timestamped backup snapshot is also kept automatically (roughly every 3 minutes, every "
+        L"time you use File > Save, and every time you switch files via File > Open, Recent Files, "
+        L"or Restore from Backup) in a 'backups' folder next to the .exe, in case something gets "
+        L"overwritten by mistake. Use File > Restore from Backup... to browse and load one - the "
+        L"last 50 are kept.\n\n"
         L"Use the Filter box above the entries list to find rows quickly, or click a column header "
         L"to sort by it (click again to reverse). Deleting a row asks for confirmation, and "
         L"Edit > Undo Delete brings back the last one you removed.\n\n"
@@ -1759,7 +2147,7 @@ void ManageApply() {
     // this rename/merge was meant to eliminate. Simplest safe rule: any
     // actual rename invalidates the buffer, rather than trying to track
     // whether that specific row was affected.
-    if (changed > 0) ClearUndoState();
+    if (changed > 0) { ClearUndoState(); g_dirty = true; } // v0.9.30
     RefreshAll();
     PopulateManageList();
     SetWindowTextW(g_hManageTarget, L"");
@@ -2759,6 +3147,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             // isn't called in that case, leaving g_entries at its default
             // empty state.
         }
+        // v0.9.30: LoadFromFile's SetWindowTextW(hEditDebtor/hEditCash,...)
+        // calls above trigger EN_CHANGE, which would otherwise leave this
+        // fresh session starting as "dirty" for data that just came off
+        // disk. Explicitly clean here regardless of which branch ran -
+        // a successful reload matches disk, a failed one left a blank
+        // sheet with nothing entered yet either way.
+        g_dirty = false;
         // Restore the association with the last named file (if any) so
         // Save/title bar refer to it, without overwriting the freshly
         // reloaded autosave content. Skipped when the autosave failed to
@@ -2774,6 +3169,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // settles, catching any late re-invalidation that the synchronous
         // attempt in wWinMain might miss.
         SetTimer(hwnd, ID_TIMER_FIRST_PAINT_FIX, 50, nullptr);
+
+        // v0.9.29 fix: MaybeBackupOnTimer() used to only ever run inside
+        // AutosaveNow(), which itself only fires on focus-loss/explicit
+        // save - so a screen left idle after one edit (cursor still in a
+        // field, no further tabbing/clicking) never got backed up at all,
+        // no matter how much real time passed. This recurring tick calls
+        // MaybeBackupOnTimer() directly on a real clock instead, so the
+        // ~3-minute rolling backup actually happens in the background.
+        // 30s is just the polling granularity, not the backup interval -
+        // MaybeBackupOnTimer()'s own kBackupIntervalMs/no-change checks
+        // still decide whether anything actually gets written each tick.
+        SetTimer(hwnd, ID_TIMER_BACKUP_CHECK, 30000, nullptr);
         return 0;
     }
 
@@ -2819,13 +3226,30 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         if (hdr->hwndFrom == hListEntries && hdr->code == (UINT)NM_DBLCLK) {
             LPNMITEMACTIVATE nia = (LPNMITEMACTIVATE)lParam;
             if (nia->iItem >= 0 && nia->iItem < (int)g_filteredIndices.size())
-                LoadEntryIntoForm(g_filteredIndices[nia->iItem]);
+                ReviewOrEditEntry(g_filteredIndices[nia->iItem]);
             return 0;
         }
         if (hdr->hwndFrom == hListEntries && hdr->code == (UINT)LVN_COLUMNCLICK) {
             LPNMLISTVIEW nmlv = (LPNMLISTVIEW)lParam;
             SortEntriesBy(nmlv->iSubItem);
             return 0;
+        }
+        if (hdr->code == (UINT)NM_CUSTOMDRAW && hdr->hwndFrom == hListEntries) {
+            LPNMLVCUSTOMDRAW cd = (LPNMLVCUSTOMDRAW)lParam;
+            if (cd->nmcd.dwDrawStage == CDDS_PREPAINT) return CDRF_NOTIFYITEMDRAW;
+            if (cd->nmcd.dwDrawStage == CDDS_ITEMPREPAINT) {
+                int row = (int)cd->nmcd.dwItemSpec;
+                bool flagged = row >= 0 && row < (int)g_filteredIndices.size() &&
+                               g_entries[g_filteredIndices[row]].priceFlagged;
+                if (flagged) {
+                    // ROADMAP.md item 7 - same red used for the Debtor/Cash
+                    // "out of balance" text color elsewhere in this app,
+                    // paired with a light tint behind it for the whole row.
+                    cd->clrTextBk = RGB(255, 235, 235);
+                    cd->clrText = RGB(200, 0, 0);
+                }
+                return CDRF_DODEFAULT;
+            }
         }
         if (hdr->code == (UINT)NM_CUSTOMDRAW &&
             (hdr->hwndFrom == hListOverview || hdr->hwndFrom == hListBreakdown || hdr->hwndFrom == hListBySpecies)) {
@@ -2842,6 +3266,45 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         break;
     }
 
+    // Right-click "Clear flag" (ROADMAP.md item 7) - only shown for a row
+    // that's actually flagged; a plain row gets no context menu at all.
+    case WM_CONTEXTMENU: {
+        if ((HWND)wParam == hListEntries) {
+            POINT pt;
+            pt.x = (short)LOWORD(lParam);
+            pt.y = (short)HIWORD(lParam);
+            int row;
+            if (pt.x == -1 && pt.y == -1) {
+                // Invoked via keyboard (Shift+F10 / context menu key), not
+                // a real click position - fall back to the selected row.
+                row = ListView_GetNextItem(hListEntries, -1, LVNI_SELECTED);
+                if (row >= 0) {
+                    RECT rc;
+                    ListView_GetItemRect(hListEntries, row, &rc, LVIR_BOUNDS);
+                    pt.x = rc.left;
+                    pt.y = rc.top;
+                    ClientToScreen(hListEntries, &pt);
+                }
+            } else {
+                POINT clientPt = pt;
+                ScreenToClient(hListEntries, &clientPt);
+                LVHITTESTINFO ht{};
+                ht.pt = clientPt;
+                row = ListView_HitTest(hListEntries, &ht);
+            }
+            if (row >= 0 && row < (int)g_filteredIndices.size() &&
+                g_entries[g_filteredIndices[row]].priceFlagged) {
+                ListView_SetItemState(hListEntries, row, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+                HMENU hCtx = CreatePopupMenu();
+                AppendMenuW(hCtx, MF_STRING, ID_ENTRY_CLEAR_FLAG, L"Clear flag");
+                TrackPopupMenu(hCtx, TPM_RIGHTBUTTON, pt.x, pt.y, 0, g_hMainWnd, nullptr);
+                DestroyMenu(hCtx);
+            }
+            return 0;
+        }
+        break;
+    }
+
     case WM_COMMAND: {
         int id = LOWORD(wParam);
         int code = HIWORD(wParam);
@@ -2850,10 +3313,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             size_t idx = (size_t)(id - ID_RECENT_BASE);
             if (idx < g_recentFiles.size()) {
                 std::wstring path = g_recentFiles[idx];
+                if (!ConfirmDiscardCurrentData(L"open that file")) return 0;
+                // v0.9.28: same reasoning as DoFileOpen - snapshot what's
+                // about to be discarded before Recent Files overwrites it.
+                WriteBackupSnapshot();
                 if (LoadFromFile(path)) {
                     g_currentFile = path;
                     CancelEdit();
                     ClearUndoState();
+                    g_dirty = false; // v0.9.30 - freshly loaded, matches disk
                     UpdateTitle();
                     RefreshAll();
                     RememberRecentFile(path); // move to front
@@ -2899,6 +3367,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case ID_EDIT_DEBTOR:
         case ID_EDIT_CASH:
             if (code == EN_CHANGE) {
+                g_dirty = true; // v0.9.30
                 RecalcTotals();
             }
             if (code == EN_KILLFOCUS) {
@@ -2938,6 +3407,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case ID_FILE_OPEN: DoFileOpen(); return 0;
         case ID_FILE_SAVE: DoFileSave(); return 0;
         case ID_FILE_SAVEAS: DoFileSaveAs(); return 0;
+        case ID_FILE_RESTORE_BACKUP: DoRestoreFromBackup(); return 0;
+        case ID_ENTRY_CLEAR_FLAG: ClearSelectedEntryFlag(); return 0;
         case ID_FILE_EXPORT_CSV: DoExportCsv(); return 0;
         case ID_FILE_PRINT:
         case ID_BTN_PRINT_BREAKDOWN: PrintBreakdownReport(hwnd); return 0;
@@ -2957,12 +3428,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         if (wParam == ID_TIMER_FIRST_PAINT_FIX) {
             KillTimer(hwnd, ID_TIMER_FIRST_PAINT_FIX);
             FixComboBoxFirstPaint();
+        } else if (wParam == ID_TIMER_BACKUP_CHECK) {
+            MaybeBackupOnTimer();
         }
         return 0;
     }
 
     case WM_DESTROY: {
         KillTimer(hwnd, ID_TIMER_FIRST_PAINT_FIX);
+        KillTimer(hwnd, ID_TIMER_BACKUP_CHECK);
         SaveSettings();
         bool ok = SaveToFile(GetExeDir() + L"\\autosave.fbd");
         if (!ok && !g_autosaveFailWarned) {
@@ -3020,6 +3494,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     AppendMenuW(hFileMenu, MF_STRING, ID_FILE_OPEN, L"&Open...");
     AppendMenuW(hFileMenu, MF_STRING, ID_FILE_SAVE, L"&Save");
     AppendMenuW(hFileMenu, MF_STRING, ID_FILE_SAVEAS, L"Save &As...");
+    AppendMenuW(hFileMenu, MF_STRING, ID_FILE_RESTORE_BACKUP, L"Restore from &Backup...");
     g_hRecentMenu = CreatePopupMenu();
     AppendMenuW(g_hRecentMenu, MF_STRING | MF_GRAYED, 0, L"(none yet)");
     AppendMenuW(hFileMenu, MF_POPUP, (UINT_PTR)g_hRecentMenu, L"Recent Files");

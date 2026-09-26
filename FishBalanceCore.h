@@ -45,6 +45,12 @@ struct Entry {
     double price = 0.0;
     std::wstring date;  // ISO format YYYY-MM-DD; empty means not set (e.g. loaded from an older file)
     std::wstring notes;
+    // Set when this entry's price was flagged as a same-day outlier at
+    // commit time (ROADMAP.md item 7) and the user chose to save it
+    // anyway. Cleared automatically the next time this entry is
+    // committed (edited) and its price no longer looks unusual against
+    // that day's other entries - see CommitEntryForm in main.cpp.
+    bool priceFlagged = false;
     double Total() const { return kgs * price; }
 };
 
@@ -363,7 +369,108 @@ inline SpeciesStatsResult ComputeSpeciesStats(const std::vector<Entry>& entries)
 }
 
 // ---------------------------------------------------------------------------
-// .fbd file content parsing (portable core of LoadFromFile)
+// Outlier price detection (ROADMAP.md item 7)
+//
+// "Is this price a typo?" - checked against that species' OTHER entries on
+// the same date (all suppliers pooled - see ROADMAP.md's discussion of
+// why). Deliberately a same-day check only: no cross-day history, no
+// dependency on item 5 (Price History) or the flat-file-vs-SQLite
+// decision behind it.
+// ---------------------------------------------------------------------------
+
+// Every entry for `product` on `date`, excluding `excludeIndex` (pass -1 to
+// exclude nothing) - so editing an existing entry compares it against the
+// OTHER entries, never against its own old price.
+inline std::vector<double> GatherOtherPricesForSpeciesOnDate(
+        const std::vector<Entry>& entries, const std::wstring& product,
+        const std::wstring& date, int excludeIndex) {
+    std::vector<double> prices;
+    for (size_t i = 0; i < entries.size(); i++) {
+        if ((int)i == excludeIndex) continue;
+        if (entries[i].product == product && entries[i].date == date)
+            prices.push_back(entries[i].price);
+    }
+    return prices;
+}
+
+struct OutlierRange { double low = 0, high = 0; };
+
+// Tukey's fences: sort the baseline prices, split into halves for Q1/Q3
+// (median-of-halves method - for an odd count, the middle element is
+// excluded from both halves), then flag anything outside
+// [Q1 - 1.5*IQR, Q3 + 1.5*IQR]. Returns false (range left untouched) if
+// there are fewer than kMinBaselineForOutlierCheck prices to work with -
+// too few points for quartiles to mean anything, so no check is possible.
+// static, not inline: this app's CMakeLists.txt build doesn't set
+// /std:c++17 (only tests/run_tests.ps1's manual cl invocation does), and
+// a plain namespace-scope "inline" variable is a C++17-only feature -
+// static const has been valid since long before C++11 and needs nothing
+// newer, with the same effect here (this header is only ever consumed
+// as a value, never address-taken across translation units).
+static const size_t kMinBaselineForOutlierCheck = 4;
+
+// See the floor comment inside ComputeOutlierRange below for why this
+// exists. 20% chosen with Jack 2026-09-22, after 5 identical $10 entries
+// flagged a genuinely normal $12 sixth entry (IQR=0 without this floor).
+static const double kOutlierFloorPercent = 0.20;
+
+inline bool ComputeOutlierRange(std::vector<double> prices, OutlierRange& outRange) {
+    if (prices.size() < kMinBaselineForOutlierCheck) return false;
+    std::sort(prices.begin(), prices.end());
+    size_t n = prices.size();
+
+    auto medianOfRange = [&](size_t lo, size_t hi) {
+        size_t count = hi - lo; // half-open [lo, hi)
+        if (count % 2 == 1) return prices[lo + count / 2];
+        return (prices[lo + count / 2 - 1] + prices[lo + count / 2]) / 2.0;
+    };
+
+    size_t half = n / 2;
+    double q1 = medianOfRange(0, half);
+    double q3 = (n % 2 == 0) ? medianOfRange(half, n) : medianOfRange(half + 1, n);
+    double iqr = q3 - q1;
+
+    // Floor: a baseline with little or no price spread (e.g. several
+    // identical entries - confirmed with Jack: five $10 entries in a row
+    // gives IQR = 0, which without this floor makes the fence collapse to
+    // exactly [$10, $10] and flags ANY deviation at all, even a cent) would
+    // otherwise make Tukey's fence useless for a market where normal
+    // day-to-day price movement exists. Floors the IQR used in the fence
+    // at a percentage of the baseline's own median price, so a tight/
+    // uniform baseline still allows reasonable movement instead of
+    // demanding an exact match. 20% chosen with Jack 2026-09-22.
+    double median = medianOfRange(0, n);
+    double effectiveIqr = std::max(iqr, kOutlierFloorPercent * median);
+
+    outRange.low = q1 - 1.5 * effectiveIqr;
+    outRange.high = q3 + 1.5 * effectiveIqr;
+    return true;
+}
+
+// Silently re-checks EVERY entry for `product` on `date`, not just one -
+// each entry judged leave-one-out against the CURRENT full group (same
+// method as a single check, just applied to the whole group at once).
+// Call this after anything that changes which prices exist for a
+// species/date - a commit (add/edit), a delete, or an undo-delete -
+// since any of those can shift the baseline every sibling entry is
+// judged against. A flag is therefore a live reflection of the current
+// data, not a permanent record of a past decision: an entry manually
+// cleared (or dismissed via ReviewOrEditEntry) can be silently
+// re-flagged later if a subsequent change to a SIBLING entry makes it
+// look unusual again - see the discussion around ROADMAP.md item 7 for
+// why this is the intended behavior, not a bug.
+inline void ReevaluateOutlierFlagsForSpeciesOnDate(std::vector<Entry>& entries,
+        const std::wstring& product, const std::wstring& date) {
+    for (size_t i = 0; i < entries.size(); i++) {
+        if (entries[i].product != product || entries[i].date != date) continue;
+        std::vector<double> baseline = GatherOtherPricesForSpeciesOnDate(entries, product, date, (int)i);
+        OutlierRange range;
+        entries[i].priceFlagged = ComputeOutlierRange(baseline, range) &&
+                                   (entries[i].price < range.low || entries[i].price > range.high);
+    }
+}
+
+
 //
 // Takes the FULL, ALREADY-DECODED file content as a single wstring (the
 // Win32-specific "open the file, read the bytes, convert from UTF-8" step
@@ -460,19 +567,24 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
             double kgs = 0, price = 0;
             bool numbersOk = parts.size() >= 4 && ParseDoubleW(parts[2], kgs) && kgs >= 0 &&
                               ParseDoubleW(parts[3], price) && price >= 0;
-            if ((parts.size() == 4 || parts.size() == 6) && numbersOk) {
+            if ((parts.size() == 4 || parts.size() == 6 || parts.size() == 7) && numbersOk) {
                 Entry e;
                 e.supplier = TrimW(parts[0]);
                 e.product = TrimW(parts[1]);
                 e.kgs = kgs;
                 e.price = price;
-                if (parts.size() == 6) {
+                if (parts.size() == 6 || parts.size() == 7) {
                     e.date = parts[4];
                     e.notes = parts[5];
                 }
+                if (parts.size() == 7) {
+                    e.priceFlagged = (parts[6] == L"1");
+                }
                 // parts.size() == 4 means a file saved before dates/notes
-                // existed - e.date and e.notes just stay empty, handled
-                // gracefully everywhere they're displayed.
+                // existed; parts.size() == 6 means a file saved before the
+                // outlier-flag field existed (ROADMAP.md item 7) - in both
+                // cases the missing field(s) just default (empty / false),
+                // handled gracefully everywhere they're displayed.
                 if (e.supplier.empty() || e.product.empty()) {
                     // A row with no Supplier or Species can't have come from
                     // the app's own entry form (that's rejected at entry

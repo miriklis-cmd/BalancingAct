@@ -18,6 +18,7 @@ autosave.fbd
 settings.txt
 recent.txt
 emails.txt
+backups/
 
 # Editor/IDE
 .vs/
