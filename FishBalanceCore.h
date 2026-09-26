@@ -492,6 +492,13 @@ struct FbdLoadResult {
     // no draft was pending. draftDate is only ever set to a genuinely valid
     // ISO date (or left empty) - see ParseFbdContent.
     std::wstring draftSupplier, draftSpecies, draftKgs, draftPrice, draftNotes, draftDate;
+    // Set only for a file that's been through Finalize Day (ROADMAP.md item
+    // 3) and written into the history\ folder - a genuinely valid ISO date
+    // (same validation as draftDate) recording which business day this
+    // snapshot was locked in as, or empty for an ordinary (unlocked)
+    // working file. main.cpp uses this to lock the entry form/Debtor/Cash
+    // and relabel the Finalize button when such a file is loaded.
+    std::wstring finalizedDate;
 };
 
 inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
@@ -513,6 +520,7 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
     std::vector<Entry> newEntries;
     std::wstring debtor, cash;
     std::wstring draftSupplier, draftSpecies, draftKgs, draftPrice, draftNotes, draftDate;
+    std::wstring finalizedDate;
     bool inData = false;
     bool sawRecognizedMarker = false; // any of DEBTOR=/CASH=/BEGIN/END/DRAFT_* actually seen
     bool sawBegin = false, sawEnd = false;
@@ -547,6 +555,14 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
             std::wstring candidate = line.substr(11);
             SimpleDate d;
             if (ParseISODate(candidate, d)) draftDate = candidate;
+            sawRecognizedMarker = true;
+        } else if (line.rfind(L"FINALIZED=", 0) == 0) {
+            // Same validation approach as DRAFT_DATE just above - a
+            // corrupted/hand-edited value is dropped rather than treating
+            // the file as locked based on garbage.
+            std::wstring candidate = line.substr(10);
+            SimpleDate d;
+            if (ParseISODate(candidate, d)) finalizedDate = candidate;
             sawRecognizedMarker = true;
         } else if (line == L"BEGIN") {
             inData = true;
@@ -624,6 +640,7 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
     result.draftPrice = draftPrice;
     result.draftNotes = draftNotes;
     result.draftDate = draftDate;
+    result.finalizedDate = finalizedDate;
     result.skippedLines = skippedLines;
     return result;
 }

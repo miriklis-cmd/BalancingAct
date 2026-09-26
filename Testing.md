@@ -80,6 +80,32 @@ targeted fix.
       title bar shows "(unsaved)" afterwards (not the backup's own
       filename), and File > Save As is required to keep it
 
+## Finalize Day (v0.9.40-0.9.41, ROADMAP.md item 3)
+
+- [ ] Debtor/Cash labels line up vertically and neither wraps/clips
+      (v0.9.41 fix)
+- [ ] Finalize, then "Start a new entry sheet now?" → Yes gives a fully
+      unlocked, unsaved blank sheet — not still locked to the finalized
+      file (v0.9.41 fix)
+
+- [ ] Finalize Day is blocked with a clear message while Debtor+Cash
+      doesn't balance against the entered total; no date prompt appears
+- [ ] Once balanced, Finalize Day prompts for a date (defaulting to today
+      or the current file's own date if its name parses as one), and
+      confirming writes `history\<date>.fbd` next to the exe
+- [ ] After finalizing, the entry form, Add/Edit/Delete/Duplicate, and
+      Debtor/Cash are all disabled; the button relabels to Un-finalize Day
+- [ ] Status bar shows the finalized date while locked
+- [ ] "Start a new entry sheet now?" appears after finalizing; Yes clears
+      the list/Debtor/Cash without touching the just-finalized file or its
+      lock, No leaves the locked screen as-is
+- [ ] Un-finalize Day asks only for a Yes/No confirmation, then re-enables
+      everything
+- [ ] Closing and reopening a finalized file restores the locked state
+      correctly
+- [ ] Finalizing again onto a date that already has a `history\<date>.fbd`
+      file warns before overwriting it
+
 ## Reports
 
 - [ ] Total Overview: per-supplier totals and grand total are correct

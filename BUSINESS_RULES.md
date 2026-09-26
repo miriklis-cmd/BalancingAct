@@ -114,3 +114,37 @@ understood:
   title bar always shows which named file, if any, is currently
   associated with the open data, so it's clear whether "Save" will write
   to a real file or just prompt for one.
+
+## Finalize Day (ROADMAP.md item 3, added v0.9.40)
+
+- **A day is a business decision, not a calendar date.** Jack's team
+  doesn't necessarily balance one calendar day per file: Monday and
+  Tuesday are often balanced together as one Tuesday-dated day (Monday
+  isn't an "official" market day but does see sales), Saturday sales are
+  often balanced on Monday with Saturday's own date, and on "special"
+  weeks (Easter, Christmas) Monday can be an official sale balanced
+  separately from Tuesday. The app deliberately does **not** try to
+  detect a mismatch between today's date and the open file's date — that
+  would be wrong more often than right against this real workflow.
+  Instead, staff explicitly click **Finalize Day** once they've actually
+  finished balancing, and choose the date it represents at that point.
+- **Finalize is blocked outright — no override — unless Debtor+Cash
+  exactly balances** against the entered total (the same balance check
+  already shown on Tab 1's Book Reconciliation panel). There is no way to
+  lock in a day that doesn't balance.
+- **Locking disables every control that could change the numbers**
+  (entry form, Add/Edit/Delete/Duplicate, Debtor, Cash) rather than
+  intercepting each attempted change — chosen directly with Jack over his
+  own initial idea (ask to un-finalize or discard on every attempted
+  add/delete) for much lower implementation risk, and because it reuses
+  the same "grey everything out" pattern already planned for Bucket C's
+  multi-machine read-only mode.
+- **Un-finalizing needs only a confirmation dialog**, no reason text —
+  it's a normal, expected correction workflow (a mistake noticed after
+  the fact), not something that needs justifying.
+- **A finalized day is written to `history\<date>.fbd`** — a permanent
+  record, separate from the rolling, pruned `backups\` safety-net
+  snapshots (see DATA_FORMATS.md). This is also the single, predictable,
+  enumerable convention the Bucket C SQLite ingestion plan
+  (NETWORK_ARCHITECTURE.md) and the future Price History feature both
+  need for "which files count as history."

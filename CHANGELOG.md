@@ -12,6 +12,71 @@ possible, grouped into logical releases.
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.9.41] - Two real bugs found in v0.9.40's first live check
+
+- **Cash label was word-wrapping and getting clipped.** `hLblCash`'s box
+  was only 65px wide - too narrow for its actual text, "Cash amount(s):" -
+  so the STATIC control silently wrapped it onto a second line that its
+  22px-tall box then clipped, leaving "Cash" visible and "amount(s):" cut
+  to a sliver sitting lower than the Debtor label beside it. Jack noticed
+  it as "labels/text boxes are misaligned - one is higher than the other"
+  while looking closely at the screen after finalizing a day for the first
+  time - a pre-existing layout bug, not something the Finalize Day change
+  introduced, just never previously looked at that closely. Widened the
+  label and shifted `hEditCash` right to match.
+- **"Start a new entry sheet now?" left the new sheet locked.** Choosing
+  Yes on Finalize Day's follow-up prompt cleared the on-screen list but
+  deliberately left `g_currentFile`/`g_finalizedDate` pointing at the file
+  that was just finalized - the reasoning at the time was "the finalized
+  file shouldn't be touched," but that also meant the fresh, blank "next
+  day" sheet inherited the finalized lock: every entry control stayed
+  disabled and the button still read "Un-finalize Day." Jack: "Finalise -
+  then clicking new clears the file, but not the unfinalise button." Fixed
+  to detach fully - clear `g_currentFile` and `g_finalizedDate` and
+  re-apply the (now unlocked) state, exactly like File > New already does.
+
+## [0.9.40] - Finalize Day (ROADMAP.md item 3)
+
+A new way to lock in a business day once it's genuinely balanced, replacing
+the vaguer "day-rollover" idea that used to sit in the roadmap. Built after
+extensive back-and-forth with Jack about how his team's actual workflow
+runs (Monday/Tuesday often balanced together as one Tuesday-dated day,
+Saturday sales often balanced on Monday with Saturday's date, occasional
+"special week" exceptions around Easter/Christmas) — the upshot was that
+auto-detecting "today doesn't match this file's date" would be wrong more
+often than it was right, so this feature doesn't try. Instead, staff
+finalize a day explicitly, whenever they've actually finished balancing it.
+
+**How it works:**
+- A new **Finalize Day** button sits on Tab 1, under Book Reconciliation.
+- Finalize is blocked outright — no override — unless Debtor + Cash
+  exactly balances against the entered total. Jack: "for finalise - you
+  should stop allowing entries once finalize is clicked."
+- Clicking it (once balanced) prompts for the date this day is being
+  finalized as, defaulting to today, or to the current file's own name if
+  that already looks like an ISO date (e.g. a file named `2026-09-20.fbd`).
+- Confirming writes a permanent snapshot to a new `history\<date>.fbd` file
+  (a new subfolder next to the exe, separate from the rolling `backups\`
+  safety-net snapshots) and marks the working file itself as finalized
+  (`FINALIZED=<date>` — see DATA_FORMATS.md).
+- Once finalized, every control that could change the numbers — the entry
+  form, Add/Edit/Delete/Duplicate, Debtor, Cash — is disabled ("grey
+  everything out"), and the button relabels itself to **Un-finalize Day**.
+  This was chosen over Jack's own first idea (intercept every add/delete
+  attempt and ask to un-finalize or discard) for being much lower-risk to
+  implement correctly, and for reusing the same disable-everything pattern
+  already planned for multi-machine read-only mode.
+- After a successful finalize, the app asks first — "Start a new entry
+  sheet now?" — rather than silently clearing the screen.
+- **Un-finalize Day** just asks for confirmation (no reason required),
+  takes a backup snapshot first, then re-enables everything.
+- A `FINALIZED=` line in a `.fbd` file is validated the same strict way
+  `DRAFT_DATE=` already is — an invalid or hand-edited value is dropped
+  rather than treated as a valid lock.
+
+New unit tests in `test_fbd_loader.cpp` cover a valid `FINALIZED=` line,
+an ordinary file with no such line, and an invalid value being dropped.
+
 ## [0.9.39] - Dark Mode removed entirely — reverted to the v0.9.33 baseline
 
 Dark Mode went through five straight iterations (v0.9.34 through v0.9.38)

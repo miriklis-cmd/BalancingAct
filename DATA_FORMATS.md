@@ -30,6 +30,7 @@ Plain UTF-8 text. Example:
 ```
 DEBTOR=16853.15+340
 CASH=250.7+1826+2552+286
+FINALIZED=2026-08-05
 DRAFT_SUPPLIER=Jcasement
 DRAFT_SPECIES=Garfish
 DRAFT_KGS=13.8
@@ -45,6 +46,14 @@ END
 - `DEBTOR=` / `CASH=` — the raw text typed into those fields on the Data
   Entry tab. Stored as-is (including any `+`-separated sum expression),
   re-parsed on load.
+- `FINALIZED=` — added v0.9.40 (Finalize Day, ROADMAP.md item 3). Present
+  only once a day has been locked in via the Finalize Day button; holds
+  the ISO date it was finalized as. Absent on an ordinary, still-editable
+  working file. Validated as a real ISO date on load exactly like
+  `DRAFT_DATE=` — an invalid/hand-edited value is silently dropped rather
+  than treated as a valid lock. Loading a file with this line disables the
+  entry form, Add/Edit/Delete/Duplicate, and Debtor/Cash (see
+  BUSINESS_RULES.md) until Un-finalize Day clears it again.
 - `DRAFT_SUPPLIER=` / `DRAFT_SPECIES=` / `DRAFT_KGS=` / `DRAFT_PRICE=` /
   `DRAFT_NOTES=` / `DRAFT_DATE=` — whatever's currently typed into the
   "Add Entry" form (Supplier/Species/Kgs/Price/Notes/Date), *before*
@@ -73,6 +82,18 @@ END
 `autosave.fbd` (next to the exe) uses this same format and is
 continuously overwritten on every data change. Named files created via
 File > Save As use the identical format with a user-chosen filename.
+
+## `history\` — Finalize Day snapshots
+
+Added v0.9.40 (ROADMAP.md item 3). A folder next to the exe, created on
+first use, holding one permanent `.fbd` file per finalized business day,
+named by that day's ISO date: `history\2026-09-20.fbd`. Same `.fbd` format
+as above (including the `FINALIZED=` line), written once at the moment of
+finalizing and not touched again unless the day is re-finalized (with a
+confirm-overwrite prompt). Separate from the rolling, throttled/pruned
+`backups\` folder (ROADMAP.md item 4) that already exists next to the exe
+for crash/mistake recovery — `history\` files are deliberate, permanent
+records of a locked-in day, never pruned.
 
 ## `settings.txt` — window/session state
 

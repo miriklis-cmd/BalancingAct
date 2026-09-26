@@ -314,4 +314,27 @@ TEST_SUITE("ParseFbdContent - draft entry form persistence") {
         CHECK(r.entries[0].supplier == L"RealSupplier");
         CHECK(r.draftSupplier == L"NotYetAdded");
     }
+
+    TEST_CASE("a valid FINALIZED line is parsed (Finalize Day, ROADMAP.md "
+              "item 3) - marks this document as a locked history\\ snapshot") {
+        std::wstring content = L"FINALIZED=2026-09-20\nBEGIN\nEND\n";
+        auto r = ParseFbdContent(content);
+        REQUIRE(r.ok);
+        CHECK(r.finalizedDate == L"2026-09-20");
+    }
+
+    TEST_CASE("an ordinary (non-finalized) file has an empty finalizedDate") {
+        std::wstring content = L"BEGIN\nEND\n";
+        auto r = ParseFbdContent(content);
+        REQUIRE(r.ok);
+        CHECK(r.finalizedDate.empty());
+    }
+
+    TEST_CASE("an invalid FINALIZED value is dropped rather than passed "
+              "through, same validation as DRAFT_DATE") {
+        std::wstring content = L"BEGIN\nEND\nFINALIZED=not-a-date\n";
+        auto r = ParseFbdContent(content);
+        REQUIRE(r.ok);
+        CHECK(r.finalizedDate.empty());
+    }
 }

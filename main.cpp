@@ -69,6 +69,14 @@ static bool g_autosaveFailWarned = false; // avoid repeating the same warning on
 static bool g_backupFailWarned = false; // v0.9.31: same warn-once/reset-on-recovery pattern as g_autosaveFailWarned, but for rolling backup snapshots (see WriteBackupSnapshot)
 static std::wstring g_currentFile; // empty = unsaved / using autosave only
 
+// Finalize Day (ROADMAP.md item 3). Empty = an ordinary, editable working
+// file. Non-empty = the ISO date this file was locked in as, written into
+// history\<date>.fbd - the entry form, Debtor/Cash, and everything that
+// would change the numbers is disabled (see ApplyFinalizedLockState) until
+// Un-finalize clears this again. Set from FbdLoadResult::finalizedDate on
+// load, or directly by DoFinalizeDay() on success.
+static std::wstring g_finalizedDate;
+
 // v0.9.30: tracks whether anything has actually changed since the last
 // explicit Save/Save As or the last successful load (New/Open/Recent
 // Files/Restore from Backup/startup). ConfirmDiscardCurrentData() uses
@@ -106,11 +114,15 @@ enum {
     ID_LIST_ENTRIES, ID_EDIT_DEBTOR, ID_EDIT_CASH,
     ID_LIST_OVERVIEW, ID_LIST_BREAKDOWN, ID_BTN_PRINT_BREAKDOWN, ID_BTN_EMAIL_SUPPLIERS,
     ID_BTN_PRINT_PREVIEW, ID_LIST_BYSPECIES,
+    ID_BTN_FINALIZE, // Finalize/Un-finalize Day (ROADMAP.md item 3) - one
+                      // button, relabeled, same pattern as Add/Update Entry
     // Manage Names popup window controls
     ID_MNG_RADIO_SUPPLIER = 400, ID_MNG_RADIO_SPECIES, ID_MNG_LIST, ID_MNG_TARGET, ID_MNG_APPLY, ID_MNG_CLOSE,
     ID_MNG_EMAIL_EDIT, ID_MNG_EMAIL_SAVE,
     // Print Preview popup window controls
     ID_PREVIEW_PREV = 500, ID_PREVIEW_NEXT, ID_PREVIEW_PRINT, ID_PREVIEW_CLOSE,
+    // Finalize Day date-prompt popup window controls
+    ID_FIN_DTP = 600, ID_FIN_OK, ID_FIN_CANCEL,
     // Up to 8 Recent Files slots
     ID_RECENT_BASE = 900,
     // One-shot delayed retry for the combo box first-paint fix (see WM_TIMER)
@@ -144,6 +156,7 @@ static HWND hLblSupplier, hCmbSupplier, hLblProduct, hCmbProduct;
 static HWND hLblKgs, hEditKgs, hLblPrice, hEditPrice, hBtnAdd, hBtnDelete, hBtnEdit, hBtnCancelEdit;
 static HWND hLblFilter, hEditFilter;
 static HWND hLblDate, hDtpDate, hLblNotes, hEditNotes, hBtnDuplicate, hBtnDuplicateSupSpec;
+static HWND hBtnFinalize = nullptr; // "Finalize Day" / "Un-finalize Day" - relabeled in place, same pattern as Add/Update Entry
 static HWND hListEntries;
 static HWND hGrpRecon, hLblDebtor, hEditDebtor, hLblCash, hEditCash;
 static HWND hLblBook, hLblEntered, hLblDiff;
@@ -217,6 +230,9 @@ static HWND g_hPreviewWnd = nullptr;
 static HWND g_hPreviewPrevBtn = nullptr, g_hPreviewNextBtn = nullptr;
 static HWND g_hPreviewPageLbl = nullptr, g_hPreviewPrintBtn = nullptr, g_hPreviewCloseBtn = nullptr;
 
+// Finalize Day date-prompt popup window (modeled on the Manage Names popup).
+static HWND g_hFinalizeWnd = nullptr, g_hFinalizeDtp = nullptr, g_hFinalizeLbl = nullptr;
+
 // Window size/position and last-file association, persisted between runs.
 struct AppSettings {
     int x = CW_USEDEFAULT, y = CW_USEDEFAULT, w = 1050, h = 720;
@@ -248,6 +264,13 @@ LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK ManageWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK PreviewWndProc(HWND, UINT, WPARAM, LPARAM);
 void PrintBreakdownReport(HWND owner);
+// Finalize Day (ROADMAP.md item 3)
+std::wstring HistoryDir();
+void ApplyFinalizedLockState();
+void DoFinalizeDay();
+void DoUnfinalizeDay();
+LRESULT CALLBACK FinalizeWndProc(HWND, UINT, WPARAM, LPARAM);
+void OpenFinalizeDatePrompt();
 
 // ---------------------------------------------------------------------------
 // Small utilities
@@ -406,7 +429,9 @@ void UpdateTitle() {
     if (hStatusBar) {
         std::wstring verText = std::wstring(L"Version ") + APP_VERSION;
         SendMessageW(hStatusBar, SB_SETTEXT, 0, (LPARAM)verText.c_str());
-        std::wstring fileText = L"File: " + name;
+        std::wstring fileText = g_finalizedDate.empty()
+            ? (L"File: " + name)
+            : (L"FINALIZED (" + g_finalizedDate + L") - File: " + name);
         SendMessageW(hStatusBar, SB_SETTEXT, 1, (LPARAM)fileText.c_str());
     }
 }
@@ -593,7 +618,12 @@ bool SaveSupplierEmails() {
 // snapshot writer (WriteBackupSnapshot, see ROADMAP.md item 4) can build
 // the exact same content without duplicating this logic - identical
 // output to what SaveToFile has always written, just named and reused.
-std::string BuildFbdSaveContent() {
+// finalizedDateOverride: used only by DoFinalizeDay() when writing the new
+// history\<date>.fbd snapshot at the moment of finalizing, so that file is
+// born already carrying FINALIZED= without a separate write-then-rewrite
+// step. Every other caller passes nothing and gets g_finalizedDate (empty
+// for an ordinary working file, or the locked-in date once loaded from one).
+std::string BuildFbdSaveContent(const std::wstring& finalizedDateOverride = L"") {
     std::string content;
     auto writeLine = [&](const std::wstring& line) {
         content += WToUtf8(line) + "\n";
@@ -603,6 +633,9 @@ std::string BuildFbdSaveContent() {
     writeLine(std::wstring(L"DEBTOR=") + buf);
     GetWindowTextW(hEditCash, buf, 512);
     writeLine(std::wstring(L"CASH=") + buf);
+
+    const std::wstring& finalizedDate = finalizedDateOverride.empty() ? g_finalizedDate : finalizedDateOverride;
+    if (!finalizedDate.empty()) writeLine(L"FINALIZED=" + finalizedDate);
 
     // In-progress "Add Entry" form state, so it survives a crash or power
     // loss and not just a graceful close - whatever's currently sitting in
@@ -672,6 +705,7 @@ bool LoadFromFile(const std::wstring& path) {
     g_entries = result.entries;
     SetWindowTextW(hEditDebtor, result.debtor.c_str());
     SetWindowTextW(hEditCash, result.cash.c_str());
+    g_finalizedDate = result.finalizedDate;
 
     // Restore any in-progress "Add Entry" draft that was pending when this
     // file was last saved (see SaveToFile) - survives a crash or power
@@ -700,6 +734,7 @@ bool LoadFromFile(const std::wstring& path) {
             L"saved with a '|' character in a Supplier or Species name).";
         MessageBoxW(g_hMainWnd, msg.c_str(), L"Some Rows Skipped", MB_OK | MB_ICONWARNING);
     }
+    ApplyFinalizedLockState();
     return true;
 }
 
@@ -1058,6 +1093,12 @@ void AutosaveNow() {
 
 std::wstring BackupDir() { return GetExeDir() + L"\\backups"; }
 
+// Finalize Day (ROADMAP.md item 3) locked-in snapshots, one per business
+// day, named <date>.fbd (e.g. 2026-09-20.fbd). A separate folder from
+// backups\ - these are deliberate, permanent records, not rolling/pruned
+// safety-net copies.
+std::wstring HistoryDir() { return GetExeDir() + L"\\history"; }
+
 // Deletes the oldest backup snapshots once there are more than kMaxBackups
 // of them. Filenames embed a sortable YYYYMMDD_HHMMSS timestamp (see
 // WriteBackupSnapshot), so a plain lexicographic sort is also a
@@ -1197,6 +1238,11 @@ void RefreshAll(bool doAutosave) {
 // ---------------------------------------------------------------------------
 
 void CommitEntryForm() {
+    // Belt-and-braces: ApplyFinalizedLockState() already disables the
+    // controls that would get here, but the Enter-key path calls this
+    // directly, so this guard is the real backstop against editing a
+    // locked-in (finalized) day.
+    if (!g_finalizedDate.empty()) return;
     wchar_t buf[256];
     GetWindowTextW(hCmbSupplier, buf, 256);
     std::wstring supplier = TrimW(buf);
@@ -1369,6 +1415,7 @@ void ClearUndoState() {
 }
 
 void DeleteSelectedEntry() {
+    if (!g_finalizedDate.empty()) return; // see CommitEntryForm's identical guard
     int selRow = ListView_GetNextItem(hListEntries, -1, LVNI_SELECTED);
     if (selRow < 0) {
         MessageBoxW(g_hMainWnd, L"Select a row to delete first.", L"No Selection", MB_OK | MB_ICONINFORMATION);
@@ -1533,6 +1580,7 @@ void ClearSelectedEntryFlag() {
 }
 
 void EditSelectedEntry() {
+    if (!g_finalizedDate.empty()) return; // see CommitEntryForm's identical guard
     int selRow = ListView_GetNextItem(hListEntries, -1, LVNI_SELECTED);
     if (selRow < 0) {
         MessageBoxW(g_hMainWnd, L"Select a row to edit first (or double-click it).", L"No Selection", MB_OK | MB_ICONINFORMATION);
@@ -1587,6 +1635,8 @@ void DoFileNew() {
     SetWindowTextW(hEditDebtor, L""); // triggers EN_CHANGE, which sets g_dirty - explicitly cleared below
     SetWindowTextW(hEditCash, L"");
     g_currentFile.clear();
+    g_finalizedDate.clear(); // a fresh blank sheet is never locked - see Finalize Day, ROADMAP.md item 3
+    ApplyFinalizedLockState();
     CancelEdit();
     ClearUndoState();
     g_dirty = false; // v0.9.30 - fresh blank sheet, nothing to lose yet
@@ -1731,6 +1781,231 @@ void DoFileSave() {
         g_dirty = false; // v0.9.30 - explicit save, matches disk again
         WriteBackupSnapshot(); // deliberate user Save - always worth its own snapshot, not just the timer
     }
+}
+
+// ---------------------------------------------------------------------------
+// Finalize Day (ROADMAP.md item 3)
+//
+// Locked-in decisions (all confirmed with Jack directly):
+//   - Finalize is blocked outright (no override) unless Debtor+Cash exactly
+//     balances against the entered total (g_diffOk).
+//   - Locking is enforced by disabling every control that could change the
+//     numbers ("grey everything out"), not by intercepting each attempt -
+//     lower risk, and reuses the same pattern already planned for
+//     multi-machine read-only mode (see NETWORK_ARCHITECTURE.md).
+//   - Un-finalize needs just a confirmation dialog, no reason text.
+//   - After a successful Finalize, the app ASKS first ("Start a new entry
+//     sheet now?") rather than auto-clearing.
+//   - A locked-in day is written to history\<date>.fbd, a permanent record
+//     separate from the rolling backups\ snapshots.
+// ---------------------------------------------------------------------------
+
+// Enables/disables every control that could change the entered numbers,
+// based on whether g_finalizedDate is set, and relabels hBtnFinalize in
+// place (same pattern as hBtnAdd's Add Entry/Update Entry relabeling).
+// Called on load (LoadFromFile) and immediately after a successful
+// Finalize/Un-finalize.
+void ApplyFinalizedLockState() {
+    bool locked = !g_finalizedDate.empty();
+    BOOL enable = locked ? FALSE : TRUE;
+    HWND toToggle[] = {
+        hCmbSupplier, hCmbProduct, hEditKgs, hEditPrice, hEditNotes, hDtpDate,
+        hBtnAdd, hBtnDelete, hBtnEdit, hBtnCancelEdit, hBtnDuplicate, hBtnDuplicateSupSpec,
+        hEditDebtor, hEditCash
+    };
+    for (HWND h : toToggle) {
+        if (h) EnableWindow(h, enable);
+    }
+    if (hBtnFinalize) {
+        SetWindowTextW(hBtnFinalize, locked ? L"Un-finalize Day" : L"Finalize Day");
+        EnableWindow(hBtnFinalize, TRUE); // always enabled - it's the one control that flips the lock
+    }
+    UpdateTitle(); // status bar reflects the FINALIZED state - see UpdateTitle
+}
+
+void DoUnfinalizeDay() {
+    std::wstring msg = L"This day was finalized on " + g_finalizedDate +
+        L" - reopen it for editing?";
+    int r = MessageBoxW(g_hMainWnd, msg.c_str(), L"Un-finalize Day", MB_YESNO | MB_ICONQUESTION);
+    if (r != IDYES) return;
+
+    // Snapshot the locked-in state before touching anything, same as every
+    // other place in this app that's about to change data the user might
+    // want back (ConfirmDiscardCurrentData's callers all do the same).
+    WriteBackupSnapshot();
+    g_finalizedDate.clear();
+    ApplyFinalizedLockState();
+    g_dirty = true;
+    if (!g_currentFile.empty()) {
+        std::wstring err;
+        if (!SaveToFile(g_currentFile, &err))
+            MessageBoxW(g_hMainWnd, (L"Un-finalized, but could not re-save the file: " + err).c_str(),
+                        L"Error", MB_OK | MB_ICONERROR);
+    }
+    UpdateTitle();
+    RefreshAll(); // also re-syncs autosave.fbd, which AutosaveNow() always writes to regardless of g_currentFile
+}
+
+LRESULT CALLBACK FinalizeWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE: {
+        g_hFinalizeLbl = MakeControl(L"STATIC", L"Lock in today's balanced entries as of this date:", WS_VISIBLE, 0, hwnd);
+        g_hFinalizeDtp = MakeControl(DATETIMEPICK_CLASS, L"", WS_VISIBLE | WS_TABSTOP | DTS_SHORTDATEFORMAT, ID_FIN_DTP, hwnd);
+        MakeControl(L"BUTTON", L"OK", WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON | BS_DEFPUSHBUTTON, ID_FIN_OK, hwnd);
+        MakeControl(L"BUTTON", L"Cancel", WS_VISIBLE | WS_TABSTOP, ID_FIN_CANCEL, hwnd);
+
+        // Default the date to today, unless the current file's own name
+        // parses as an ISO date (e.g. a file opened from history\ or named
+        // by hand like 2026-09-20.fbd) - then default to that instead,
+        // since that's much more likely to be the day actually being
+        // finalized than "today" is (Finalize often happens a day or two
+        // after the fact, per Jack's Monday/Tuesday workflow).
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        if (!g_currentFile.empty()) {
+            std::wstring base = g_currentFile;
+            size_t slash = base.find_last_of(L"\\/");
+            if (slash != std::wstring::npos) base = base.substr(slash + 1);
+            size_t dot = base.find_last_of(L'.');
+            if (dot != std::wstring::npos) base = base.substr(0, dot);
+            SimpleDate d;
+            if (ParseISODate(base, d)) { st.wYear = (WORD)d.year; st.wMonth = (WORD)d.month; st.wDay = (WORD)d.day; }
+        }
+        DateTime_SetSystemtime(g_hFinalizeDtp, GDT_VALID, &st);
+        return 0;
+    }
+    case WM_SIZE: {
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        MoveWindow(g_hFinalizeLbl, S(15), S(15), rc.right - S(30), S(22), TRUE);
+        MoveWindow(g_hFinalizeDtp, S(15), S(45), S(150), S(22), TRUE);
+        MoveWindow(GetDlgItem(hwnd, ID_FIN_OK), rc.right - S(180), S(80), S(80), S(28), TRUE);
+        MoveWindow(GetDlgItem(hwnd, ID_FIN_CANCEL), rc.right - S(90), S(80), S(80), S(28), TRUE);
+        return 0;
+    }
+    case WM_COMMAND: {
+        int id = LOWORD(wParam);
+        if (id == ID_FIN_OK) {
+            SYSTEMTIME st{};
+            DateTime_GetSystemtime(g_hFinalizeDtp, &st);
+            std::wstring date = FormatDateISO(st);
+
+            std::wstring dir = HistoryDir();
+            CreateDirectoryW(dir.c_str(), nullptr);
+            std::wstring path = dir + L"\\" + date + L".fbd";
+            DWORD attrs = GetFileAttributesW(path.c_str());
+            if (attrs != INVALID_FILE_ATTRIBUTES) {
+                std::wstring warnMsg = L"A history record for " + date +
+                    L" already exists (history\\" + date + L".fbd). Overwrite it with today's data?";
+                if (MessageBoxW(hwnd, warnMsg.c_str(), L"Already Finalized", MB_YESNO | MB_ICONWARNING) != IDYES)
+                    return 0;
+            }
+
+            WriteBackupSnapshot(); // safety net before writing the permanent history record
+            std::string content = BuildFbdSaveContent(date);
+            std::wstring writeErr;
+            if (!WriteFileAtomicUtf8(path, content, &writeErr)) {
+                MessageBoxW(hwnd, (L"Could not write the history record: " + writeErr).c_str(),
+                            L"Error", MB_OK | MB_ICONERROR);
+                return 0;
+            }
+
+            g_finalizedDate = date;
+            ApplyFinalizedLockState();
+            g_dirty = false;
+            if (!g_currentFile.empty()) SaveToFile(g_currentFile); // keep the working file's own FINALIZED= marker in sync
+            UpdateTitle();
+            RefreshAll();
+
+            DestroyWindow(hwnd);
+
+            int r = MessageBoxW(g_hMainWnd,
+                (L"Finalized as " + date + L". Start a new entry sheet now?").c_str(),
+                L"Day Finalized", MB_YESNO | MB_ICONQUESTION);
+            if (r == IDYES) {
+                // Same clear-to-blank as DoFileNew() - and, like DoFileNew(),
+                // this needs to actually detach from the file that was just
+                // finalized, not just clear the on-screen list. A previous
+                // version of this left g_currentFile/g_finalizedDate pointing
+                // at the just-finalized file, which cleared the list but kept
+                // every entry control disabled and the button reading
+                // "Un-finalize Day" - a real bug Jack found: "clicking new
+                // clears the file, but not the unfinalise button." The next
+                // day's entries are a genuinely new, unlocked, unsaved sheet.
+                g_entries.clear();
+                SetWindowTextW(hEditDebtor, L"");
+                SetWindowTextW(hEditCash, L"");
+                g_currentFile.clear();
+                g_finalizedDate.clear();
+                ApplyFinalizedLockState();
+                CancelEdit();
+                ClearUndoState();
+                g_dirty = false;
+                UpdateTitle();
+                RefreshAll();
+            }
+            return 0;
+        }
+        if (id == ID_FIN_CANCEL) { DestroyWindow(hwnd); return 0; }
+        break;
+    }
+    case WM_CLOSE:
+        DestroyWindow(hwnd);
+        return 0;
+    case WM_DESTROY:
+        if (g_hMainWnd) EnableWindow(g_hMainWnd, TRUE);
+        g_hFinalizeWnd = nullptr;
+        SetForegroundWindow(g_hMainWnd);
+        return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+void OpenFinalizeDatePrompt() {
+    if (g_hFinalizeWnd) {
+        SetForegroundWindow(g_hFinalizeWnd);
+        return;
+    }
+
+    static bool classRegistered = false;
+    if (!classRegistered) {
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(wc);
+        wc.style = CS_HREDRAW | CS_VREDRAW;
+        wc.lpfnWndProc = FinalizeWndProc;
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+        wc.lpszClassName = L"FinalizeDayWindow";
+        RegisterClassExW(&wc);
+        classRegistered = true;
+    }
+
+    RECT mrc;
+    GetWindowRect(g_hMainWnd, &mrc);
+    int w = S(340), h = S(150);
+    int x = mrc.left + ((mrc.right - mrc.left) - w) / 2;
+    int y = mrc.top + ((mrc.bottom - mrc.top) - h) / 2;
+
+    g_hFinalizeWnd = CreateWindowExW(WS_EX_DLGMODALFRAME, L"FinalizeDayWindow", L"Finalize Day",
+                                      WS_POPUP | WS_CAPTION | WS_SYSMENU, x, y, w, h,
+                                      g_hMainWnd, nullptr, GetModuleHandleW(nullptr), nullptr);
+    EnableWindow(g_hMainWnd, FALSE);
+    ShowWindow(g_hFinalizeWnd, SW_SHOW);
+    UpdateWindow(g_hFinalizeWnd);
+    // Layout is handled by WM_SIZE (fires on creation, same as ManageWndProc).
+}
+
+void DoFinalizeDay() {
+    if (!g_diffOk) {
+        MessageBoxW(g_hMainWnd,
+            L"Debtor + Cash doesn't balance against the entered total yet - a day can't be "
+            L"finalized until it balances exactly. Fix the difference on Tab 1 (Book "
+            L"Reconciliation) first.",
+            L"Not Balanced", MB_OK | MB_ICONWARNING);
+        return;
+    }
+    OpenFinalizeDatePrompt();
 }
 
 // ---------------------------------------------------------------------------
@@ -2900,7 +3175,7 @@ void LayoutAll(HWND hwnd) {
     MoveWindow(hEditFilter, left + S(580), row2 + S(2), S(220), S(22), TRUE);
 
     int listTop = row2 + S(40);
-    int reconHeight = S(135);
+    int reconHeight = S(170); // was S(135) - grown to fit the Finalize Day button row below the Difference line
     int listBottom = disp.bottom - reconHeight - S(10);
     if (listBottom < listTop + S(60)) listBottom = listTop + S(60);
     MoveWindow(hListEntries, left, listTop, right - left, listBottom - listTop, TRUE);
@@ -2909,11 +3184,19 @@ void LayoutAll(HWND hwnd) {
     MoveWindow(hGrpRecon, left, reconTop, right - left, disp.bottom - reconTop - S(5), TRUE);
     MoveWindow(hLblDebtor, left + S(15), reconTop + S(26), S(130), S(22), TRUE);
     MoveWindow(hEditDebtor, left + S(150), reconTop + S(24), S(260), S(22), TRUE);
-    MoveWindow(hLblCash, left + S(430), reconTop + S(26), S(65), S(22), TRUE);
-    MoveWindow(hEditCash, left + S(495), reconTop + S(24), S(260), S(22), TRUE);
+    // hLblCash was only S(65) wide - too narrow for its actual text ("Cash
+    // amount(s):"), so the STATIC control silently word-wrapped it onto a
+    // second line that its S(22)-tall box then clipped - "Cash" visible,
+    // "amount(s):" cut off to a sliver, sitting lower than the Debtor label
+    // beside it. Jack: "labels/text boxes are misaligned - one is higher
+    // than the other." Widened to fit on one line; hEditCash shifted right
+    // to match, same S(5) gap pattern as the Debtor label/box pair.
+    MoveWindow(hLblCash, left + S(430), reconTop + S(26), S(140), S(22), TRUE);
+    MoveWindow(hEditCash, left + S(575), reconTop + S(24), S(260), S(22), TRUE);
     MoveWindow(hLblBook, left + S(15), reconTop + S(58), S(320), S(22), TRUE);
     MoveWindow(hLblEntered, left + S(345), reconTop + S(58), S(320), S(22), TRUE);
     MoveWindow(hLblDiff, left + S(15), reconTop + S(84), S(460), S(24), TRUE);
+    MoveWindow(hBtnFinalize, left + S(15), reconTop + S(114), S(220), S(30), TRUE);
 
     // ---- Tab 2 ----
     MoveWindow(hLblOvBook, left, top, S(300), S(22), TRUE);
@@ -3047,6 +3330,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         hLblBook = MakeControl(L"STATIC", L"Book Total: $0.00", WS_VISIBLE, 0, hwnd);
         hLblEntered = MakeControl(L"STATIC", L"Entered Total: $0.00", WS_VISIBLE, 0, hwnd);
         hLblDiff = MakeControl(L"STATIC", L"Difference: $0.00", WS_VISIBLE, 0, hwnd);
+        hBtnFinalize = MakeControl(L"BUTTON", L"Finalize Day", WS_VISIBLE | WS_TABSTOP, ID_BTN_FINALIZE, hwnd);
 
         // Tab 2
         hLblOvBook = MakeControl(L"STATIC", L"Book Total: $0.00", WS_VISIBLE, 0, hwnd);
@@ -3085,7 +3369,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                          hBtnDuplicateSupSpec,
                          hLblDate, hDtpDate, hLblNotes, hEditNotes,
                          hLblFilter, hEditFilter, hListEntries, hGrpRecon,
-                         hLblDebtor, hEditDebtor, hLblCash, hEditCash, hLblBook, hLblEntered, hLblDiff };
+                         hLblDebtor, hEditDebtor, hLblCash, hEditCash, hLblBook, hLblEntered, hLblDiff,
+                         hBtnFinalize };
         g_tab2Ctrls = { hLblOvBook, hLblOvGrand, hLblOvDiff, hListOverview };
         g_tab3Ctrls = { hBtnPrintPreview, hBtnPrintBreakdown, hBtnEmailSuppliers, hListBreakdown };
         g_tab4Ctrls = { hListBySpecies };
@@ -3343,6 +3628,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case ID_BTN_CANCEL_EDIT: CancelEdit(); return 0;
         case ID_BTN_DUPLICATE: DuplicateLastEntry(); return 0;
         case ID_BTN_DUPLICATE_SUPSPEC: DuplicateSupplierSpecies(); return 0;
+        case ID_BTN_FINALIZE:
+            if (g_finalizedDate.empty()) DoFinalizeDay(); else DoUnfinalizeDay();
+            return 0;
         case ID_EDIT_FILTER:
             if (code == EN_CHANGE) RefreshEntriesList();
             return 0;
