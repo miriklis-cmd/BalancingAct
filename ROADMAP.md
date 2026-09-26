@@ -4,6 +4,19 @@ This file is the single source of truth for "what's built, what's being
 tested, and what's next." Check here first if you've lost track of where
 things stand — that's exactly what this file is for.
 
+## Status: v0.9.42 — label alignment + another combo-box first-paint escalation
+
+Two more issues from the same live-testing pass: the Supplier/Species/
+Kgs/Price labels' vertical alignment was fixed properly (SS_CENTERIMAGE
+against real font metrics, replacing a guessed fixed-pixel offset that
+never quite held for the two combo boxes), and the long-lived Supplier/
+Species combo-box first-paint race (see item history in CHANGELOG.md's
+`[0.9.3]`/`[0.9.11]`/`[0.9.12]`/`[0.9.42]` entries) got another round of
+escalation - two more delayed retries plus a visibility-toggle before
+redrawing. Not provably root-caused even now; if Jack still sees it after
+this, the next step really does need a live debugger/Spy++ trace, which
+isn't available in this environment.
+
 ## Status: v0.9.41 — two real bugs fixed from v0.9.40's first live check
 
 Jack's first look at v0.9.40 running found two real bugs (not hypothetical
@@ -123,6 +136,19 @@ full detail on every fix).
       (2026-09-25).
 - [x] **The floor fix** ($10 baseline / $12 not flagged / $50 still
       flagged) — confirmed working (2026-09-24).
+
+### New in v0.9.42 — needs its own first check
+
+- [ ] **Supplier/Species/Kgs/Price labels line up vertically** with their
+      boxes, consistently — check at whatever DPI/display scaling this
+      machine normally runs at, since that's exactly what the old
+      fixed-offset bug was sensitive to.
+- [ ] **Supplier/Species combo boxes paint their border/dropdown-arrow
+      immediately** on a normal app startup — try several fresh launches
+      in a row, since the original report was intermittent ("doesn't
+      always happen"), not every-time. If it's still ever missing, that's
+      genuinely useful to know - the next fix would need a live debugger,
+      not another blind retry.
 
 ### New in v0.9.41 — needs its own first check
 
@@ -284,7 +310,11 @@ changed for the new `FINALIZED=` field)
 - [x] Focus after Add/Update Entry lands on Supplier
 - [x] Status bar shows version + filename correctly
 - [x] Print Preview opens normally, looks correct
-- [x] Combo box first-paint fix — confirmed working
+- [ ] ~~Combo box first-paint fix — confirmed working~~ **reopened
+      v0.9.41**: Jack found it still happening intermittently ("doesn't
+      always happen, but see screenshot") after this had been marked
+      confirmed - see the `[0.9.42]` checklist below for the latest
+      escalation and its own retest item.
 - [x] Atomic/checked saves — confirmed working
 - [x] Email merge conflict prompt — confirmed working correctly (the
       specific case tested turned out to be a genuine conflict from a
@@ -1003,15 +1033,16 @@ Proposed internal order, with dependencies noted:
 **Not active yet — sequenced deliberately after (A) above, not a
 maybe-someday backlog item.** `main.cpp` has grown large and mixes several genuinely
 separate responsibilities (domain model, file persistence, report
-aggregation, CSV/email generation, printing, and three separate window
+aggregation, CSV/email generation, printing, and four separate window
 procedures) in one file. An external audit's diagnosis of this was that
 the coupling between UI refresh, document state, and autosave is the
 *root cause* of several of the data-loss bugs already found and fixed
 (see SecurityHardeningRegister.md #7–#9) — so a decomposition isn't just
 a tidiness exercise, it's expected to make this whole class of bug
-structurally harder to reintroduce. `main.cpp` sitting at ~2,700 lines
-today with several distinct responsibilities tangled together is the
-concrete reason this is on the plan, not a hypothetical.
+structurally harder to reintroduce. `main.cpp` sitting at ~3,950 lines
+as of v0.9.43 (up from ~2,700 when this section was first written) with
+several distinct responsibilities tangled together is the concrete reason
+this is on the plan, not a hypothetical.
 
 Sequenced to start once:
 - The automated test suite above exists and covers the current behavior
@@ -1024,12 +1055,48 @@ Sequenced to start once:
 
 When we do get here, decompose by ownership/responsibility rather than by
 line count, and keep `main.cpp` itself as thin composition/bootstrap code
-once done. Rough shape to evaluate at the time (not committed yet):
-domain/document model, `.fbd` parsing + persistence, report aggregation,
-CSV/email export, printing, and one file per window procedure (main
-window, Manage Names, Print Preview). Do this as a series of small,
-individually buildable/testable extractions — not a single big-bang
-rewrite — so each step can be verified before the next one starts.
+once done. Do this as a series of small, individually buildable/testable
+extractions — not a single big-bang rewrite — so each step can be
+verified before the next one starts, and each step gets its own version
+bump/zip/test cycle like any other change, not one giant unreviewable diff.
+
+**Concrete proposed split, from a structural inventory done during the
+v0.9.43 audit** (approximate current line ranges - these will drift as
+the file keeps changing before this phase actually starts, so treat the
+ranges as "roughly where to look," not exact):
+
+| Proposed file | Responsibility | Current main.cpp content | ~Lines |
+|---|---|---|---|
+| `Persistence.h/.cpp` | `.fbd` save/load, `settings.txt`/`recent.txt`/`emails.txt`, autosave, rolling backups, Finalize Day's `history\` snapshot write | `BuildFbdSaveContent`/`SaveToFile`/`LoadFromFile`, `AutosaveNow`, `WriteBackupSnapshot`/`PruneOldBackups`/`MaybeBackupOnTimer`, `DoFileNew`/`DoFileOpen`/`DoRestoreFromBackup`/`DoFileSaveAs`/`DoFileSave`, `ApplyFinalizedLockState`/`DoUnfinalizeDay`/`DoFinalizeDay` | ~680 |
+| `Reporting.h/.cpp` | Deriving all 4 tabs' report data from `g_entries` | `RefreshEntriesList`, `RecalcTotals`, `PopulateGroupedTotalsList`, `RefreshOverviewList`, `RefreshBySpeciesList`, `RefreshBreakdownList`, `RefreshAll` | ~280 |
+| `Printing.h/.cpp` | DIB rendering shared by Print Preview and real printing | `RenderReportPages`, `FreeRenderedPages`, `PrintBreakdownReport` | ~265 |
+| `Export.h/.cpp` | CSV export, Email Suppliers | `ExportToCsv`/`DoExportCsv`, `TodayDateString`/`EmailSupplier`/`DoEmailSuppliers` | ~240 |
+| `ManageNamesWindow.h/.cpp` | The Manage Names popup | `ManageWndProc`, `OpenManageNamesWindow`, and its helpers | ~370 |
+| `PrintPreviewWindow.h/.cpp` | The Print Preview popup | `PreviewWndProc`, `OpenPrintPreview` | ~195 |
+| `FinalizeWindow.h/.cpp` | The Finalize Day date-prompt popup | `FinalizeWndProc`, `OpenFinalizeDatePrompt` | ~160 |
+| `main.cpp` (thinned) | Entry-form UI actions, main window `WndProc`/layout/control creation, `wWinMain`, shared Win32 utility helpers (`WToUtf8`, `GetExeDir`, `MakeControl`, etc.) | `CommitEntryForm`+undo/edit helpers, `LayoutAll`/`ShowTab`/`FixComboBoxFirstPaint`, the main `WndProc`, `wWinMain` | ~1,700 |
+| `FishBalanceCore.h` (unchanged) | Already-extracted, already-tested domain model/parsing/aggregation | *(no change - stays as-is)* | ~800 |
+
+Two things this same audit found that are worth fixing **as part of this
+phase**, not before it (since fixing them properly means moving code, and
+per the sequencing above, restructuring and bug-fixing shouldn't mix
+outside this phase): `RecalcTotals()` and `RenderReportPages()`
+independently compute the same book-balance arithmetic rather than
+sharing one function, and `ExportToCsv()` hand-rolls its own per-supplier/
+per-species aggregation instead of calling the already-tested
+`ComputeGroupedTotals()`/`ComputeSpeciesStats()` in FishBalanceCore.h that
+the on-screen tabs already use. Both are real duplicated-logic risks (the
+CSV export and the screen could silently diverge), and both become
+natural, obvious fixes once `Reporting.h`/`Export.h` above force the
+question of "which copy is the real one" during the actual move.
+
+Finalize Day doesn't cleanly become "one file" the way Manage Names or
+Print Preview do - its lock-state toggling is document state
+(`Persistence.h` territory), its date-prompt is a popup window
+(`FinalizeWindow.h`), and it's invoked from the main window's `WM_COMMAND`
+handler. That's fine - not every feature needs to fit in one box, and
+forcing it to would be decomposing by feature instead of by the
+responsibility-based split this phase is actually going for.
 
 ## Explicitly decided against (for now)
 

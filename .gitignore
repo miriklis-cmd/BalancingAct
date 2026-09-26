@@ -19,6 +19,13 @@ settings.txt
 recent.txt
 emails.txt
 backups/
+# history/ added v0.9.40 (Finalize Day, ROADMAP.md item 3) - real business
+# data (supplier names, prices) written next to the exe, same as backups/
+# above. Missed in the original v0.9.40 change - a real gap, since the exe
+# builds directly into this repo folder (see build_msvc.bat/build_mingw.bat),
+# so without this, `git add -A` in push_update.ps1 would have committed
+# finalized day-files straight into version control.
+history/
 
 # Editor/IDE
 .vs/
