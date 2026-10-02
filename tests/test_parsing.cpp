@@ -61,55 +61,114 @@ TEST_SUITE("ParseDoubleW") {
     }
 }
 
-TEST_SUITE("ParseSumExpr") {
+TEST_SUITE("ParseSumExprStrict") {
+    // --- Behavior carried over unchanged from the old ParseSumExpr ---
+
     TEST_CASE("sums plus-separated terms") {
-        CHECK(ParseSumExpr(L"250.7+1826+2552+286") == doctest::Approx(250.7 + 1826 + 2552 + 286));
-        CHECK(ParseSumExpr(L"1+2+3") == 6);
+        auto r1 = ParseSumExprStrict(L"250.7+1826+2552+286");
+        CHECK(r1.ok);
+        CHECK(r1.value == doctest::Approx(250.7 + 1826 + 2552 + 286));
+
+        auto r2 = ParseSumExprStrict(L"1+2+3");
+        CHECK(r2.ok);
+        CHECK(r2.value == 6);
     }
     TEST_CASE("handles a single term with no plus sign") {
-        CHECK(ParseSumExpr(L"42") == 42);
+        auto r = ParseSumExprStrict(L"42");
+        CHECK(r.ok);
+        CHECK(r.value == 42);
     }
-    TEST_CASE("empty string sums to zero") {
-        CHECK(ParseSumExpr(L"") == 0);
+    TEST_CASE("empty (or whitespace-only) string is valid and sums to zero") {
+        // Preserves the common case of an untouched Debtor/Cash field.
+        auto r1 = ParseSumExprStrict(L"");
+        CHECK(r1.ok);
+        CHECK(r1.value == 0);
+
+        auto r2 = ParseSumExprStrict(L"   ");
+        CHECK(r2.ok);
+        CHECK(r2.value == 0);
     }
     TEST_CASE("tolerates whitespace around terms") {
-        CHECK(ParseSumExpr(L" 1 + 2 + 3 ") == 6);
+        auto r = ParseSumExprStrict(L" 1 + 2 + 3 ");
+        CHECK(r.ok);
+        CHECK(r.value == 6);
     }
-    TEST_CASE("CHARACTERIZATION (documented gap, not fixed): a bad term is silently "
-              "dropped rather than failing the whole expression") {
-        // See SecurityHardeningRegister.md / ROADMAP.md Tier 3 - this is a
-        // known, already-documented permissive behavior, preserved exactly
-        // as-is. This test exists so a future change to this behavior is a
-        // deliberate decision, not an accidental side effect of some other
-        // refactor.
-        CHECK(ParseSumExpr(L"1000+500+oops+250") == 1750);
-    }
-    TEST_CASE("CHARACTERIZATION (documented gap, not fixed): a term with trailing "
-              "junk contributes its numeric prefix instead of being rejected") {
-        // Because this uses std::stod directly rather than the stricter
-        // ParseDoubleW, "12x" contributes 12 with the "x" silently ignored.
-        CHECK(ParseSumExpr(L"12x+3") == 15);
-    }
-    TEST_CASE("REGRESSION: subtraction is a real operator, not silently "
-              "swallowed into the following term") {
-        // The actual bug that motivated this: "123+11-21" used to split
-        // into terms "123" and "11-21" (since only '+' was an operator),
-        // and std::stod on "11-21" silently parsed just the "11" prefix,
-        // dropping the "-21" entirely - giving 134 instead of the correct
-        // 113. Real business scenario: Cash="123+11-21" should compute as
+    TEST_CASE("subtraction is a real operator, not silently swallowed into "
+              "the following term") {
+        // Real business scenario: Cash="123+11-21" should compute as
         // 123 + 11 - 21 = 113.
-        CHECK(ParseSumExpr(L"123+11-21") == doctest::Approx(113));
-        CHECK(ParseSumExpr(L"100-50") == 50);
-        CHECK(ParseSumExpr(L"10-3-2") == 5); // multiple subtractions in a row
-        CHECK(ParseSumExpr(L"10+5-3+2") == 14); // mixed +/-
+        auto r1 = ParseSumExprStrict(L"123+11-21");
+        CHECK(r1.ok);
+        CHECK(r1.value == doctest::Approx(113));
+
+        auto r2 = ParseSumExprStrict(L"100-50");
+        CHECK(r2.ok);
+        CHECK(r2.value == 50);
+
+        auto r3 = ParseSumExprStrict(L"10-3-2"); // multiple subtractions in a row
+        CHECK(r3.ok);
+        CHECK(r3.value == 5);
+
+        auto r4 = ParseSumExprStrict(L"10+5-3+2"); // mixed +/-
+        CHECK(r4.ok);
+        CHECK(r4.value == 14);
     }
-    TEST_CASE("a leading minus negates the first term") {
-        CHECK(ParseSumExpr(L"-50+100") == 50);
+    TEST_CASE("a leading sign on the first term is allowed") {
+        auto r1 = ParseSumExprStrict(L"-50+100");
+        CHECK(r1.ok);
+        CHECK(r1.value == 50);
+
+        auto r2 = ParseSumExprStrict(L"+100");
+        CHECK(r2.ok);
+        CHECK(r2.value == 100);
+    }
+
+    // --- Phase 1 / F5 audit remediation: fail CLOSED instead of silently
+    //     dropping or truncating a bad term ---
+
+    TEST_CASE("FIXED (was a documented gap): a bad term now fails the whole "
+              "expression instead of being silently dropped") {
+        auto r = ParseSumExprStrict(L"1000+oops+250");
+        CHECK_FALSE(r.ok);
+    }
+    TEST_CASE("FIXED (was a documented gap): a term with trailing junk is "
+              "now rejected instead of contributing its numeric prefix") {
+        auto r1 = ParseSumExprStrict(L"1000+12x+250");
+        CHECK_FALSE(r1.ok);
+
+        auto r2 = ParseSumExprStrict(L"12x+3");
+        CHECK_FALSE(r2.ok);
+    }
+    TEST_CASE("rejects a dangling trailing operator") {
+        auto r = ParseSumExprStrict(L"100+");
+        CHECK_FALSE(r.ok);
+    }
+    TEST_CASE("rejects an operator immediately following another operator") {
+        // One rule covers all three shapes: an operator with nothing
+        // accumulated since the previous operator (or the leading sign).
+        CHECK_FALSE(ParseSumExprStrict(L"100++20").ok);
+        CHECK_FALSE(ParseSumExprStrict(L"100+-20").ok);
+        CHECK_FALSE(ParseSumExprStrict(L"100--20").ok);
+    }
+    TEST_CASE("rejects NaN/Infinity terms, same policy as ParseDoubleW") {
+        CHECK_FALSE(ParseSumExprStrict(L"nan").ok);
+        CHECK_FALSE(ParseSumExprStrict(L"inf").ok);
+        CHECK_FALSE(ParseSumExprStrict(L"-inf").ok);
+        CHECK_FALSE(ParseSumExprStrict(L"100+nan").ok);
+    }
+    TEST_CASE("rejects scientific notation (deliberately unsupported)") {
+        CHECK_FALSE(ParseSumExprStrict(L"1e10").ok);
+        CHECK_FALSE(ParseSumExprStrict(L"100+1e2").ok);
     }
     TEST_CASE("still sums plain addition-only expressions correctly "
-              "(no regression from adding subtraction support)") {
-        CHECK(ParseSumExpr(L"250.7+1826+2552+286") == doctest::Approx(250.7 + 1826 + 2552 + 286));
-        CHECK(ParseSumExpr(L"1+2+3") == 6);
+              "(no regression from strictness)") {
+        auto r1 = ParseSumExprStrict(L"250.7+1826+2552+286");
+        CHECK(r1.ok);
+        CHECK(r1.value == doctest::Approx(250.7 + 1826 + 2552 + 286));
+
+        auto r2 = ParseSumExprStrict(L"1+2+3");
+        CHECK(r2.ok);
+        CHECK(r2.value == 6);
     }
 }
 

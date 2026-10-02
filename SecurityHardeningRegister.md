@@ -157,15 +157,216 @@ success), the Recent Files handler, and `ManageApply()` (when a
 rename/merge actually changed anything) — anywhere the document is
 replaced or restructured wholesale.
 
+### 10. Reconciliation (`ParseSumExpr`) silently mis-parsed a malformed Debtor/Cash entry (v0.9.48)
+**What**: the Debtor/Cash sum parser silently dropped any term that failed
+to parse (`1000+oops+250` evaluated to `1250`, not an error) and, because
+it used `std::stod` directly rather than the stricter `ParseDoubleW`, a
+term with trailing junk like `12x` contributed its numeric prefix (`12`)
+with the junk silently ignored. Either way, a typo in the one field this
+app exists to reconcile could produce a plausible-looking but wrong total,
+with no visible sign anything was off.
+**Found by**: external audit (OpenAI Codex), confirmed against the actual
+source - see `AuditFindings_2026-09-30.md` finding F5.
+**Fix**: replaced with `ParseSumExprStrict()` (`FishBalanceCore.h`), which
+rejects the whole expression (not just the bad term) for any term that
+doesn't parse as a strict digits-and-one-decimal-point number (also
+rejecting `nan`/`inf` and scientific notation), any operator immediately
+following another operator, and any dangling trailing operator. The
+Debtor/Cash line now shows "cannot check - invalid entry" and Finalize Day
+is blocked, instead of computing a number from partially-ignored input.
+
+### 11. Finalize Day silently ignored a failed named-file save (v0.9.48)
+**What**: `FinalizeWndProc`'s `ID_FIN_OK` handler discarded the return
+value of the `SaveToFile(g_currentFile)` call that syncs the open named
+file's `FINALIZED=` marker after the permanent `history\<date>.fbd` record
+is written. A failure (disk full, file locked, permissions) left the named
+file silently out of sync with the just-finalized state, while the user
+saw an unqualified "Finalized as <date>" success message either way.
+**Found by**: external audit, confirmed against the actual source - see
+`AuditFindings_2026-09-30.md` finding F9 (promoted into Phase 1 by Jack
+given it directly affects the integrity of finalized business records).
+**Fix**: the result is now checked; on failure the permanent history
+record (already safely written) still stands, but the success dialog is
+replaced with a warning naming the problem and instructing a manual Save,
+and the document is left marked dirty so the mismatch isn't lost.
+
+### 12. Stale `settings.txt` could cause a recovered autosave to silently overwrite the wrong named file (v0.9.48)
+**What**: `settings.txt`'s `LASTFILE` is only written on a clean exit. At
+startup, the app unconditionally restored `g_currentFile = LASTFILE`
+whenever the autosave reload succeeded - but after a crash (or several
+File > Open/New operations that ran without a clean exit in between),
+`autosave.fbd`'s actual content could belong to a completely different
+file than whatever `LASTFILE` still remembered. The next Save (explicit,
+or the very next autosave tick) would then silently overwrite that
+unrelated named file on disk with the mismatched recovered content.
+**Found by**: external audit, confirmed against the actual source - see
+`AuditFindings_2026-09-30.md` finding F1.
+**Fix**: `autosave.fbd` now stamps a `SOURCE_FILE=` marker recording which
+named file (if any) was open when it was written (later narrowed to
+autosave.fbd only - named files, `history\` records, and `backups\`
+snapshots don't carry it, since nothing ever reads their copy back and
+embedding an absolute path/username in files that routinely leave the
+machine had no benefit). Startup only restores the `LASTFILE` association
+when the recovered autosave's own marker agrees with it; otherwise the
+data is still recovered, but treated as unsaved (title bar shows
+"(unsaved)"), requiring an explicit Save As before anything is written
+back to a named file.
+
+### 13. `.fbd` loading committed partial documents and tolerated structurally ambiguous files (v0.9.48)
+**What**: a row that failed to parse (wrong field count, invalid/negative
+Kgs or Price, empty Supplier/Species) was skipped and counted, but every
+other row in the file was still committed - a single corrupted line could
+cause a sheet to quietly load with data missing, which then fed directly
+into reconciliation and every report. Separately, a second `BEGIN`, a
+duplicate or unmatched `END`, or a duplicate `DEBTOR=`/`CASH=` line were
+all silently tolerated (the last one seen simply won).
+**Found by**: external audit, confirmed against the actual source - see
+`AuditFindings_2026-09-30.md` findings F3 and F2 (combined into one
+remediation workstream per Jack's authorization).
+**Fix**: `ParseFbdContent()` now rejects the whole document for any of the
+above - loading is transactional (all rows commit or none do) and
+structurally strict (exactly one `BEGIN`...`END` pair, at most one
+`DEBTOR=`/`CASH=` line each). Every legitimate historical row format
+(4/6/7-field) is still accepted unchanged.
+
+### 14. Unchecked, unbounded file reads and lossy UTF-8 decoding (v0.9.48)
+**What**: `ReadAllLines` and `LoadFromFile` each duplicated an unchecked
+`fseek`/`ftell`/`fread` sequence - no check of `fseek`'s or `fread`'s
+return value, no `ferror()` check, and no upper bound on file size, so a
+partially-failed read could silently produce truncated content
+indistinguishable from a genuinely short file, and a huge or corrupted
+file had no limit on how much memory reading it could consume. Separately,
+`Utf8ToW()` decoded without `MB_ERR_INVALID_CHARS`, so invalid UTF-8 bytes
+were silently replaced with U+FFFD rather than reported.
+**Found by**: external audit, confirmed against the actual source - see
+`AuditFindings_2026-09-30.md` finding F4. This also resolves the
+previously-accepted "large `.fbd` files could cause a large allocation"
+risk below, which is superseded by this fix.
+**Fix**: both reading paths now go through one shared, checked
+`ReadAllBytes()` helper (100MB size cap, every I/O call's result
+checked), and `Utf8ToW()` reports invalid UTF-8 via an optional out-
+parameter instead of silently substituting replacement characters.
+
+### 15. Two gaps found on a post-delivery completeness review of items 12/13 (v0.9.49)
+**What**: before Jack ran the real Windows build for v0.9.48, he asked for
+a precise, source-cited completeness check of items 12 and 13 above
+against their original scope. Two genuine, in-scope gaps turned up:
+(a) `SOURCE_FILE=` (item 12) was being written into **every** `.fbd`
+save - named files, `history\` records, and `backups\` snapshots
+included - even though nothing ever reads any of those copies back
+(only `autosave.fbd`'s own copy is ever consulted, at startup); every
+file that routinely leaves the original machine was carrying an
+absolute path with the Windows username in it, for no functional
+benefit. (b) `ParseFbdContent()` (item 13) rejected a duplicate/unmatched
+`BEGIN`/`END` or a bad row, but a non-empty line that wasn't a recognized
+`KEY=` marker and sat outside the data section entirely (before the
+first `BEGIN`, after `END`, or in a file with no `BEGIN` at all) matched
+no branch and was silently ignored - "entry before `BEGIN`", "entry
+after `END`", and other stray content weren't actually covered by item
+13's transactional/structural-strictness claim.
+**Found by**: Jack's own review request, confirmed against the actual
+source - not a new external audit finding.
+**Fix**: (a) `SOURCE_FILE=` is now written only into `autosave.fbd`
+(`BuildFbdSaveContent()`'s new `includeSourceFile` parameter, set by
+`SaveToFile()` comparing the target path against a new `AutosavePath()`
+helper). (b) `ParseFbdContent()` now rejects the whole document for any
+non-empty, unrecognized line outside the data section, the same way it
+already rejects the other structural-ambiguity cases; a genuinely blank
+line in that position is still harmless. See DATA_FORMATS.md and
+CHANGELOG.md's `[0.9.49]` entry.
+
+### 16. Phase 1 / F4 completeness: the authorization also required a hard
+BEGIN/END structural rule, bounded record/line/field validation,
+structured read/parse diagnostics, and allocation-failure handling -
+none of which were actually done yet (v0.9.50)
+**What**: after v0.9.49 shipped, Jack reviewed that release against F4's
+original authorization and found it was not actually complete. v0.9.48/
+v0.9.49 closed checked reads, the whole-file size limit, and strict UTF-8
+decoding (item 14 above) - but F4 also explicitly required: (a) a
+document-level rule that a legitimate `.fbd` file always has exactly one
+`BEGIN` and one matching `END` (a Debtor/Cash-only document with neither
+was, until this version, still accepted - a gap, not an intentional
+historical-compatibility allowance); (b) bounded validation on entry-
+record count, decoded line length, and individual field lengths
+(Supplier/Species/Notes/Debtor/Cash expression/draft fields/
+`SOURCE_FILE=`); (c) structured diagnostics distinguishing the specific
+read-side and parse-side failure reasons (file-not-found vs. access
+failure vs. too-large vs. short-read vs. invalid-UTF-8 vs. each distinct
+structural/content problem), surfaced to the user everywhere a file is
+loaded (File > Open, Recent Files, Restore from Backup, startup autosave
+recovery) instead of one generic message; (d) explicit handling of
+allocation failures at the read/decode/parse boundary so a pathological
+input produces a clear error instead of an uncontrolled crash or a
+partially-committed document. An earlier answer in this same review cycle
+incorrectly described these as outside F4's authorized scope; that
+characterization was wrong and has been corrected here and throughout
+this file's history - they were part of the original authorization and
+were simply not yet implemented.
+**Found by**: Jack's own review of the Phase 1 authorization text against
+what was actually delivered - not a new external audit finding.
+**Fix**:
+  - (a) `ParseFbdContent()` (`FishBalanceCore.h`) now rejects any document
+    with no `BEGIN`, a `BEGIN` with no matching `END`, or (already true
+    since v0.9.49) a duplicate/misordered marker - the only accepted empty
+    sheet is `DEBTOR=` / `CASH=` / `BEGIN` / `END`. Nothing in this app's
+    own save history ever wrote a file without both markers -
+    `BuildFbdSaveContent()` has always written both unconditionally, even
+    for a blank sheet - so no genuine historical file format is broken by
+    tightening this.
+  - (b) New documented limits in `FishBalanceCore.h` (`kMaxEntryRecords` =
+    100,000; `kMaxLineLength` = 65,536; `kMaxSupplierSpeciesLength` = 255;
+    `kMaxNotesLength` = 4,096; `kMaxDebtorCashExprLength` = 4,096;
+    `kMaxDraftKgsPriceTextLength` = 256; `kMaxSourceFileLength` = 32,767),
+    enforced identically on loaded `.fbd` content and on interactive entry
+    (`EM_LIMITTEXT`/`CB_LIMITTEXT` on every corresponding control, so the
+    UI can never produce a value the loader would then reject) and on the
+    Supplier-name field shared with `emails.txt` (skips an over-limit line
+    on load rather than rejecting the whole file, matching that file's
+    existing forgiving-parse style). Over-limit input is rejected with a
+    specific diagnostic, never silently truncated - four pre-existing
+    fixed-size `GetWindowTextW` buffers (`BuildFbdSaveContent`,
+    `RecalcTotals`, the print/PDF report builder, `CommitEntryForm`) were
+    resized to match, since raising the UI limits without resizing them
+    would have reintroduced silent truncation at the exact moment a value
+    is read back out of the control.
+  - (c) New `FbdErrorCode` enum (`FishBalanceCore.h`, content/parse-level)
+    and `ReadBytesError` enum (`main.cpp`, file-I/O-level) between them
+    distinguish every category F4 named. `LoadFromFile()` now takes an
+    optional `outError` parameter combining both into one specific,
+    human-readable reason (with a 1-based line number for parse failures),
+    threaded through all four load call sites' message boxes.
+  - (d) `std::bad_alloc`/`std::length_error` are now caught deliberately
+    (never a broad `catch (...)`) around every allocation boundary named
+    in the authorization: the raw byte-buffer allocation in
+    `ReadAllBytes()`, UTF-8 decoding (`Utf8ToW`, called from both
+    `ReadAllLines` and `LoadFromFile`), and line-splitting/parsing/entry-
+    vector growth (all inside `ParseFbdContent()`, wrapped at its call site
+    in `LoadFromFile`). Each boundary reports a specific "not enough
+    memory" message and leaves live document state, the source file, and
+    the autosave untouched - the same transactional guarantee as any other
+    load failure. **Deliberately not automated**: reliably forcing
+    `std::bad_alloc` in a portable, deterministic unit test (short of
+    something like a custom fault-injecting allocator, which was judged
+    disproportionate to this app's risk profile) isn't practical, so this
+    path is verified by code review only - the boundaries above were
+    checked by inspection for (i) narrow, specific `catch` clauses with no
+    broad `catch (...)`, (ii) no partial mutation of `g_entries`/live state
+    before the try block's result is fully committed, and (iii) no file
+    write happening between the allocation attempt and the error return.
+    What *is* automated instead, and should catch the realistic version of
+    this risk long before an actual allocation failure: the new bounded
+    size/record/line/field limits in (b), which stop a hostile or
+    corrupted input from ever reaching an allocation large enough to fail
+    in the first place.
+**Tests**: `tests/test_fbd_loader.cpp` gained boundary tests (exactly-at
+and one-over) for every limit in (b), regression tests for the missing-
+`BEGIN`/Debtor-Cash-only rejection in (a), and `errorCode` assertions
+confirming the specific `FbdErrorCode` fired in each case - all fixtures
+built programmatically (loops constructing long strings/many rows) rather
+than as large in-source literals.
+
 ## Deliberately accepted risk (not fixed, by design)
 
-- **Large `.fbd` files could cause a large allocation.** `LoadFromFile`
-  reads the whole file into memory before parsing. A malicious or corrupt
-  multi-gigabyte file could cause a large allocation or `bad_alloc`. Not
-  fixed: the user already has full read/write access to their own
-  filesystem, so this isn't a privilege-boundary issue, just a
-  self-inflicted edge case (opening your own huge file). Not worth the
-  complexity of a size cap at this app's scale.
 - **No exception/crash telemetry.** If the app crashes, there's no
   automatic reporting mechanism. Acceptable for a single-user offline
   tool with no server component to report to.
