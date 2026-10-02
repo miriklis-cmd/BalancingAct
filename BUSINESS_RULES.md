@@ -26,6 +26,15 @@ understood:
   that money collected from *buyers* for everything sold on suppliers'
   behalf reconciles against the entered sales — not checking payments
   made *to* suppliers.
+- **Reconciliation fails closed (Phase 1 / F5, 2026-09-30).** Debtor/Cash
+  parsing (`ParseSumExprStrict`) now rejects the whole figure outright if
+  any part of it can't be understood as a number/sum, rather than
+  silently dropping the bad part and computing a Book Total from whatever
+  was left. A typo in either field now shows "cannot check - invalid
+  entry" instead of a plausible-looking balanced or unbalanced total, and
+  Finalize Day is blocked the same way it already was for an unbalanced
+  total. See `AuditFindings_2026-09-30.md` (finding F5) for the reasoning
+  and `DATA_FORMATS.md` for the exact grammar.
 - Any future price-related feature (price history, outlier warnings,
   cheapest-supplier highlighting) should be framed as **market-rate
   benchmarking to inform today's pricing decision** ("what have we
@@ -67,11 +76,61 @@ understood:
   counts; missing Date/Notes on older files are simply left blank. Any
   future format change should preserve this backward-compatibility
   pattern rather than requiring a one-way migration.
-- **Malformed rows are surfaced, not silently dropped.** If a line in a
-  `.fbd` file can't be parsed (e.g. an old file corrupted before the `|`
-  restriction existed), the row is skipped and the user is shown a count
-  of how many rows were unreadable, rather than the file silently loading
-  with fewer entries than it should.
+- **Loading is transactional, not partial (Phase 1 / F3+F2, 2026-09-30).**
+  If any row in a `.fbd` file can't be parsed (e.g. an old file corrupted
+  before the `|` restriction existed), or the document's structure is
+  ambiguous (a second `BEGIN`, a duplicate/unmatched `END`, or a
+  duplicate `DEBTOR=`/`CASH=` line), the **whole file** is rejected - it
+  is never partially loaded with some rows silently missing. This
+  replaced an earlier "skip the bad row(s) and warn with a count"
+  behavior, which could leave a sheet quietly missing data that then fed
+  into reconciliation and reports. See `AuditFindings_2026-09-30.md`
+  (findings F3/F2) and `DATA_FORMATS.md`.
+- **Every `.fbd` document always has exactly one `BEGIN` and one matching
+  `END` (Phase 1 / F4, completed v0.9.50).** A `DEBTOR=`/`CASH=`-only
+  document with neither marker, which older versions accepted, is now
+  rejected the same as any other structurally-ambiguous file - no file
+  this app has ever saved lacked both markers, so this closes a real gap
+  rather than breaking a genuine historical format. The only valid empty
+  sheet is `DEBTOR=` / `CASH=` / `BEGIN` / `END`.
+- **Loading shows a specific reason, not one generic message (Phase 1 /
+  F4, completed v0.9.50).** File > Open, Recent Files, Restore from
+  Backup, and startup autosave recovery each now show why a file was
+  rejected - file not found, locked/access denied, too large, not valid
+  UTF-8, or the specific structural/content problem with a line number
+  where applicable - rather than one fixed "could not open" sentence for
+  every case. See `DATA_FORMATS.md`.
+- **Record, line, and field lengths are bounded (Phase 1 / F4, completed
+  v0.9.50).** Generous, documented limits (entry records, decoded line
+  length, Supplier/Species/Notes/Debtor/Cash/draft fields/`SOURCE_FILE=`)
+  are enforced identically on loaded files and on interactive entry, so a
+  value the UI would reject can never arrive via a hand-edited file, and
+  vice versa. Over-limit input is rejected with a specific message, never
+  silently truncated. See `DATA_FORMATS.md` for the exact limits.
+- **A memory-allocation failure while loading shows a clear error rather
+  than crashing or loading a partial document (Phase 1 / F4, completed
+  v0.9.50).** Reading, decoding, and parsing a `.fbd` file all guard
+  against `std::bad_alloc`/`std::length_error` at their allocation
+  boundaries; on failure, the in-memory document, the source file, and
+  the autosave are all left exactly as they were. See
+  `SecurityHardeningRegister.md` item 16.
+- **A recovered autosave isn't blindly re-linked to a named file (Phase 1
+  / F1, 2026-09-30).** `settings.txt`'s remembered last-opened file is
+  only ever written on a clean exit, so after a crash it can be stale
+  relative to what `autosave.fbd` actually contains. The app now checks
+  the recovered autosave's own recorded identity (`SOURCE_FILE=`) before
+  re-associating it with that named file; on a mismatch (or an old
+  autosave with no identity recorded at all) the recovered data still
+  loads, but as unsaved work requiring Save As, rather than risking a
+  silent overwrite of the wrong file on the next save. See
+  `DATA_FORMATS.md` for the full mechanism.
+- **File reads are bounded and checked (Phase 1 / F4, 2026-09-30, completed
+  v0.9.50).** Every whole-file read (`.fbd`, `settings.txt`, `recent.txt`,
+  `emails.txt`) rejects files over 100MB and checks every I/O call's
+  result rather than assuming success, distinguishing the specific reason
+  (not found, locked/access denied, too large, short read, I/O error);
+  decoding as UTF-8 rejects invalid byte sequences instead of silently
+  substituting replacement characters. See `DATA_FORMATS.md`.
 
 ## Price statistics (By Species tab)
 
@@ -148,3 +207,15 @@ understood:
   enumerable convention the Bucket C SQLite ingestion plan
   (NETWORK_ARCHITECTURE.md) and the future Price History feature both
   need for "which files count as history."
+- **The history write is what actually locks the day in; syncing the
+  working file is a checked, honestly-reported second step (Phase 1 / F9,
+  2026-09-30).** After the permanent `history\<date>.fbd` record is
+  written and checked, the app also re-saves the currently-open named
+  file (if any) so its own `FINALIZED=` marker matches (named files never
+  carry `SOURCE_FILE=` - see DATA_FORMATS.md).
+  That second save's result is now checked: if it fails (disk full, file
+  locked, permissions), the day is still finalized (the permanent record
+  is safe), but the user is told plainly that the open file didn't
+  re-save and needs a manual Save before closing, rather than being shown
+  an unqualified "Finalized" success message while the open file quietly
+  fell out of sync. See `AuditFindings_2026-09-30.md` (finding F9).

@@ -167,12 +167,14 @@ build_msvc.bat
 
 | File              | Purpose                                             |
 |-------------------|------------------------------------------------------|
-| `main.cpp`        | The entire application                              |
+| `main.cpp`        | The Win32 application - windows, controls, message handling, file I/O, printing |
+| `FishBalanceCore.h` | Platform-independent domain logic extracted from `main.cpp` (parsing, aggregation, formatting) so it can be unit-tested without a Win32 dependency - see `tests/` |
+| `tests/`          | The automated test suite (doctest) covering `FishBalanceCore.h` - see "Note on testing" below |
 | `app.manifest`    | Requests Common Controls v6 (needed for grouped list). Shipped as an external side-by-side manifest (`FishBalanceManager.exe.manifest`) rather than embedded via the resource compiler, to avoid RC/CVTRES toolchain issues. |
 | `app.ico`         | The application icon (multi-resolution: 16–256px), embedded into the exe via `app_icon.rc` |
 | `resource.h`       | Shared resource ID (`IDI_APPICON`) used by both `main.cpp` and `app_icon.rc` |
 | `app_icon.rc`     | Minimal resource script that embeds only the icon — kept separate from the manifest so it can't cause the duplicate-resource conflict a combined script hit earlier |
-| `CMakeLists.txt`  | Cross-toolchain build definition; copies the manifest and icon next to the exe automatically |
+| `CMakeLists.txt`  | Cross-toolchain build definition; copies the manifest and icon next to the exe automatically, and builds the test suite as a CTest target |
 | `build_mingw.bat` | Quick build with MinGW-w64                           |
 | `build_msvc.bat`  | Quick build with MSVC                                |
 
@@ -198,11 +200,22 @@ records, not disposable like the others.
 
 ## Note on testing
 
-This was written directly against the Win32 API without access to a Windows
-compiler to verify the build — no Windows toolchain is available in the
-environment this was created in. The API usage follows standard, well-known
-patterns, but if you hit a compile error when building it on your machine,
-share the error message and it can be fixed directly.
+There IS an automated test suite (`tests/`, using the doctest framework) -
+it covers `FishBalanceCore.h`, the platform-independent parsing/
+aggregation/formatting logic the app is built on, and runs via CTest
+(`cmake --build build --target RUN_TESTS` or `ctest` from the build
+folder) or directly via `tests/run_tests.ps1` / `run_tests.bat`. Run it
+after any change to `FishBalanceCore.h`.
+
+What it can't cover is the Win32-specific code in `main.cpp` itself
+(window creation, message handling, printing, file dialogs) - that was
+written directly against the Win32 API without access to a Windows
+compiler to verify the build, since no Windows toolchain is available in
+the environment this was created in. The API usage follows standard,
+well-known patterns, but if you hit a compile error when building it on
+your machine, share the error message and it can be fixed directly. See
+`Testing.md` for the manual checklist that covers that Win32-specific
+behavior.
 
 ## Data file format
 

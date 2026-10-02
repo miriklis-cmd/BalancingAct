@@ -33,6 +33,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cwchar>
+#include <functional>
 
 // ---------------------------------------------------------------------------
 // Data model
@@ -175,42 +176,133 @@ inline bool ParseDoubleW(const std::wstring& sIn, double& out) {
 // were built up from several manual figures, including corrections/
 // deductions). Both '+' and '-' are recognized as operators between
 // terms - a '-' negates whichever term follows it, so "123+11-21"
-// correctly computes 113, not 134 (an earlier version of this function
-// only recognized '+', so "11-21" was treated as one term and
-// std::stod silently parsed just its "11" prefix, dropping the "-21"
-// entirely - a real bug, not a documented gap, fixed here).
+// correctly computes 113, not 134.
 //
-// NOTE: this still silently drops any term that fails to parse at all
-// (e.g. "oops"), and - because it uses std::stod directly rather than
-// the stricter ParseDoubleW - a term like "12x" contributes 12 with the
-// trailing "x" silently ignored, rather than being rejected outright.
-// This is a known, already documented gap (see
-// SecurityHardeningRegister.md / ROADMAP.md's Tier 3 items), preserved
-// unchanged here - only operator support was added, not term validation.
-inline double ParseSumExpr(const std::wstring& s) {
-    double sum = 0;
-    std::wstring cur;
-    double sign = 1.0; // applies to whichever term is currently being accumulated
-    auto flush = [&]() {
-        std::wstring t = TrimW(cur);
-        if (!t.empty()) {
-            try { sum += sign * std::stod(t); } catch (...) {}
+// Result type for the strict parser below: reconciliation must fail
+// closed, so a malformed expression can no longer silently resolve to
+// "whatever std::stod managed to salvage" - the caller gets an explicit
+// ok=false and must treat the figure as unusable rather than displaying
+// a number that looks plausible but is quietly wrong.
+struct SumParseResult {
+    bool ok = false;
+    double value = 0.0;
+    std::wstring errorTerm; // the offending term/fragment, for user-facing messages
+};
+
+// Phase 1 / F5 audit remediation (2026-09-30): replaces the old lenient
+// ParseSumExpr(), which silently dropped any term that failed to parse
+// (e.g. "oops" in "1000+oops+250" contributed nothing and the mismatch
+// was invisible) and, because it called std::stod directly instead of
+// the stricter ParseDoubleW, let a term like "12x" contribute 12 with
+// the trailing "x" silently ignored. Both behaviours meant a typo in the
+// Debtor/Cash box could quietly produce a balanced-looking total instead
+// of an obvious error - exactly backwards for a reconciliation check.
+//
+// Grammar:
+//   - empty/whitespace-only input is VALID and evaluates to 0 (preserves
+//     the common case of an untouched Debtor/Cash field).
+//   - a leading '+' or '-' is allowed only on the very first term of the
+//     whole expression (e.g. "-50+100" is valid, matching the old
+//     behaviour for that case).
+//   - a '+'/'-' appearing anywhere else with no term accumulated since
+//     the previous operator is rejected outright - one rule that cleanly
+//     covers "100++20", "100+-20", and "100--20": each has an operator
+//     immediately following another operator (or the leading sign) with
+//     nothing in between.
+//   - a trailing operator with nothing after it ("100+") is rejected as
+//     a missing term.
+//   - each term must consist of digits with at most one decimal point.
+//     This rejects "12x" (trailing junk), "nan"/"inf"/"-inf" (std::stod
+//     would otherwise happily parse these as "successful" - see
+//     ParseDoubleW's comment above), and scientific notation like
+//     "1e10" (deliberately not supported here - unrealistic for
+//     manually-summed cash figures, and one less thing to explain to
+//     users); it also means a term is rejected as "invalid" before
+//     ParseDoubleW is even consulted for these cases.
+// Unlike the old ParseSumExpr, a single bad term invalidates the WHOLE
+// expression rather than being silently dropped or partially applied.
+inline SumParseResult ParseSumExprStrict(const std::wstring& sIn) {
+    SumParseResult result;
+    std::wstring s = TrimW(sIn);
+    if (s.empty()) {
+        result.ok = true;
+        result.value = 0.0;
+        return result;
+    }
+
+    auto isValidTermChars = [](const std::wstring& t) {
+        bool sawDigit = false;
+        bool sawDot = false;
+        for (wchar_t ch : t) {
+            if (ch >= L'0' && ch <= L'9') {
+                sawDigit = true;
+            } else if (ch == L'.') {
+                if (sawDot) return false; // a second decimal point
+                sawDot = true;
+            } else {
+                return false; // letters, a second sign, etc.
+            }
         }
-        cur.clear();
+        return sawDigit; // "." alone (or empty) has no digits - invalid
     };
-    for (wchar_t c : s) {
-        if (c == L'+') {
-            flush();
-            sign = 1.0;
-        } else if (c == L'-') {
-            flush();
-            sign = -1.0;
+
+    auto fail = [&](const std::wstring& badFragment) {
+        result.ok = false;
+        result.value = 0.0;
+        result.errorTerm = badFragment;
+        return result;
+    };
+
+    double sum = 0.0;
+    double curSign = 1.0;
+    std::wstring curTerm;
+    const size_t n = s.size();
+
+    for (size_t i = 0; i < n; i++) {
+        wchar_t c = s[i];
+        if (c == L'+' || c == L'-') {
+            if (i == 0) {
+                // leading sign on the very first term - not a separator
+                curSign = (c == L'-') ? -1.0 : 1.0;
+                continue;
+            }
+            std::wstring t = TrimW(curTerm);
+            if (t.empty()) {
+                // an operator right after another operator (or the leading
+                // sign) with nothing accumulated in between
+                return fail(s.substr(0, i + 1));
+            }
+            if (!isValidTermChars(t)) {
+                return fail(t);
+            }
+            double v = 0.0;
+            if (!ParseDoubleW(t, v)) {
+                return fail(t);
+            }
+            sum += curSign * v;
+            curTerm.clear();
+            curSign = (c == L'-') ? -1.0 : 1.0;
         } else {
-            cur.push_back(c);
+            curTerm.push_back(c);
         }
     }
-    flush();
-    return sum;
+
+    std::wstring lastTerm = TrimW(curTerm);
+    if (lastTerm.empty()) {
+        return fail(s); // dangling trailing operator, e.g. "100+"
+    }
+    if (!isValidTermChars(lastTerm)) {
+        return fail(lastTerm);
+    }
+    double v = 0.0;
+    if (!ParseDoubleW(lastTerm, v)) {
+        return fail(lastTerm);
+    }
+    sum += curSign * v;
+
+    result.ok = true;
+    result.value = sum;
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -479,9 +571,58 @@ inline void ReevaluateOutlierFlagsForSpeciesOnDate(std::vector<Entry>& entries,
 // every serious bug in this app has lived, is here and fully testable.
 // ---------------------------------------------------------------------------
 
+// Phase 1 completeness follow-up (2026-09-30, v0.9.50): structured parse
+// diagnostics, requested so a rejected file can show the user something more
+// useful than one generic "could not open" message. Each value names a
+// distinct class of structural/content problem ParseFbdContent can reject
+// on; FbdLoadResult::errorCode/errorLine/errorMessage below are only
+// meaningful when ok is false. This intentionally does NOT distinguish
+// every one of the read-side codes (file-not-found, access failure, short
+// read, etc.) - those apply to the actual file read in main.cpp's
+// ReadAllBytes/LoadFromFile, before content ever reaches this function; see
+// ReadBytesError in main.cpp for that half of the diagnostic surface.
+enum class FbdErrorCode {
+    None = 0,               // ok == true; not a real error
+    NotARecognizedFile,     // no DEBTOR=/CASH=/BEGIN/END/DRAFT_*/etc. marker at all
+    MissingBegin,           // no BEGIN anywhere in the document
+    MissingEnd,             // BEGIN present but no matching END
+    DuplicateOrMisorderedMarker, // 2nd BEGIN, 2nd/unmatched END, or END before BEGIN
+    DuplicateSingletonMetadata,  // 2nd DEBTOR= or 2nd CASH= line
+    UnexpectedContentOutsideDataSection, // stray non-empty line before BEGIN/after END
+    LineTooLong,            // a single decoded line exceeds kMaxLineLength
+    FieldTooLong,           // a single KEY=/row field exceeds its documented limit
+    RecordLimitExceeded,    // more than kMaxEntryRecords data rows
+    MalformedEntryRow,      // wrong field count / unparseable shape
+    InvalidNumericField,    // Kgs/Price not a finite, non-negative number
+    EmptyRequiredField,     // empty Supplier or Species on a data row
+};
+
+// Phase 1 completeness follow-up (2026-09-30, v0.9.50): generous, documented
+// bounds - far above any realistic business usage - that exist purely to
+// stop a pathological or maliciously-crafted file from causing an
+// unbounded allocation, a multi-gigabyte in-memory document, or a
+// multi-million-row report/print/CSV pass. None of these are expected to
+// ever be hit in real use; hitting one always means either a corrupted file
+// or something that was never a genuine Fish Balance document. Interactive
+// entry (CommitEntryForm et al. in main.cpp) enforces the same limits so a
+// value the UI would reject can never be smuggled in via a hand-edited or
+// otherwise-crafted file, and vice versa.
+static const size_t kMaxEntryRecords = 100000;
+static const size_t kMaxLineLength = 65536;
+static const size_t kMaxSupplierSpeciesLength = 255;
+static const size_t kMaxNotesLength = 4096;
+static const size_t kMaxDebtorCashExprLength = 4096;
+static const size_t kMaxDraftKgsPriceTextLength = 256;
+static const size_t kMaxSourceFileLength = 32767;
+
 struct FbdLoadResult {
     bool ok = false;              // false => reject the whole document; caller must not
                                    // touch any live state (see LoadFromFile in main.cpp)
+    FbdErrorCode errorCode = FbdErrorCode::None; // meaningful only when ok == false
+    int errorLine = 0;            // 1-based source line number, or 0 when not applicable
+    std::wstring errorMessage;    // short, safe, human-readable reason - never echoes a
+                                   // full field value verbatim, so a giant or sensitive
+                                   // field can't end up rendered straight into a dialog
     std::vector<Entry> entries;
     std::wstring debtor;
     std::wstring cash;
@@ -499,10 +640,51 @@ struct FbdLoadResult {
     // working file. main.cpp uses this to lock the entry form/Debtor/Cash
     // and relabel the Finalize button when such a file is loaded.
     std::wstring finalizedDate;
+    // Phase 1 / F1 audit remediation (2026-09-30, narrowed on later review):
+    // the full path of whichever named file (g_currentFile) was open in
+    // main.cpp at the moment this content was written - empty if no named
+    // file was open (an unsaved sheet). In practice only ever written into
+    // autosave.fbd (see BuildFbdSaveContent/SaveToFile in main.cpp) -
+    // deliberately NOT written into named-file saves, history\ snapshots, or
+    // backups\, since those routinely leave the machine (emailed, backed
+    // up, opened elsewhere) and nothing ever reads this marker back out of
+    // them anyway; embedding the original machine's absolute path/username
+    // in every persisted file for no benefit was an oversight in the first
+    // version of this fix. Used only at startup: main.cpp checks whether a
+    // recovered autosave.fbd's own marker actually corresponds to
+    // settings.txt's remembered last-opened file before silently
+    // re-associating the two - see hasSourceFile below and the startup
+    // logic in wWinMain. A file this field is parsed from that isn't
+    // actually autosave.fbd (e.g. a named file, or one hand-edited to add
+    // this line) is parsed the same way, but nothing currently reads the
+    // result for any file other than the one just-loaded autosave.
+    std::wstring sourceFile;
+    // False for a file written before this field existed (or any file with
+    // no SOURCE_FILE= line at all, e.g. hand-edited) - distinguishes "no
+    // named file was open" (sourceFile empty, hasSourceFile true) from
+    // "this save predates identity tracking, don't trust any comparison
+    // against it" (hasSourceFile false).
+    bool hasSourceFile = false;
 };
 
 inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
     FbdLoadResult result;
+
+    // reject() sets the structured diagnostic fields and returns the
+    // still-not-ok result - every rejection path below goes through this
+    // instead of a bare `return result;`, so every way this function can
+    // fail carries a specific code, an optional 1-based line number (0 when
+    // not applicable, e.g. a document-level check after the loop), and a
+    // short human-readable reason. Never echoes a full field's content
+    // verbatim (a Supplier/Notes/Debtor value could be long, or a hand-typed
+    // line could contain something the user wouldn't want redisplayed) -
+    // messages name the problem and its location, not the offending text.
+    auto reject = [&](FbdErrorCode code, int line, const std::wstring& msg) -> FbdLoadResult {
+        result.errorCode = code;
+        result.errorLine = line;
+        result.errorMessage = msg;
+        return result;
+    };
 
     std::vector<std::wstring> lines;
     std::wstring cur;
@@ -521,31 +703,85 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
     std::wstring debtor, cash;
     std::wstring draftSupplier, draftSpecies, draftKgs, draftPrice, draftNotes, draftDate;
     std::wstring finalizedDate;
+    std::wstring sourceFile;
+    bool hasSourceFile = false;
     bool inData = false;
     bool sawRecognizedMarker = false; // any of DEBTOR=/CASH=/BEGIN/END/DRAFT_* actually seen
     bool sawBegin = false, sawEnd = false;
+    bool sawDebtorLine = false, sawCashLine = false;
+    int beginCount = 0, endCount = 0;
     int skippedLines = 0;
+    int lineNo = 0;
+
+    // Phase 1 / F3+F2 audit remediation (2026-09-30): the structural markers
+    // below (BEGIN/END, DEBTOR=, CASH=) used to be tracked only loosely -
+    // multiple BEGIN/END pairs, an END with no matching BEGIN, and duplicate
+    // DEBTOR=/CASH= lines were all silently tolerated (the last one seen
+    // simply won), rather than being treated as signs of a corrupted or
+    // hand-edited file. Reject the whole document outright instead - a
+    // reconciliation/loading feature must fail closed on a structurally
+    // ambiguous file rather than guess which of two conflicting values to
+    // trust.
     for (auto& line : lines) {
+        lineNo++;
+
+        // Phase 1 completeness follow-up (2026-09-30, v0.9.50): bound each
+        // decoded line's length before doing anything else with it - applies
+        // uniformly to every kind of line (a marker, a data row, or stray
+        // content), so a single absurdly long line can't reach any of the
+        // field-specific parsing below at all.
+        if (line.size() > kMaxLineLength) {
+            return reject(FbdErrorCode::LineTooLong, lineNo,
+                L"a line is too long (over " + std::to_wstring(kMaxLineLength) + L" characters)");
+        }
+
         if (line.rfind(L"DEBTOR=", 0) == 0) {
+            if (sawDebtorLine) return reject(FbdErrorCode::DuplicateSingletonMetadata, lineNo, L"duplicate DEBTOR= line");
+            sawDebtorLine = true;
             debtor = line.substr(7);
+            if (debtor.size() > kMaxDebtorCashExprLength) {
+                return reject(FbdErrorCode::FieldTooLong, lineNo,
+                    L"DEBTOR= value is too long (over " + std::to_wstring(kMaxDebtorCashExprLength) + L" characters)");
+            }
             sawRecognizedMarker = true;
         } else if (line.rfind(L"CASH=", 0) == 0) {
+            if (sawCashLine) return reject(FbdErrorCode::DuplicateSingletonMetadata, lineNo, L"duplicate CASH= line");
+            sawCashLine = true;
             cash = line.substr(5);
+            if (cash.size() > kMaxDebtorCashExprLength) {
+                return reject(FbdErrorCode::FieldTooLong, lineNo,
+                    L"CASH= value is too long (over " + std::to_wstring(kMaxDebtorCashExprLength) + L" characters)");
+            }
             sawRecognizedMarker = true;
         } else if (line.rfind(L"DRAFT_SUPPLIER=", 0) == 0) {
             draftSupplier = line.substr(15);
+            if (draftSupplier.size() > kMaxSupplierSpeciesLength) {
+                return reject(FbdErrorCode::FieldTooLong, lineNo, L"DRAFT_SUPPLIER= value is too long");
+            }
             sawRecognizedMarker = true;
         } else if (line.rfind(L"DRAFT_SPECIES=", 0) == 0) {
             draftSpecies = line.substr(14);
+            if (draftSpecies.size() > kMaxSupplierSpeciesLength) {
+                return reject(FbdErrorCode::FieldTooLong, lineNo, L"DRAFT_SPECIES= value is too long");
+            }
             sawRecognizedMarker = true;
         } else if (line.rfind(L"DRAFT_KGS=", 0) == 0) {
             draftKgs = line.substr(10);
+            if (draftKgs.size() > kMaxDraftKgsPriceTextLength) {
+                return reject(FbdErrorCode::FieldTooLong, lineNo, L"DRAFT_KGS= value is too long");
+            }
             sawRecognizedMarker = true;
         } else if (line.rfind(L"DRAFT_PRICE=", 0) == 0) {
             draftPrice = line.substr(12);
+            if (draftPrice.size() > kMaxDraftKgsPriceTextLength) {
+                return reject(FbdErrorCode::FieldTooLong, lineNo, L"DRAFT_PRICE= value is too long");
+            }
             sawRecognizedMarker = true;
         } else if (line.rfind(L"DRAFT_NOTES=", 0) == 0) {
             draftNotes = line.substr(12);
+            if (draftNotes.size() > kMaxNotesLength) {
+                return reject(FbdErrorCode::FieldTooLong, lineNo, L"DRAFT_NOTES= value is too long");
+            }
             sawRecognizedMarker = true;
         } else if (line.rfind(L"DRAFT_DATE=", 0) == 0) {
             // Only accepted if it's a genuinely valid ISO date - a
@@ -556,6 +792,17 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
             SimpleDate d;
             if (ParseISODate(candidate, d)) draftDate = candidate;
             sawRecognizedMarker = true;
+        } else if (line.rfind(L"SOURCE_FILE=", 0) == 0) {
+            // Phase 1 / F1: identity marker, not a financial figure - unlike
+            // DEBTOR=/CASH= a duplicate here isn't treated as corruption,
+            // the last one seen simply wins (matches how every other single-
+            // value marker except DEBTOR=/CASH= already behaves).
+            sourceFile = line.substr(12);
+            if (sourceFile.size() > kMaxSourceFileLength) {
+                return reject(FbdErrorCode::FieldTooLong, lineNo, L"SOURCE_FILE= value is too long");
+            }
+            hasSourceFile = true;
+            sawRecognizedMarker = true;
         } else if (line.rfind(L"FINALIZED=", 0) == 0) {
             // Same validation approach as DRAFT_DATE just above - a
             // corrupted/hand-edited value is dropped rather than treating
@@ -565,10 +812,21 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
             if (ParseISODate(candidate, d)) finalizedDate = candidate;
             sawRecognizedMarker = true;
         } else if (line == L"BEGIN") {
+            beginCount++;
+            if (beginCount > 1) {
+                return reject(FbdErrorCode::DuplicateOrMisorderedMarker, lineNo, L"a second BEGIN was found");
+            }
             inData = true;
             sawRecognizedMarker = true;
             sawBegin = true;
         } else if (line == L"END") {
+            endCount++;
+            if (endCount > 1) {
+                return reject(FbdErrorCode::DuplicateOrMisorderedMarker, lineNo, L"a second END was found");
+            }
+            if (beginCount == 0) {
+                return reject(FbdErrorCode::DuplicateOrMisorderedMarker, lineNo, L"END appeared before any BEGIN");
+            }
             inData = false;
             sawRecognizedMarker = true;
             sawEnd = true;
@@ -580,55 +838,107 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
                 else c2.push_back(ch);
             }
             parts.push_back(c2);
-            double kgs = 0, price = 0;
-            bool numbersOk = parts.size() >= 4 && ParseDoubleW(parts[2], kgs) && kgs >= 0 &&
-                              ParseDoubleW(parts[3], price) && price >= 0;
-            if ((parts.size() == 4 || parts.size() == 6 || parts.size() == 7) && numbersOk) {
-                Entry e;
-                e.supplier = TrimW(parts[0]);
-                e.product = TrimW(parts[1]);
-                e.kgs = kgs;
-                e.price = price;
-                if (parts.size() == 6 || parts.size() == 7) {
-                    e.date = parts[4];
-                    e.notes = parts[5];
-                }
-                if (parts.size() == 7) {
-                    e.priceFlagged = (parts[6] == L"1");
-                }
-                // parts.size() == 4 means a file saved before dates/notes
-                // existed; parts.size() == 6 means a file saved before the
-                // outlier-flag field existed (ROADMAP.md item 7) - in both
-                // cases the missing field(s) just default (empty / false),
-                // handled gracefully everywhere they're displayed.
-                if (e.supplier.empty() || e.product.empty()) {
-                    // A row with no Supplier or Species can't have come from
-                    // the app's own entry form (that's rejected at entry
-                    // time) - only from a hand-edited or corrupted file.
-                    // Surface it rather than silently showing a blank-named
-                    // group in every report.
-                    skippedLines++;
-                } else {
-                    newEntries.push_back(e);
-                }
-            } else {
+
+            // Phase 1 completeness follow-up (2026-09-30, v0.9.50): field
+            // count is checked FIRST, before touching parts[2]/parts[3] at
+            // all - keeps "wrong shape" (MalformedEntryRow) and "right shape
+            // but a bad number" (InvalidNumericField) as distinct, correctly
+            // attributed diagnostics instead of a fixed size>=4 heuristic
+            // that could misclassify a wrong-count-and-bad-number row.
+            if (parts.size() != 4 && parts.size() != 6 && parts.size() != 7) {
                 // Wrong field count (e.g. an embedded '|' from before that
-                // character was blocked at entry time), or a Kgs/Price value
-                // that isn't a valid finite non-negative number - can't be
-                // safely reconstructed. Skip it, but don't lose it silently;
-                // the caller is told how many rows this happened to.
-                skippedLines++;
+                // character was blocked at entry time) - can't be safely
+                // reconstructed, and (Phase 1 / F3+F2) is no longer silently
+                // dropped - it invalidates the whole load so the caller can
+                // tell the user plainly rather than showing a sheet that's
+                // quietly missing data.
+                return reject(FbdErrorCode::MalformedEntryRow, lineNo, L"row does not have a supported field count");
             }
+
+            double kgs = 0, price = 0;
+            bool numbersOk = ParseDoubleW(parts[2], kgs) && kgs >= 0 &&
+                              ParseDoubleW(parts[3], price) && price >= 0;
+            if (!numbersOk) {
+                // A Kgs/Price value that isn't a valid finite non-negative
+                // number - same "can't be safely reconstructed" reasoning.
+                return reject(FbdErrorCode::InvalidNumericField, lineNo, L"row has an invalid or negative Kgs/Price value");
+            }
+
+            Entry e;
+            e.supplier = TrimW(parts[0]);
+            e.product = TrimW(parts[1]);
+            e.kgs = kgs;
+            e.price = price;
+            if (parts.size() == 6 || parts.size() == 7) {
+                e.date = parts[4];
+                e.notes = parts[5];
+            }
+            if (parts.size() == 7) {
+                e.priceFlagged = (parts[6] == L"1");
+            }
+            // parts.size() == 4 means a file saved before dates/notes
+            // existed; parts.size() == 6 means a file saved before the
+            // outlier-flag field existed (ROADMAP.md item 7) - in both
+            // cases the missing field(s) just default (empty / false),
+            // handled gracefully everywhere they're displayed.
+            if (e.supplier.empty() || e.product.empty()) {
+                // A row with no Supplier or Species can't have come from
+                // the app's own entry form (that's rejected at entry
+                // time) - only from a hand-edited or corrupted file.
+                // Phase 1 / F3+F2: previously this incremented
+                // skippedLines and silently continued, committing a
+                // partial document once the loop finished. Reject the
+                // WHOLE document instead - the caller must not build a
+                // sheet that's missing rows the user never asked to drop.
+                return reject(FbdErrorCode::EmptyRequiredField, lineNo, L"row has an empty Supplier or Species");
+            }
+            if (e.supplier.size() > kMaxSupplierSpeciesLength || e.product.size() > kMaxSupplierSpeciesLength) {
+                return reject(FbdErrorCode::FieldTooLong, lineNo, L"row's Supplier or Species is too long");
+            }
+            if (e.notes.size() > kMaxNotesLength) {
+                return reject(FbdErrorCode::FieldTooLong, lineNo, L"row's Notes is too long");
+            }
+            if (newEntries.size() >= kMaxEntryRecords) {
+                return reject(FbdErrorCode::RecordLimitExceeded, lineNo,
+                    L"more than " + std::to_wstring(kMaxEntryRecords) + L" entry rows");
+            }
+            newEntries.push_back(e);
+        } else if (!line.empty()) {
+            // F2 follow-up (post-review, 2026-09-30): a non-empty line that
+            // isn't one of the recognized KEY= markers, isn't BEGIN/END, and
+            // appears OUTSIDE the data section (before the first BEGIN,
+            // after END, or anywhere once inData is false) used to simply
+            // match no branch above and fall through silently - "entry
+            // before BEGIN", "entry after END", and unrecognized stray
+            // content were all tolerated exactly like the bare-END-as-no-op
+            // gap F2 already closed above. Reject the whole document
+            // instead, consistent with treating this kind of structural
+            // ambiguity as a sign of a corrupted or hand-edited file. A
+            // genuinely blank line outside the data section is still
+            // harmless and ignored (matches the !line.empty() guard already
+            // used for rows inside BEGIN/END).
+            return reject(FbdErrorCode::UnexpectedContentOutsideDataSection, lineNo,
+                L"unrecognized content outside the BEGIN/END data section");
         }
     }
 
-    // Reject the whole document if it doesn't look like a genuine .fbd file
-    // at all (no DEBTOR=/CASH=/BEGIN/END markers found - e.g. some unrelated
-    // text file was selected), or if BEGIN was opened but END never
-    // appeared (the write was cut off partway through, e.g. by a crash or a
-    // full disk).
-    if (!sawRecognizedMarker) return result; // ok stays false
-    if (sawBegin && !sawEnd) return result;  // ok stays false
+    // Phase 1 completeness follow-up (2026-09-30, v0.9.50): a legitimate
+    // .fbd document now ALWAYS has exactly one BEGIN and one matching END,
+    // even an entirely empty sheet (DEBTOR=/CASH= with nothing else still
+    // needs its own empty BEGIN...END pair) - a Debtor/Cash-only document
+    // with no data-section markers at all is no longer accepted as a
+    // legitimate historical format. This was tightened on further review:
+    // the actual historical-compatibility requirement is about entry-ROW
+    // shape (4/6/7-field rows, handled above), never about omitting the
+    // structural section entirely - nothing in this app's own history ever
+    // wrote a file with DEBTOR=/CASH= but no BEGIN/END at all, since every
+    // save path (BuildFbdSaveContent in main.cpp) has always written both,
+    // even for a blank sheet. sawRecognizedMarker is checked first so a
+    // totally unrelated text file gets the more accurate "not a Fish
+    // Balance file" reason rather than "missing BEGIN".
+    if (!sawRecognizedMarker) return reject(FbdErrorCode::NotARecognizedFile, 0, L"not a Fish Balance (.fbd) file");
+    if (!sawBegin) return reject(FbdErrorCode::MissingBegin, 0, L"no BEGIN marker found");
+    if (!sawEnd) return reject(FbdErrorCode::MissingEnd, 0, L"BEGIN was never matched by an END");
 
     result.ok = true;
     result.entries = std::move(newEntries);
@@ -641,8 +951,199 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
     result.draftNotes = draftNotes;
     result.draftDate = draftDate;
     result.finalizedDate = finalizedDate;
+    result.sourceFile = sourceFile;
+    result.hasSourceFile = hasSourceFile;
     result.skippedLines = skippedLines;
     return result;
+}
+
+// ---------------------------------------------------------------------------
+// Test-automation refactor (2026-09-30, v0.9.51): platform-independent
+// COORDINATION logic for three areas Jack previously had to re-verify by
+// hand after every change (autosave identity/recovery, Finalize Day
+// persistence, Save As failure) - extracted here, out of main.cpp, so the
+// existing portable doctest suite can exercise the actual decision logic
+// with fake inputs/fake persistence, not just read the code and trust it.
+// Each function below is a pure decision: given already-known facts (a load
+// result, a set of injected success/failure outcomes), what should the
+// caller do? All the genuinely platform-specific work - reading files,
+// showing dialogs, actually writing to disk - stays in main.cpp exactly
+// where it was; these functions never touch a file, a window, or global
+// state themselves.
+// ---------------------------------------------------------------------------
+
+// Ordinal (not locale-aware) case-insensitive comparison - matches the
+// semantics of the Windows-only `_wcsicmp` this replaces at the one call
+// site that needed to move here (DecideAutosaveRecovery, just below), which
+// compares two already-normalized Windows file paths, never natural-language
+// text. Deliberately simple (ASCII-range `towupper`) rather than pulling in
+// full Unicode case-folding - identical behavior to `_wcsicmp` for the kind
+// of paths this is ever actually called with.
+inline bool CaseInsensitiveEqualsW(const std::wstring& a, const std::wstring& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); i++) {
+        if (towupper((wint_t)a[i]) != towupper((wint_t)b[i])) return false;
+    }
+    return true;
+}
+
+// --- Autosave identity/recovery (Phase 1 / F1, extracted from wWinMain's
+// startup sequence in main.cpp) -------------------------------------------
+//
+// Reproduces the EXACT decision wWinMain's startup block already made
+// inline - this is a refactor for testability, not a behavior change (see
+// CHANGELOG.md / ROADMAP.md for this version). In particular it preserves
+// one existing quirk rather than silently fixing it: if autosave.fbd simply
+// doesn't exist (first run, or deliberately deleted) but settings.txt still
+// remembers a LASTFILE from a previous session, the app still shows a
+// "Recovered your last unsaved work..." message even though nothing was
+// actually recovered (autosaveLoadFailed is false and hasSourceFile is
+// false in that case, same as a genuine legacy-autosave-with-no-marker
+// scenario, since main.cpp never distinguishes "no autosave" from
+// "autosave exists but never got a chance to set hasSourceFile" before
+// calling this). Flagged in CHANGELOG.md as a pre-existing quirk, not
+// fixed here per the instruction to preserve current behavior exactly.
+enum class AutosaveRecoveryOutcome {
+    Rejected,                 // autosave.fbd existed but failed to load - blank sheet, original file untouched
+    NamedFileNotRemembered,   // no LASTFILE at all - no association attempted, no message shown
+    MatchedNamedFile,         // recovered content's SOURCE_FILE= agrees with LASTFILE - re-associate
+    UnsavedLegacyNoMarker,    // recovered content has no SOURCE_FILE= marker at all (predates the field)
+    UnsavedMismatch,          // recovered content's SOURCE_FILE= doesn't match LASTFILE
+};
+
+struct AutosaveRecoveryDecision {
+    AutosaveRecoveryOutcome outcome = AutosaveRecoveryOutcome::NamedFileNotRemembered;
+    // What g_currentFile should become - only ever non-empty for
+    // MatchedNamedFile. The caller (main.cpp) proves "ordinary Save cannot
+    // target an unrelated file" simply by using this value: every outcome
+    // except MatchedNamedFile leaves it empty, so a subsequent Save routes
+    // to Save As (a fresh file) rather than silently overwriting whatever
+    // LASTFILE used to point at.
+    std::wstring resultingCurrentFile;
+};
+
+inline AutosaveRecoveryDecision DecideAutosaveRecovery(
+        bool autosaveLoadFailed, bool hasSourceFile, const std::wstring& sourceFile,
+        const std::wstring& lastFile) {
+    AutosaveRecoveryDecision d;
+    if (autosaveLoadFailed) {
+        d.outcome = AutosaveRecoveryOutcome::Rejected;
+        return d;
+    }
+    if (lastFile.empty()) {
+        d.outcome = AutosaveRecoveryOutcome::NamedFileNotRemembered;
+        return d;
+    }
+    bool identityMatches = hasSourceFile && CaseInsensitiveEqualsW(sourceFile, lastFile);
+    if (identityMatches) {
+        d.outcome = AutosaveRecoveryOutcome::MatchedNamedFile;
+        d.resultingCurrentFile = lastFile;
+        return d;
+    }
+    d.outcome = hasSourceFile ? AutosaveRecoveryOutcome::UnsavedMismatch
+                              : AutosaveRecoveryOutcome::UnsavedLegacyNoMarker;
+    return d;
+}
+
+// --- Finalize Day persistence coordination (Phase 1 / F9, extracted from
+// FinalizeWndProc's ID_FIN_OK handler in main.cpp) --------------------------
+//
+// The three writes involved (rolling backup snapshot, the permanent history
+// record, and keeping a currently-open named file's own FINALIZED= marker
+// in sync) are injected as ports so a test can make any combination
+// independently succeed or fail without touching a real filesystem. Mirrors
+// the real handler's exact sequencing and exact behavior on each outcome -
+// see CHANGELOG.md for this version.
+enum class FinalizeResultKind {
+    HistoryWriteFailed,        // nothing was finalized - g_finalizedDate must NOT be set, dirty untouched
+    FinalizedNamedFileSyncFailed, // history record IS locked in, but the open named file didn't get its own copy updated
+    FinalizedClean,            // both writes (or just the history write, if no named file is open) succeeded
+};
+
+struct FinalizeOutcome {
+    FinalizeResultKind kind = FinalizeResultKind::HistoryWriteFailed;
+    bool finalized = false;   // true iff the permanent history record was actually written - caller sets
+                              // g_finalizedDate/calls ApplyFinalizedLockState() only when this is true
+    bool dirtyAfter = true;   // caller's new g_dirty value - ONLY meaningful when finalized is true;
+                              // on HistoryWriteFailed the caller must leave g_dirty exactly as it was
+    std::wstring message;     // user-facing text, already fully composed
+};
+
+// Ports: every write this coordination needs, injected as std::function so
+// tests can supply fakes. writeBackupSnapshot has no failure signal because
+// the real WriteBackupSnapshot() is already deliberately best-effort/silent
+// (see its own comment in main.cpp) - a failed rolling backup does not and
+// never has blocked Finalize Day.
+struct FinalizePersistencePorts {
+    std::function<void()> writeBackupSnapshot;
+    std::function<bool(std::wstring* outError)> writeHistoryRecord;
+    bool hasNamedFile = false;
+    std::function<bool(std::wstring* outError)> writeNamedFileSync; // only called when hasNamedFile
+};
+
+inline FinalizeOutcome CoordinateFinalizeDay(const FinalizePersistencePorts& ports, const std::wstring& isoDate) {
+    FinalizeOutcome out;
+    if (ports.writeBackupSnapshot) ports.writeBackupSnapshot();
+
+    std::wstring historyErr;
+    bool historyOk = ports.writeHistoryRecord && ports.writeHistoryRecord(&historyErr);
+    if (!historyOk) {
+        out.kind = FinalizeResultKind::HistoryWriteFailed;
+        out.finalized = false;
+        out.message = L"Could not write the history record: " + historyErr;
+        return out;
+    }
+
+    out.finalized = true;
+    if (ports.hasNamedFile) {
+        std::wstring namedErr;
+        bool namedOk = ports.writeNamedFileSync && ports.writeNamedFileSync(&namedErr);
+        if (!namedOk) {
+            out.kind = FinalizeResultKind::FinalizedNamedFileSyncFailed;
+            out.dirtyAfter = true; // the open file no longer matches what was just finalized
+            out.message = L"Finalized as " + isoDate + L". The permanent history record was saved "
+                          L"successfully, but the open file could not be re-saved to match it: " +
+                          namedErr + L"\nUse File > Save to retry before closing the app.";
+            return out;
+        }
+    }
+    out.kind = FinalizeResultKind::FinalizedClean;
+    out.dirtyAfter = false;
+    out.message = L"Finalized as " + isoDate + L".";
+    return out;
+}
+
+// --- Save As failure coordination (Phase 1 / F1, extracted from
+// DoFileSaveAs in main.cpp) --------------------------------------------------
+//
+// Mirrors DoFileSaveAs's exact existing logic: the new path is provisionally
+// adopted BEFORE the write is attempted (so the write's own SOURCE_FILE=
+// identity marker is correct for the save it's actually part of), then
+// reverted if the write fails - the production behavior this proves is
+// "a failed Save As restores the previous file association," not a new
+// invariant being introduced.
+struct SaveAsOutcome {
+    bool success = false;
+    std::wstring resultingCurrentFile; // == newFile on success, == previousFile (reverted) on failure
+    bool dirtyAfter = true;            // only meaningful when success is true (false = matches disk)
+    std::wstring errorMessage;         // only meaningful when success is false
+};
+
+inline SaveAsOutcome CoordinateSaveAs(const std::wstring& previousFile, const std::wstring& newFile,
+        const std::function<bool(const std::wstring& path, std::wstring* outError)>& writeFn) {
+    SaveAsOutcome out;
+    std::wstring err;
+    bool ok = writeFn && writeFn(newFile, &err);
+    if (ok) {
+        out.success = true;
+        out.resultingCurrentFile = newFile;
+        out.dirtyAfter = false;
+    } else {
+        out.success = false;
+        out.resultingCurrentFile = previousFile; // reverted - never left pointing at the failed target
+        out.errorMessage = err;
+    }
+    return out;
 }
 
 // ---------------------------------------------------------------------------

@@ -26,11 +26,16 @@ $sources = @(
     "test_fbd_loader.cpp",
     "test_aggregation.cpp",
     "test_csv_export.cpp",
-    "test_email.cpp"
+    "test_email.cpp",
+    "test_recovery_and_finalize.cpp"
 )
 
 Write-Host "Compiling FishBalanceTests.exe..." -ForegroundColor Cyan
-& cl /nologo /EHsc /W4 /std:c++17 /DUNICODE /D_UNICODE $sources /Fe:FishBalanceTests.exe
+# Phase 1 (2026-09-30): /WX added so this matches CMakeLists.txt's warning
+# gate (see AuditFindings_2026-09-30.md, finding F29) - previously this was
+# the only one of the four build paths using /W4 at all, but still without
+# /WX, so a new warning here could still slip by unnoticed.
+& cl /nologo /EHsc /W4 /WX /std:c++17 /DUNICODE /D_UNICODE $sources /Fe:FishBalanceTests.exe
 $buildExitCode = $LASTEXITCODE
 
 # Clean up the .obj files cl.exe drops in this folder by default - keep

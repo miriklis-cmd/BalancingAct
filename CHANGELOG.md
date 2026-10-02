@@ -12,6 +12,532 @@ possible, grouped into logical releases.
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.9.51] - Test-automation refactor: remaining Phase 1 manual tests automated
+
+**Revision note (2026-10-02):** Jack's first real Windows build of this
+version reported the portable suite passing clean (159/159 test cases,
+469/469 assertions) but the new Windows integration suite failing to
+compile, with two real bugs in the two new, standalone (no-main.cpp-
+dependency) integration test files:
+- `test_io_integration.cpp` and `test_save_fault_injection.cpp` both
+  `#include <windows.h>` directly without defining `NOMINMAX` first (unlike
+  `main.cpp`, which defines it at the very top of the file) - `windows.h`'s
+  `max`/`min` macros then mangled `FishBalanceCore.h`'s one
+  `std::max(iqr, ...)` call (`ComputeOutlierRange`) into invalid syntax
+  (`error C2589`). Fixed by adding the same `#define NOMINMAX` guard to
+  both files, matching `main.cpp`'s own existing comment on why this is
+  needed.
+- `test_io_integration.cpp`'s invalid-UTF-8 test used the string literal
+  `"...\xFF\xFEbroken..."` - MSVC's `\x` escape greedily consumes every
+  following hex digit, and `b` is a valid one, so `\xFEb` was parsed as a
+  single out-of-range 3-digit hex escape (`error C7744`) instead of `\xFE`
+  followed by the letter `b`. Fixed by splitting the literal
+  (`"\xFF\xFE" "broken..."`) so the escape sequence ends where intended.
+
+Both are build-time-only bugs in brand-new integration test *code*, not in
+the application or in the already-passing portable suite - no application
+behavior changed as a result of this fix.
+
+**Second revision note (2026-10-02):** with the build fixed, Jack's next
+real run showed the integration suite building and running, but 9 of the
+control-limit test's own assertions failing (e.g. "CHECK( 6 == 256 )" for
+the Kgs field, "CHECK( 9 == 255 )" for the Supplier combo). This was a bug
+in the test's own throwaway controls, not in `ApplyFieldLengthLimits()`'s
+enforcement: per MSDN, a single-line `EDIT` control WITHOUT `ES_AUTOHSCROLL`
+(and a `COMBOBOX` without `CBS_AUTOHSCROLL`) silently REJECTS any typed
+character once the text no longer fits within the control's own visible
+pixel width - a separate mechanism from `EM_LIMITTEXT`/`CB_LIMITTEXT`
+entirely. The test's tiny (50-100px) throwaway controls were capping typed
+input at roughly 6-12 characters long before the real, much larger
+(256/4096/255-character) limits being tested were ever reached. Fixed by
+adding `ES_AUTOHSCROLL`/`CBS_AUTOHSCROLL` to the test's own controls, which
+is how a real single-line Win32 edit/combo is normally expected to behave
+for typed input in the first place (the test reproduces this correctly now;
+whether the real app's own equivalent fields would benefit from the same
+style is a separate, out-of-scope question - see ROADMAP.md's v0.9.51
+status section for a note on this).
+
+No application code changed as part of this second fix either - only the
+integration test's own throwaway control styles.
+
+Jack confirmed Reconciliation invalid-input handling and Finalize blocking
+had been manually checked and worked, then asked for the remaining Phase 1
+manual test areas to be automated so he doesn't have to repeat them by hand
+— explicitly: preserve current application behavior, do not begin Phase 2,
+and add a Windows integration-test target alongside the existing portable
+tests. This release adds that automation. **No application behavior
+changes** other than two cosmetic wording tweaks called out below;
+v0.9.48/v0.9.49/v0.9.50 remain exactly as delivered.
+
+**New: `FishBalanceCore.h` pure coordination functions** (platform-
+independent, unit-tested in the new `tests/test_recovery_and_finalize.cpp`,
+24 test cases):
+- `DecideAutosaveRecovery()` — the startup autosave-identity/recovery
+  decision (matched identity, mismatch, missing named file, changed file,
+  legacy autosave with no marker, corrupt/rejected autosave), extracted
+  from `wWinMain`'s startup logic without changing it.
+- `CoordinateFinalizeDay()` — Finalize Day's persistence coordination
+  behind an injectable `FinalizePersistencePorts` interface (backup
+  snapshot / history write / named-file sync), tested against every
+  success/failure combination — proves a partial failure (history written,
+  named-file sync failed) is never reported as complete success.
+- `CoordinateSaveAs()` — Save As's write-then-commit-or-revert logic,
+  tested against injected write failures — proves a failed Save As
+  restores the previous file association exactly.
+
+**New: `FishBalanceWin32IO.h`** — the Win32 file-I/O half of the app
+(`WToUtf8`/`Utf8ToW`, `Win32IO_OpenFileW`, `ReadAllBytes`/`ReadAllLines`,
+`WriteFileAtomicUtf8`, and a new `LoadFbdFileContent()`), moved out of
+`main.cpp` unchanged except that `ReadAllBytes` and `WriteFileAtomicUtf8`
+now take an optional injectable `FileReadOps`/`FileWriteOps` port —
+defaulting to the exact real Win32/CRT behavior, but lets an integration
+test force a specific step (open/write/flush/replace) to fail
+deterministically instead of needing a real disk-full or antivirus-lock
+condition. Has zero dependency on any window or global app state, so a
+Windows integration test executable can link it without any GUI code.
+
+**New: `FishBalanceControlLimits.h`** — `ApplyFieldLengthLimits()`, the
+single place that applies the app's documented field-length limits via
+`EM_LIMITTEXT`/`CB_LIMITTEXT`, extracted out of `main.cpp`'s `WM_CREATE`
+handler and the Manage Names dialog so a test can call the exact same
+function against its own throwaway controls.
+
+**`main.cpp` refactoring for testable boundaries** (behavior preserved):
+- `GetExeDir()` gained a test-only override (`SetExeDirOverrideForTests`),
+  empty by default (real behavior, unchanged) — the one lever that
+  redirects every path this app builds (autosave.fbd, settings.txt,
+  recent.txt, emails.txt, backups\, history\) into an isolated temp
+  directory for a test, never this machine's real application folder.
+- `DeleteEntryAt(int)` extracted from `DeleteSelectedEntry()` — the actual
+  delete, with no confirmation dialog, so a test can delete a specific row
+  directly.
+- `ExecuteFinalizeDay()` extracted from the Finalize Day dialog's OK
+  handler — wraps `CoordinateFinalizeDay()` with the real Win32 ports and
+  applies the resulting state, callable directly by a test or by the real
+  dialog.
+- `CreateFishBalanceMainWindow()` extracted from `wWinMain` — menu
+  creation through `ShowWindow`/`UpdateWindow`, so a test can create the
+  REAL main window (hidden, via `SW_HIDE`) and get the real `WM_CREATE`
+  control-creation and autosave-recovery logic, without a message loop.
+  `wWinMain` itself is now guarded by `#ifndef FBM_BUILDING_TESTS`, so the
+  Windows integration test executable (which supplies its own `main()` via
+  doctest) can compile `main.cpp` directly with no duplicate-entry-point
+  conflict.
+- `DoFileSaveAs()` now calls `CoordinateSaveAs()` internally instead of
+  duplicating its revert-on-failure logic inline.
+- `LoadFromFile()` now calls the new `LoadFbdFileContent()` for its
+  read+decode+parse steps, keeping only the global-state commit in
+  `main.cpp` itself.
+- Two small, deliberate wording changes as a result of consolidating
+  through `CoordinateFinalizeDay()`'s single message string: the Finalize
+  Day success dialog now reads "Finalized as `<date>`. The permanent
+  history record was saved..." (one space) instead of "Finalized as
+  `<date>`.\n\n The permanent..." (a blank line) when the named-file sync
+  fails after a successful finalize. No other message text changed.
+
+**New: Windows integration test suite** (`tests/win32_integration/`,
+28 test cases across 3 files + `main.cpp`'s own `#ifdef FBM_BUILDING_TESTS`
+block):
+- `test_io_integration.cpp` (Phase 1 item 3, 13 test cases) — real
+  temporary files on a real disk: missing file, oversized file (a genuine
+  100MB+1-byte file, not a mocked size), invalid UTF-8, missing/duplicate/
+  misordered `BEGIN`/`END` markers, malformed rows, a non-numeric field,
+  excessive records (100,001 rows), an over-length line, stray content
+  outside the data section, and the happy path.
+- `test_save_fault_injection.cpp` (Phase 1 item 4, 7 test cases) — real
+  destination files with injected open/write/flush/replace failures,
+  proving the destination is left byte-for-byte untouched and no `.tmp`
+  file is left behind on every failure path, plus the control case.
+- `main.cpp`'s own `#ifdef FBM_BUILDING_TESTS` block (8 test cases):
+  - Phase 1 item 5 — a hidden host window with real `EDIT`/`COMBOBOX`
+    controls, `WM_CHAR`-driven typing (not `WM_SETTEXT`, which is
+    documented to bypass `EM_LIMITTEXT`) proving the configured limits are
+    actually enforced by the control itself, for every field
+    `ApplyFieldLengthLimits()` targets.
+  - Phase 1 item 6 — a headless end-to-end smoke test: creates the real
+    main window hidden (`SW_HIDE`) against an isolated temp app-data
+    directory, then adds/edits/deletes an entry, reconciles it, saves,
+    reloads, and finalizes through the callable commands above
+    (`CommitEntryForm`, `LoadEntryIntoForm`, `DeleteEntryAt`, `RecalcTotals`,
+    `SaveToFile`, `LoadFromFile`, `ExecuteFinalizeDay`) — never a message
+    loop or simulated mouse/keyboard UI automation, and never touching this
+    machine's real autosave/settings/backups/history/named files.
+
+**Build changes:**
+- `tests/run_tests.ps1`'s source list now includes
+  `test_recovery_and_finalize.cpp` (previously only wired into
+  `CMakeLists.txt`).
+- New `tests/win32_integration/run_integration_tests.ps1` — compiles
+  `main.cpp` (with `-DFBM_BUILDING_TESTS`) together with the two new
+  integration test files and a doctest `main()`, under the same
+  `/W4 /WX` gate as every other build path.
+- `run_tests.bat` now runs both the portable suite and the Windows
+  integration suite from one command, reporting failure (and a non-zero
+  exit code) if either fails.
+- `CMakeLists.txt` gained a `FishBalanceIntegrationTests` target
+  (`main.cpp` + the two new integration test files, `FBM_BUILDING_TESTS`
+  defined) wired into `ctest` alongside the existing `FishBalanceTests`
+  target.
+
+**Still manual, by deliberate choice** (per Jack's own list): visual layout
+and clipping; real printer/PDF appearance; actual external email-client
+launch; mixed-DPI monitor behavior; human judgment of message wording and
+workflow feel.
+
+## [0.9.50] - Phase 1 / F4 completeness: structural, bounds, diagnostics
+## and allocation-handling requirements
+
+After v0.9.49 shipped, Jack reviewed it against F4's original
+authorization and found the release was not actually complete: F4 also
+explicitly required a hard "exactly one `BEGIN` and one `END`" structural
+rule, bounded record/line/field validation, structured read/parse
+diagnostics, and allocation-failure handling. An earlier answer in this
+review cycle incorrectly described those items as outside F4's authorized
+scope — that was wrong; they were part of the original authorization and
+simply hadn't been implemented yet. This corrective build closes all of
+them. **v0.9.48/v0.9.49 remain exactly as delivered; this is a new,
+separate package, not a silent edit to either.**
+
+- **A `.fbd` document now always has exactly one `BEGIN` and one matching
+  `END`** (`ParseFbdContent()`, `FishBalanceCore.h`). A `DEBTOR=`/`CASH=`-
+  only document with neither marker — accepted by every version through
+  v0.9.49 — is now rejected the same way any other structurally-ambiguous
+  file already was. This doesn't break a real historical format: every
+  save path (`BuildFbdSaveContent()`) has always written both markers
+  unconditionally, even for a completely blank sheet. The only valid
+  empty sheet remains `DEBTOR=` / `CASH=` / `BEGIN` / `END`.
+- **New bounded record/line/field validation** (`FishBalanceCore.h`):
+  documented limits — 100,000 entry records, 65,536-character decoded
+  lines, 255 characters for Supplier/Species (rows and drafts), 4,096 for
+  Notes/`DEBTOR=`/`CASH=` and draft Notes, 256 for draft Kgs/Price, 32,767
+  for `SOURCE_FILE=` — are enforced on loaded `.fbd` content. Over-limit
+  input is rejected with a specific diagnostic, never silently truncated.
+  The same limits are now enforced on interactive entry via
+  `EM_LIMITTEXT`/`CB_LIMITTEXT` on every corresponding Win32 control
+  (`main.cpp`), so the UI and the file format agree on what's
+  representable in both directions. Four pre-existing fixed-size
+  `GetWindowTextW` buffers (`BuildFbdSaveContent`, `RecalcTotals`, the
+  print/PDF report builder, `CommitEntryForm`) were resized to match —
+  raising the UI limits without this would have silently truncated a
+  legitimately long value the instant it was read back out of its
+  control, reintroducing exactly the kind of silent-truncation bug this
+  requirement exists to prevent. `emails.txt` — the one companion file
+  that shares the Supplier-name field — now skips (rather than loading) a
+  line whose Supplier or email exceeds the same 255-character bound, and
+  the Manage Names dialog's own Supplier-name/email fields get the
+  matching `EM_LIMITTEXT`.
+- **New structured read and parse diagnostics.** `FbdErrorCode`
+  (`FishBalanceCore.h`) distinguishes every content/structure-level
+  rejection `ParseFbdContent()` can produce (not a recognized file,
+  missing `BEGIN`, missing `END`, a duplicate/misordered marker, duplicate
+  singleton metadata, unexpected content outside the data section, a line
+  or field too long, the record limit exceeded, a malformed row, an
+  invalid numeric field, an empty required field), each with a 1-based
+  line number where applicable and a message that never echoes a full
+  field's content verbatim. `ReadBytesError` (`main.cpp`) does the same
+  for the file-I/O side (not found, open failure, seek failure,
+  size-query failure, too large, allocation failure, short read, I/O
+  failure). `LoadFromFile()` now takes an optional `outError` combining
+  both into one specific, human-readable reason, threaded through all
+  four places a file gets loaded — File > Open, Recent Files, Restore
+  from Backup, and startup autosave recovery — each of which now shows
+  the user a real reason instead of one fixed "could not open" sentence.
+- **Allocation failures are now handled explicitly.** `std::bad_alloc`/
+  `std::length_error` are caught deliberately (never a broad `catch
+  (...)`, which could otherwise hide a genuine programming defect) around
+  every allocation boundary the authorization named: the raw byte-buffer
+  allocation in `ReadAllBytes()`, UTF-8 decoding (`Utf8ToW`, called from
+  both `ReadAllLines` and `LoadFromFile`), and line-splitting/parsing/
+  entry-vector growth (`ParseFbdContent()`, wrapped at its call site).
+  Each reports a clear "not enough memory" message and leaves live
+  document state, the source file, and the autosave untouched — the same
+  transactional guarantee as any other load failure. Deterministically
+  forcing an actual allocation failure in a portable unit test isn't
+  practical, so this path is verified by code review only (narrow catch
+  clauses, no partial state mutation before the result is committed, no
+  file write between the allocation attempt and the error return) — see
+  `SecurityHardeningRegister.md` item 16 for the full verification note.
+  The new size/record/line/field limits above are what actually prevent a
+  hostile or corrupted input from reaching an allocation large enough to
+  fail in the first place.
+- **Documentation reconciled honestly.** `SecurityHardeningRegister.md`
+  (new item 16), `ROADMAP.md`, `DATA_FORMATS.md`, and `BUSINESS_RULES.md`
+  now record that v0.9.49 closed checked reads/the whole-file limit/strict
+  UTF-8, and this build closes the remaining, originally-authorized F4 and
+  structural requirements — none of it is described as having been
+  outside scope. The already-accepted atomic writer (`WriteFileAtomicUtf8`,
+  F6) is untouched.
+- **Tests**: `tests/test_fbd_loader.cpp` grew from 43 to 57 `TEST_CASE`s —
+  two existing fixtures that assumed a Debtor/Cash-only or draft-only
+  document with no `BEGIN`/`END` would still load were corrected to assert
+  rejection instead (matching the new rule), plus new regression tests for
+  missing `BEGIN`/missing `END` specifically, and a new boundary-test
+  suite covering exactly-at-the-limit and one-character/one-record-over
+  for every new limit above, with `errorCode` assertions confirming the
+  specific `FbdErrorCode` fired in each case. All large fixtures (long
+  fields, 100,000-row documents) are built programmatically in the test
+  rather than as in-source literals.
+- **Verified on Windows (MSVC, 2026-09-30):** `run_tests.bat` reports
+  **135/135 test cases, 414/414 assertions, all passing**; `build_msvc.bat`
+  builds `FishBalanceManager.exe` clean. This is the first version in the
+  Phase 1 corrective sequence to actually be compiled and run, not just
+  structurally checked.
+
+## [0.9.49] - Phase 1 completeness review: two corrective fixes
+
+Before running the real Windows build/test verification on v0.9.48, Jack
+asked for a precise, read-only completeness check of that release's F1
+and F2/F3 work against their originally-authorized scope, with source
+citations for every point and an instruction to fix (as a new version,
+not a silent edit to the delivered v0.9.48 package) only a definite
+in-scope omission. Two were found and fixed; everything else the review
+covered was confirmed already correct - see `AuditFindings_2026-09-30.md`
+follow-up notes / the chat record for the full point-by-point answer.
+
+- **F1 follow-up - `SOURCE_FILE=` narrowed to `autosave.fbd` only**
+  (`main.cpp`, `FishBalanceCore.h`). v0.9.48 wrote this marker into
+  *every* `.fbd` save - named files, `history\<date>.fbd` records, and
+  `backups\` snapshots included - even though nothing ever reads any of
+  those copies back (only `autosave.fbd`'s own copy is ever consulted,
+  and only at startup). That meant every file that routinely leaves the
+  original machine (emailed to an accountant, backed up to cloud
+  storage, copied to another computer) carried an absolute path,
+  including the Windows username in it, for no functional benefit -
+  raised directly by Jack's review question asking why this wasn't
+  scoped to autosave alone. `BuildFbdSaveContent()` gained a new
+  `includeSourceFile` parameter (default `false`); `SaveToFile()` now
+  sets it by comparing the target path against a new `AutosavePath()`
+  helper (case-insensitively, matching the existing startup identity
+  check). Every other call site (`WriteBackupSnapshot`,
+  `MaybeBackupOnTimer`, the Finalize history write) is unaffected and
+  correctly keeps the default `false`. No named/history/backup file will
+  carry this marker going forward; old files that already have one from
+  v0.9.48 are harmless (nothing reads it from them) and don't need
+  cleaning up.
+- **F2 follow-up - unrecognized content outside `BEGIN`/`END` is now
+  rejected** (`ParseFbdContent()`, `FishBalanceCore.h`). A non-empty line
+  that isn't a recognized `KEY=` marker, isn't `BEGIN`/`END`, and sits
+  outside the data section (before the first `BEGIN`, after `END`, or
+  anywhere in a file with no `BEGIN` at all) previously matched no
+  branch in the parser's if/else-if chain and was silently ignored -
+  "entry before `BEGIN`", "entry after `END`", and other stray content
+  weren't actually covered by v0.9.48's transactional/structural-
+  strictness claim, even though the same class of gap (a bare `END` as a
+  silent no-op) had already been closed. Now rejected the same way as
+  every other structural ambiguity; a genuinely blank line in that
+  position is still harmless and ignored. Three new test cases added to
+  `tests/test_fbd_loader.cpp` covering exactly these scenarios
+  (unrecognized content before `BEGIN`, after `END`, and confirming a
+  genuinely blank line in either position still loads fine).
+- Corrected stale documentation left over from v0.9.48's original
+  (unscoped) `SOURCE_FILE=` description: `DATA_FORMATS.md`,
+  `BUSINESS_RULES.md`, and `SecurityHardeningRegister.md` now describe
+  `SOURCE_FILE=` as autosave-only throughout, and `ROADMAP.md`'s v0.9.48
+  status summary is corrected to match.
+- **Not yet verified by an actual compile or test run** - same caveat as
+  v0.9.48: no compiler is available in this environment. The structural
+  balance check (paren/brace/bracket counts) passes on both changed
+  files. Jack's real Windows build and `tests/run_tests.ps1` remain the
+  actual verification step for this version too.
+
+## [0.9.48] - External audit (OpenAI Codex) Phase 1: data-integrity fail-closed remediation
+
+Phase 1 of the external audit remediation, authorized by Jack in priority
+order F5 → F9 → F1 → F3+F2 → F4 (see `AuditFindings_2026-09-30.md` for the
+full Phase 0 findings register and ROADMAP.md for the Phase 1 summary).
+F6 (atomic writer) stays deferred - confirmed already fixed, not a defect.
+
+- **F5 - `ParseSumExpr()` replaced with `ParseSumExprStrict()`**
+  (`FishBalanceCore.h`): Debtor/Cash parsing now fails closed. A leading
+  `+`/`-` is allowed only on the expression's first term; an operator
+  immediately following another operator (`100++20`, `100+-20`,
+  `100--20`) is rejected; a dangling trailing operator (`100+`) is
+  rejected; every term must be digits with at most one decimal point,
+  rejecting typos (`12x`), `nan`/`inf`/`-inf`, and scientific notation
+  (`1e10`). Previously a bad term was silently dropped and the total
+  computed from whatever was left (`1000+oops+250` used to silently
+  evaluate to `1250`). `RecalcTotals()`, the print/PDF report builder,
+  and `DoFinalizeDay()` (`main.cpp`) all updated to treat "invalid entry"
+  as a distinct, blocking state from "doesn't balance."
+- **F9 - Finalize Day's named-file re-save is now checked.** The
+  `ID_FIN_OK` handler in `FinalizeWndProc` (`main.cpp`) previously
+  discarded the return value of the `SaveToFile(g_currentFile)` call that
+  keeps the open named file's `FINALIZED=`/`SOURCE_FILE=` markers in sync
+  with the permanent history record just written. That result is now
+  checked; on failure the day is still finalized (the permanent
+  `history\<date>.fbd` record was already written and checked earlier in
+  the same handler), but the success dialog is replaced with a warning
+  naming the problem and instructing a manual Save, and `g_dirty` is left
+  `true` so the mismatch isn't lost.
+- **F1 - autosave/named-file identity separation.** Every `.fbd` save
+  (`BuildFbdSaveContent()`, `main.cpp`) now writes a `SOURCE_FILE=` line
+  recording `g_currentFile` at the moment of writing. `ParseFbdContent()`
+  (`FishBalanceCore.h`) parses it into `FbdLoadResult::sourceFile`/
+  `hasSourceFile`. `wWinMain`'s startup sequence now only restores
+  `g_currentFile` from `settings.txt`'s `LASTFILE` when the just-recovered
+  `autosave.fbd`'s own `SOURCE_FILE=` agrees with it (case-insensitively);
+  on a mismatch, or an old autosave with no `SOURCE_FILE=` at all, the
+  recovered data still loads but `g_currentFile` stays empty and an
+  informational dialog explains that Save As is needed - closing the gap
+  where `LASTFILE` (only ever written on a clean exit) could point at a
+  different file than what a crash-recovered autosave actually contains,
+  and a later Save would have silently overwritten that other file.
+- **F3+F2 - `.fbd` loading is now transactional and structurally strict**
+  (`ParseFbdContent()`, `FishBalanceCore.h`): a row that doesn't parse
+  into 4/6/7 fields, has an invalid/negative Kgs or Price, or has an
+  empty Supplier/Species now rejects the **whole document**, replacing
+  the previous "skip the bad row(s), warn with a count, load everything
+  else" behavior. A second `BEGIN`, a duplicate or unmatched `END`, or a
+  duplicate `DEBTOR=`/`CASH=` line are now also rejected outright (the
+  last-seen value no longer silently wins). Every legitimate historical
+  row format (4/6/7-field) is still accepted; `LoadFromFile`'s now-dead
+  "Some Rows Skipped" warning path is left in place with a comment
+  explaining why it's currently unreachable.
+- **F4 - bounded, checked file reading.** `ReadAllLines` and
+  `LoadFromFile` each had their own unchecked `fseek`/`ftell`/`fread`
+  sequence with no `ferror()` check and no size limit; both now go
+  through one new shared `ReadAllBytes()` helper (`main.cpp`) that checks
+  every I/O call's result and rejects a file over 100MB. `Utf8ToW()` now
+  decodes with `MB_ERR_INVALID_CHARS` and reports invalid UTF-8 via an
+  optional out-parameter instead of silently substituting replacement
+  characters for invalid bytes.
+- **Warning-gate tightening (finding F29)**: `CMakeLists.txt` now applies
+  `/W4 /WX` (MSVC) or `-Wall -Wextra -Wpedantic -Werror` (MinGW/GCC) to
+  both the app and test targets; `build_msvc.bat`, `build_mingw.bat`, and
+  `tests/run_tests.ps1` (previously using no warning flags, or `/W4`
+  without `/WX`) now match. **Not yet verified by an actual build** - no
+  compiler is available in this environment; if this surfaces existing
+  warnings on Jack's machine, they need fixing at the root cause, not
+  suppressing.
+- **Documentation drift corrected (findings F25-F28)**: Testing.md,
+  README.md, and ARCHITECTURE.md no longer claim there's no automated
+  test suite or that `main.cpp` is "the entire application" - both were
+  stale since `FishBalanceCore.h`/`tests/` were added.
+- Extensive new/rewritten test coverage in `tests/test_parsing.cpp` and
+  `tests/test_fbd_loader.cpp` for all of the above (the F9/F1-startup/F4
+  changes touch Win32-specific code in `main.cpp` that isn't reachable
+  from the doctest suite - see Testing.md for the corresponding manual
+  checks).
+
+## [0.9.47] - Combo-box first-paint bug: evidence-based fix, diagnostic removed
+
+Jack ran v0.9.46's logging build via F5 and sent back the actual Output
+window log. It gave a clean, specific answer for the first time in five
+rounds of work on this bug (`[0.9.3]`/`[0.9.11]`/`[0.9.12]`/`[0.9.42]`/
+`[0.9.44]`):
+
+- v0.9.44's own `SWP_FRAMECHANGED`/hide-show fix DID run and DID produce
+  `WM_NCCALCSIZE`, `WM_NCPAINT`, `WM_PAINT`, `WM_ERASEBKGND` on the broken
+  control - at 328ms, 344ms, 391ms, 407ms after launch, and again at
+  1141-1157ms from the 1-second retry timer. The box was still visibly
+  broken after all of that. So non-client recalculation was never the
+  right mechanism - the v0.9.44 theory was wrong.
+- The moment Jack actually hovered the mouse (+11344ms in the log), the
+  only messages that arrived were `WM_MOUSEMOVE` -> `WM_PAINT` ->
+  `WM_ERASEBKGND`. No `WM_NCPAINT`, no `WM_NCCALCSIZE` at all. That's the
+  one thing every earlier fix attempt never actually did: none of them
+  sent the control a `WM_MOUSEMOVE`.
+
+**Fix**: `FixComboBoxFirstPaint()` now sends a synthetic `WM_MOUSEMOVE` to
+each combo box (via `SendMessageW`, no real cursor movement needed) before
+invalidating and updating it - reproducing the exact interaction the log
+showed actually works, rather than the non-client-focused approach v0.9.44
+was built on, which is removed since the evidence shows it wasn't
+contributing to the fix.
+
+**The temporary logging subclass (`ComboDiagSubclassProc`, added v0.9.46)
+has been fully removed** now that it's done its job - confirmed gone from
+`main.cpp` (grep for `ComboDiag`/`g_diagStartTick` returns nothing) and the
+structural balance check is back to the same paren/brace/bracket shape as
+before it was added, adjusted only for this fix's own smaller footprint.
+
+**Confirmed fixed by Jack 2026-09-30** ("combo box now there on load") -
+closing this out after five rounds of work across `[0.9.3]` through here.
+
+## [0.9.46] - Combo-box first-paint bug: reinstated the logging diagnostic
+
+Spy++ turned out to be impractical: correct window was found and selected
+(confirmed - Supplier's ComboBox handle showed up correctly in Spy++'s
+window tree, `Messages` log window was open and logging was on), but the
+message log stayed empty even after directly hovering/clicking/typing into
+the box - the UAC-elevation mismatch angle was ruled out too (Spy++ was
+the elevated one, which shouldn't block it; the app wasn't elevated).
+Rather than keep troubleshooting Spy++ itself, Jack asked to go back to
+the code-based logging subclass from the earlier v0.9.45 draft -
+explicitly on the condition it gets removed again once it's done its job.
+
+**Reinstated `ComboDiagSubclassProc`** (identical to the draft reverted
+out of v0.9.45): subclasses `hCmbSupplier`/`hCmbProduct` and logs
+`WM_NCPAINT`, `WM_NCCALCSIZE`, `WM_MOUSEMOVE`/`WM_NCMOUSEMOVE`,
+`WM_SHOWWINDOW`, `WM_WINDOWPOSCHANGED`, `WM_PAINT`, `WM_ERASEBKGND`,
+`WM_THEMECHANGED`, `WM_SETFOCUS`, `WM_STYLECHANGED` via
+`OutputDebugStringW`, visible in Visual Studio's Output window
+automatically while running via F5.
+
+**THIS IS TEMPORARY AND MUST COME OUT.** Flagged with `!!! TEMPORARY !!!`
+banner comments at all three sites in `main.cpp` (the block itself, the
+`g_diagStartTick` assignment in `WM_CREATE`, and the two
+`SetWindowSubclass` calls), in this CHANGELOG entry, and in ROADMAP.md's
+status header so it can't quietly ship forgotten in a release build.
+
+**What to do with it**: run via F5, let the box fail to paint, copy the
+Output window log so far, then hover over the box until it fixes itself,
+then copy what got logged during/after the hover and send both back.
+
+## [0.9.45] - Combo-box first-paint bug: no code change, switched to Spy++ instead
+
+v0.9.44's `SWP_FRAMECHANGED` attempt did not fix it - Jack confirmed still
+broken on F5. An `OutputDebugStringW`-based logging subclass
+(`ComboDiagSubclassProc`) was written and shipped as a first draft of this
+version, then deliberately reverted before this entry was finalized: Jack
+raised a fair concern that a temporary debug-logging subclass is exactly
+the kind of thing that could get forgotten and left in a future version,
+and asked to just use Spy++ instead, which needs no code change at all and
+- unlike the subclass, which only logged the ~12 messages guessed to be
+relevant - captures every message sent to the window, so it can't miss the
+actual culprit if it's not on that guessed list.
+
+**Net result: main.cpp is functionally identical to v0.9.44** (confirmed
+by a structural diff - identical paren/brace/bracket counts). Only the
+version number moved. The actual diagnosis now happens via Spy++ directly
+against the running app - see ROADMAP.md/chat for the walkthrough - with
+nothing left in the codebase to clean up afterward either way.
+
+## [0.9.44] - Combo-box first-paint bug: real diagnostic progress, new fix attempt
+
+Confirmed 0.9.40-0.9.42's other three fixes (Cash label, Finalize/new-sheet
+lock, label alignment) all working via smoke test - see Testing.md.
+
+The Supplier/Species combo-box border/dropdown-arrow bug (`[0.9.3]`/
+`[0.9.11]`/`[0.9.12]`/`[0.9.42]`) is still not closed, but Jack's testing
+turned up real, specific evidence for the first time: it fails on **every**
+launch, not intermittently, via both Visual Studio's F5 and a plain
+double-click of the .exe; switching tabs away and back fixes it, hovering
+the mouse over the box fixes it, but resizing/moving the window does not.
+
+That distinction matters: a tab switch runs the exact same
+`ShowWindow(HIDE)`/`ShowWindow(SHOW)` pair v0.9.42's fix already does (see
+`ShowTab()`), just separated by real time and message-pump cycles instead
+of back-to-back in one call — so v0.9.42's immediate hide/show may simply
+be getting coalesced into a no-op by Windows. A hover involves no
+visibility change at all, only a `WM_MOUSEMOVE`-driven non-client repaint —
+pointing at a missing `WM_NCCALCSIZE`/non-client recalculation, not a
+visibility or plain-invalidate problem.
+
+**Fix (untried until now)**: `FixComboBoxFirstPaint()` now also calls
+`SetWindowPos(..., SWP_FRAMECHANGED)` on both combo boxes before the
+existing hide/show/redraw - the documented Win32 mechanism for forcing a
+control's non-client area to be recalculated and repainted from scratch
+even when its size/position hasn't changed, which is closer to what a real
+hover-triggered `WM_NCPAINT` does than anything tried in the three earlier
+rounds. The existing hide/show/redraw is kept as a fallback.
+
+Same honesty caveat as every previous round: not provably root-caused
+without a live debugger/Spy++ trace. If this doesn't close it, the next
+useful step is watching what specifically changes in Spy++ (or similar)
+between a hover and a cold launch, since guessing a fourth time without
+that evidence has a poor track record here.
+
 ## [0.9.43] - Full project audit: drift/staleness cleanup, one real bug found
 
 Jack asked for a full audit of every file while testing v0.9.42, plus a

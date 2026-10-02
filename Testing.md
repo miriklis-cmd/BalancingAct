@@ -1,9 +1,14 @@
 # Testing
 
-There's no automated test suite — Claude has no compiler and can't run the
-Windows executable, so every check here is manual, performed by you after
-building. This file exists so "what should I check" doesn't have to be
-re-derived from chat scrollback every time. Update it whenever a new
+There IS an automated test suite now (`tests/`, doctest-based, covering the
+platform-independent logic in `FishBalanceCore.h` - parsing, aggregation,
+CSV export, formatting; see ROADMAP.md item 0 and `run_tests.ps1`/
+`run_tests.bat`). Run it after any change to `FishBalanceCore.h`. It can't
+cover the Win32-specific code in `main.cpp` (window creation, message
+handling, printing, file I/O) - Claude has no compiler and can't run the
+Windows executable, so everything below is still manual, performed by you
+after building. This file exists so "what should I check" doesn't have to
+be re-derived from chat scrollback every time. Update it whenever a new
 feature is added; treat it as a living checklist, not a one-time list.
 
 Use `## Full regression pass` for a from-scratch check after a large batch
@@ -14,7 +19,16 @@ targeted fix.
 
 - [ ] Build succeeds with no errors (CMake, MinGW, or MSVC — whichever
       you're using)
-- [ ] No new compiler warnings that weren't there before
+- [ ] **(v0.9.48)** Build succeeds with the tightened warning gate now
+      wired into all four build paths - `/W4 /WX` (MSVC) or
+      `-Wall -Wextra -Wpedantic -Werror` (MinGW/GCC). A warning is now a
+      build FAILURE, not just scrollback to skim past - if this is the
+      first time this fires (i.e. an existing warning surfaces that
+      predates this change), report the exact compiler output so it can
+      be fixed at the root cause rather than suppressed.
+- [ ] The automated test suite passes (`tests\run_tests.ps1`, or the
+      `FishBalanceCoreTests` CTest target) - it also now builds under the
+      same tightened warning gate
 - [ ] Debug launch works in Visual Studio (Startup Item is set to
       `FishBalanceManager.exe`, not left on a default/CMakeLists target)
 
@@ -33,12 +47,22 @@ targeted fix.
       and puts focus in Kgs with the value pre-selected
 - [ ] Entering a `|` in Supplier/Species/Notes is rejected with a clear
       message (not silently corrupted)
-- [ ] Supplier/Species/Kgs/Price labels line up vertically with their
-      boxes (v0.9.42 fix)
-- [ ] Supplier/Species combo boxes paint their border/dropdown-arrow
-      immediately on startup, across several fresh launches - a
-      long-standing intermittent bug (v0.9.42 escalation), worth checking
-      more than once since it doesn't always happen
+- [ ] **(v0.9.48 / F5)** Type `1000+oops+250` into Debtor or Cash: the
+      Difference line shows "cannot check - invalid entry" (with the bad
+      term named) instead of a number, and Finalize Day refuses with an
+      "Invalid Entry" message rather than the usual "Not Balanced" one
+- [ ] **(v0.9.48 / F5)** Type `100++20`, `100+-20`, `100--20`, or a
+      trailing `100+` into Debtor or Cash: all rejected the same way
+- [ ] **(v0.9.48 / F5)** Type `-50+100` into Debtor: still accepted and
+      computes to `50` (leading sign on the first term is still valid)
+- [ ] **(v0.9.48 / F5)** Fix the invalid entry back to a normal sum: the
+      Difference line and Finalize Day both return to normal immediately
+- [x] Supplier/Species/Kgs/Price labels line up vertically with their
+      boxes (v0.9.42 fix) - confirmed working 2026-09-30
+- [x] Supplier/Species combo boxes paint their border/dropdown-arrow
+      immediately on startup (v0.9.47 fix - synthetic `WM_MOUSEMOVE`).
+      **Confirmed fixed by Jack 2026-09-30** - box now renders correctly
+      on load. Closes a bug tracked since `[0.9.3]`.
 - [ ] Outlier price flagging (v0.9.23: silent, no dialog): after 4+
       same-day entries for a species in a normal range, an entry way
       outside that range commits immediately with no popup, showing the
@@ -85,14 +109,36 @@ targeted fix.
 - [ ] File > Restore from Backup... loads a chosen backup correctly,
       title bar shows "(unsaved)" afterwards (not the backup's own
       filename), and File > Save As is required to keep it
+- [ ] **(v0.9.48 / F1)** Normal case: open a named file, make a change
+      (autosave fires), close the app normally, relaunch - it reopens
+      still associated with that same named file (title bar shows its
+      name, not "(unsaved)")
+- [ ] **(v0.9.48 / F1)** Crash-recovery mismatch case: open named file A,
+      close normally (so `settings.txt` remembers A). Relaunch, open a
+      *different* named file B, then kill the app from Task Manager
+      (simulating a crash - do NOT use File > Exit). Relaunch again: the
+      app should show an "Recovered Unsaved Work" message and open with
+      B's data but the title bar showing "(unsaved)", NOT silently
+      re-associated with A. Doing a Save from here should prompt Save As
+      / write a fresh file, not silently overwrite A.
+- [ ] **(v0.9.48 / F1)** Old-autosave case: if you have an `autosave.fbd`
+      left over from before this version (no `SOURCE_FILE=` line), the
+      first launch after upgrading shows the same "Recovered Unsaved
+      Work" message once; the data itself should still be intact.
+- [ ] **(v0.9.48 / F2/F3)** Hand-edit a `.fbd` file to have two `BEGIN`
+      lines, or two `DEBTOR=` lines, or a corrupted row (wrong number of
+      `|`s, or a negative Kgs) mixed in with otherwise-good rows, then
+      File > Open it: the WHOLE file should be rejected with the usual
+      "could not open" message - it should NOT open with only the good
+      rows loaded.
 
 ## Finalize Day (v0.9.40-0.9.42, ROADMAP.md item 3)
 
-- [ ] Debtor/Cash labels line up vertically and neither wraps/clips
-      (v0.9.41 fix)
-- [ ] Finalize, then "Start a new entry sheet now?" → Yes gives a fully
+- [x] Debtor/Cash labels line up vertically and neither wraps/clips
+      (v0.9.41 fix) - confirmed working 2026-09-30
+- [x] Finalize, then "Start a new entry sheet now?" → Yes gives a fully
       unlocked, unsaved blank sheet — not still locked to the finalized
-      file (v0.9.41 fix)
+      file (v0.9.41 fix) - confirmed working 2026-09-30
 
 - [ ] Finalize Day is blocked with a clear message while Debtor+Cash
       doesn't balance against the entered total; no date prompt appears
@@ -111,6 +157,15 @@ targeted fix.
       correctly
 - [ ] Finalizing again onto a date that already has a `history\<date>.fbd`
       file warns before overwriting it
+- [ ] **(v0.9.48 / F9)** Hard-to-trigger, but worth a sanity pass: finalize
+      a day while the currently-open named file is on a read-only or
+      otherwise write-protected path (e.g. mark the file read-only in
+      Explorer first). The permanent `history\<date>.fbd` record should
+      still be written and the day should still be marked finalized, but
+      you should see a warning that the open file couldn't be re-saved
+      and needs a manual Save - not an unqualified "Finalized" success
+      message. Remove the read-only flag and use File > Save to confirm
+      it then saves normally.
 
 ## Reports
 

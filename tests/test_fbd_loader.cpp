@@ -124,37 +124,48 @@ TEST_SUITE("ParseFbdContent - v0.9.1 regression: whole-document rejection") {
         CHECK_FALSE(r.ok);
     }
 
-    TEST_CASE("a document with only DEBTOR/CASH and no BEGIN/END at all is still "
-              "accepted (DEBTOR=/CASH= alone are recognized markers) - only a "
-              "BEGIN with no END is rejected, not the absence of BEGIN entirely") {
+    TEST_CASE("Phase 1 completeness follow-up (v0.9.50): a Debtor/Cash-only "
+              "document with NO BEGIN/END at all is now REJECTED - every "
+              "save path (BuildFbdSaveContent) has always written both "
+              "markers, even for a blank sheet, so this is no longer treated "
+              "as a legitimate historical format") {
         std::wstring content = L"DEBTOR=100\nCASH=50\n";
         auto r = ParseFbdContent(content);
-        CHECK(r.ok);
+        CHECK_FALSE(r.ok);
+        CHECK(r.errorCode == FbdErrorCode::MissingBegin);
         CHECK(r.entries.empty());
+    }
+
+    TEST_CASE("v0.9.50: a document with BEGIN but no END is rejected as "
+              "MissingEnd specifically (distinct from MissingBegin)") {
+        std::wstring content = L"DEBTOR=100\nCASH=50\nBEGIN\n";
+        auto r = ParseFbdContent(content);
+        CHECK_FALSE(r.ok);
+        CHECK(r.errorCode == FbdErrorCode::MissingEnd);
+    }
+
+    TEST_CASE("v0.9.50: the legitimate empty sheet - DEBTOR=/CASH= followed "
+              "by an empty BEGIN...END pair - still loads fine") {
+        std::wstring content = L"DEBTOR=\nCASH=\nBEGIN\nEND\n";
+        auto r = ParseFbdContent(content);
+        REQUIRE(r.ok);
+        CHECK(r.entries.empty());
+        CHECK(r.debtor.empty());
+        CHECK(r.cash.empty());
     }
 }
 
 TEST_SUITE("ParseFbdContent - v0.9.1 regression: per-row numeric validation") {
-    TEST_CASE("NaN, Infinity, and negative Kgs/Price rows are skipped and "
-              "counted, not silently zeroed") {
-        // Each row below is deliberately malformed in one field; the last
-        // row is the only fully valid one. 3 pipes each = 4 fields (the
-        // legacy format), so field-count is never the reason these are
-        // rejected - only the numeric value is bad.
-        std::wstring content =
-            L"BEGIN\n"
-            L"A|B|nan|2.0\n"
-            L"A|B|1.0|inf\n"
-            L"A|B|-1.0|2.0\n"
-            L"A|B|1.0|-2.0\n"
-            L"A|B|1.0|2.0\n" // the one good row
-            L"END\n";
-        auto r = ParseFbdContent(content);
-        REQUIRE(r.ok);
-        REQUIRE(r.entries.size() == 1);
-        CHECK(r.entries[0].kgs == 1.0);
-        CHECK(r.entries[0].price == 2.0);
-        CHECK(r.skippedLines == 4);
+    TEST_CASE("FIXED (Phase 1 / F3+F2, was: skipped and counted): a NaN/Infinity/"
+              "negative Kgs or Price row now rejects the WHOLE document") {
+        // Previously each bad row just incremented skippedLines and the good
+        // row still loaded. Reconciliation/loading must fail closed instead -
+        // a document containing even one row it can't safely reconstruct is
+        // rejected outright, not partially committed.
+        CHECK_FALSE(ParseFbdContent(L"BEGIN\nA|B|nan|2.0\nEND\n").ok);
+        CHECK_FALSE(ParseFbdContent(L"BEGIN\nA|B|1.0|inf\nEND\n").ok);
+        CHECK_FALSE(ParseFbdContent(L"BEGIN\nA|B|-1.0|2.0\nEND\n").ok);
+        CHECK_FALSE(ParseFbdContent(L"BEGIN\nA|B|1.0|-2.0\nEND\n").ok);
     }
 
     TEST_CASE("zero Kgs/Price is valid (not the same as negative)") {
@@ -168,16 +179,13 @@ TEST_SUITE("ParseFbdContent - v0.9.1 regression: per-row numeric validation") {
 
 TEST_SUITE("ParseFbdContent - v0.9.1 regression: field validation parity with "
            "the interactive entry form") {
-    TEST_CASE("a row with an empty Supplier or Species is skipped, not turned "
-              "into a blank-named report group") {
+    TEST_CASE("FIXED (Phase 1 / F3+F2, was: skipped and counted): a row with an "
+              "empty Supplier or Species now rejects the WHOLE document") {
         // Neither of these could come from the app's own entry form (that
         // path already rejects empty Supplier/Species) - only from a
         // hand-edited or corrupted file.
-        std::wstring content = L"BEGIN\n|Species|1.0|2.0\nSupplier||1.0|2.0\nEND\n";
-        auto r = ParseFbdContent(content);
-        REQUIRE(r.ok);
-        CHECK(r.entries.empty());
-        CHECK(r.skippedLines == 2);
+        CHECK_FALSE(ParseFbdContent(L"BEGIN\n|Species|1.0|2.0\nEND\n").ok);
+        CHECK_FALSE(ParseFbdContent(L"BEGIN\nSupplier||1.0|2.0\nEND\n").ok);
     }
 
     TEST_CASE("leading/trailing whitespace on Supplier/Species from a "
@@ -195,28 +203,27 @@ TEST_SUITE("ParseFbdContent - v0.9.1 regression: field validation parity with "
     }
 }
 
-TEST_SUITE("ParseFbdContent - malformed rows") {
-    TEST_CASE("a row with the wrong field count (not 4, 6, or 7) is skipped "
-              "and counted") {
+TEST_SUITE("ParseFbdContent - malformed rows (Phase 1 / F3+F2: transactional, "
+           "no more partial documents)") {
+    TEST_CASE("a row with the wrong field count (not 4, 6, or 7) rejects the "
+              "WHOLE document") {
         std::wstring content = L"BEGIN\nA|B|C\nEND\n"; // 2 pipes = 3 fields
-        auto r = ParseFbdContent(content);
-        REQUIRE(r.ok);
-        CHECK(r.entries.empty());
-        CHECK(r.skippedLines == 1);
+        CHECK_FALSE(ParseFbdContent(content).ok);
     }
 
     TEST_CASE("a 5-field row (between the two valid pre-flag/pre-outlier "
-              "counts) is still rejected, not silently accepted as one or "
-              "the other") {
+              "counts) rejects the WHOLE document, not silently accepted as "
+              "one format or the other") {
         std::wstring content = L"BEGIN\nA|B|1.0|2.0|2026-08-05\nEND\n"; // 4 pipes = 5 fields
-        auto r = ParseFbdContent(content);
-        REQUIRE(r.ok);
-        CHECK(r.entries.empty());
-        CHECK(r.skippedLines == 1);
+        CHECK_FALSE(ParseFbdContent(content).ok);
     }
 
-    TEST_CASE("good and bad rows in the same file: only the bad ones are "
-              "skipped, the good ones still load") {
+    TEST_CASE("FIXED (was: only the bad row skipped, good rows still loaded): "
+              "one bad row among good ones now rejects the WHOLE document") {
+        // This is the core of the F3+F2 remediation: silently committing a
+        // sheet that's missing rows the user never asked to drop is exactly
+        // the "partial document looks fine" failure mode Finalize Day and
+        // reconciliation depend on not happening.
         std::wstring content =
             L"BEGIN\n"
             L"Good|Fish|1.0|2.0\n"
@@ -224,11 +231,86 @@ TEST_SUITE("ParseFbdContent - malformed rows") {
             L"AlsoGood|Fish|3.0|4.0\n"
             L"END\n";
         auto r = ParseFbdContent(content);
+        CHECK_FALSE(r.ok);
+        CHECK(r.entries.empty()); // nothing partially committed on rejection
+    }
+
+    TEST_CASE("an otherwise-good file with every row valid still loads fine "
+              "(sanity check that strictness didn't break the normal case)") {
+        std::wstring content =
+            L"BEGIN\n"
+            L"Good|Fish|1.0|2.0\n"
+            L"AlsoGood|Fish|3.0|4.0\n"
+            L"END\n";
+        auto r = ParseFbdContent(content);
         REQUIRE(r.ok);
         REQUIRE(r.entries.size() == 2);
-        CHECK(r.skippedLines == 1);
-        CHECK(r.entries[0].supplier == L"Good");
-        CHECK(r.entries[1].supplier == L"AlsoGood");
+    }
+}
+
+TEST_SUITE("ParseFbdContent - Phase 1 / F3+F2: structural strictness") {
+    TEST_CASE("a second BEGIN block is REJECTED (multiple BEGIN/END pairs "
+              "aren't a supported format)") {
+        std::wstring content = L"BEGIN\nA|B|1.0|2.0\nEND\nBEGIN\nC|D|3.0|4.0\nEND\n";
+        CHECK_FALSE(ParseFbdContent(content).ok);
+    }
+
+    TEST_CASE("a second END with no intervening BEGIN is REJECTED") {
+        std::wstring content = L"BEGIN\nA|B|1.0|2.0\nEND\nEND\n";
+        CHECK_FALSE(ParseFbdContent(content).ok);
+    }
+
+    TEST_CASE("an END with no BEGIN at all is REJECTED") {
+        std::wstring content = L"DEBTOR=1\nCASH=2\nEND\n";
+        CHECK_FALSE(ParseFbdContent(content).ok);
+    }
+
+    TEST_CASE("a duplicate DEBTOR= line is REJECTED rather than letting the "
+              "last one silently win") {
+        std::wstring content = L"DEBTOR=100\nDEBTOR=200\nBEGIN\nEND\n";
+        CHECK_FALSE(ParseFbdContent(content).ok);
+    }
+
+    TEST_CASE("a duplicate CASH= line is REJECTED rather than letting the "
+              "last one silently win") {
+        std::wstring content = L"CASH=50\nCASH=75\nBEGIN\nEND\n";
+        CHECK_FALSE(ParseFbdContent(content).ok);
+    }
+
+    TEST_CASE("a single well-formed BEGIN/END pair with single DEBTOR/CASH "
+              "lines still loads fine (sanity check)") {
+        std::wstring content = L"DEBTOR=100\nCASH=50\nBEGIN\nA|B|1.0|2.0\nEND\n";
+        auto r = ParseFbdContent(content);
+        REQUIRE(r.ok);
+        CHECK(r.debtor == L"100");
+        CHECK(r.cash == L"50");
+        REQUIRE(r.entries.size() == 1);
+    }
+
+    // Phase 1 / F2 follow-up (post-review, 2026-09-30): these three cases
+    // were the specific gap found during the completeness review - a
+    // non-empty line that isn't a recognized KEY= marker, isn't BEGIN/END,
+    // and sits outside the data section used to silently match no branch
+    // and be ignored, instead of being treated the same as any other
+    // structurally-ambiguous/hand-edited content.
+    TEST_CASE("an unrecognized non-empty line BEFORE BEGIN is REJECTED "
+              "(previously silently ignored)") {
+        std::wstring content = L"stray garbage line\nBEGIN\nA|B|1.0|2.0\nEND\n";
+        CHECK_FALSE(ParseFbdContent(content).ok);
+    }
+
+    TEST_CASE("an unrecognized non-empty line AFTER END is REJECTED "
+              "(previously silently ignored)") {
+        std::wstring content = L"BEGIN\nA|B|1.0|2.0\nEND\nstray garbage line\n";
+        CHECK_FALSE(ParseFbdContent(content).ok);
+    }
+
+    TEST_CASE("a genuinely blank line before BEGIN or after END is still "
+              "harmless (only non-empty stray content is rejected)") {
+        std::wstring content = L"\nDEBTOR=1\nCASH=2\nBEGIN\nA|B|1.0|2.0\nEND\n\n";
+        auto r = ParseFbdContent(content);
+        REQUIRE(r.ok);
+        REQUIRE(r.entries.size() == 1);
     }
 }
 
@@ -293,13 +375,24 @@ TEST_SUITE("ParseFbdContent - draft entry form persistence") {
         CHECK(r.draftDate.empty());
     }
 
-    TEST_CASE("a valid DRAFT_DATE on its own (no BEGIN/END/DEBTOR/CASH) is "
-              "still enough to recognize the document as a genuine .fbd "
-              "file, not reject it as unrelated text") {
+    TEST_CASE("v0.9.50: a DRAFT_* marker on its own is enough to recognize "
+              "the document as a genuine .fbd file rather than unrelated "
+              "text, but it still needs its own BEGIN/END pair like any "
+              "other document - draft-only content no longer exempts a "
+              "file from the structural requirement") {
+        std::wstring content = L"DRAFT_SUPPLIER=Test\nBEGIN\nEND\n";
+        auto r = ParseFbdContent(content);
+        REQUIRE(r.ok);
+        CHECK(r.draftSupplier == L"Test");
+    }
+
+    TEST_CASE("v0.9.50: a DRAFT_* marker on its own with NO BEGIN/END is "
+              "rejected - recognized-but-structurally-incomplete, same as "
+              "the Debtor/Cash-only case above") {
         std::wstring content = L"DRAFT_SUPPLIER=Test\n";
         auto r = ParseFbdContent(content);
-        CHECK(r.ok);
-        CHECK(r.draftSupplier == L"Test");
+        CHECK_FALSE(r.ok);
+        CHECK(r.errorCode == FbdErrorCode::MissingBegin);
     }
 
     TEST_CASE("draft fields don't interfere with normal entry parsing") {
@@ -336,5 +429,244 @@ TEST_SUITE("ParseFbdContent - draft entry form persistence") {
         auto r = ParseFbdContent(content);
         REQUIRE(r.ok);
         CHECK(r.finalizedDate.empty());
+    }
+}
+
+TEST_SUITE("ParseFbdContent - Phase 1 completeness follow-up (v0.9.50): "
+           "bounded record/line/field validation") {
+    // Per Jack's instruction: construct large fixtures programmatically
+    // rather than as enormous in-source string literals.
+
+    TEST_CASE("Supplier exactly at the 255-character limit is accepted; one "
+              "character over is rejected as FieldTooLong") {
+        std::wstring atLimit(kMaxSupplierSpeciesLength, L'A');
+        std::wstring overLimit(kMaxSupplierSpeciesLength + 1, L'A');
+
+        std::wstring okContent = L"BEGIN\n" + atLimit + L"|Species|1.0|2.0\nEND\n";
+        auto rOk = ParseFbdContent(okContent);
+        REQUIRE(rOk.ok);
+        REQUIRE(rOk.entries.size() == 1);
+        CHECK(rOk.entries[0].supplier.size() == kMaxSupplierSpeciesLength);
+
+        std::wstring overContent = L"BEGIN\n" + overLimit + L"|Species|1.0|2.0\nEND\n";
+        auto rOver = ParseFbdContent(overContent);
+        CHECK_FALSE(rOver.ok);
+        CHECK(rOver.errorCode == FbdErrorCode::FieldTooLong);
+    }
+
+    TEST_CASE("Species exactly at the 255-character limit is accepted; one "
+              "character over is rejected as FieldTooLong") {
+        std::wstring atLimit(kMaxSupplierSpeciesLength, L'B');
+        std::wstring overLimit(kMaxSupplierSpeciesLength + 1, L'B');
+
+        std::wstring okContent = L"BEGIN\nSupplier|" + atLimit + L"|1.0|2.0\nEND\n";
+        auto rOk = ParseFbdContent(okContent);
+        REQUIRE(rOk.ok);
+        REQUIRE(rOk.entries.size() == 1);
+
+        std::wstring overContent = L"BEGIN\nSupplier|" + overLimit + L"|1.0|2.0\nEND\n";
+        auto rOver = ParseFbdContent(overContent);
+        CHECK_FALSE(rOver.ok);
+        CHECK(rOver.errorCode == FbdErrorCode::FieldTooLong);
+    }
+
+    TEST_CASE("row Notes exactly at the 4096-character limit is accepted; "
+              "one character over is rejected as FieldTooLong") {
+        std::wstring atLimit(kMaxNotesLength, L'n');
+        std::wstring overLimit(kMaxNotesLength + 1, L'n');
+
+        std::wstring okContent = L"BEGIN\nSupplier|Species|1.0|2.0|2026-08-05|" + atLimit + L"\nEND\n";
+        auto rOk = ParseFbdContent(okContent);
+        REQUIRE(rOk.ok);
+        REQUIRE(rOk.entries.size() == 1);
+        CHECK(rOk.entries[0].notes.size() == kMaxNotesLength);
+
+        std::wstring overContent = L"BEGIN\nSupplier|Species|1.0|2.0|2026-08-05|" + overLimit + L"\nEND\n";
+        auto rOver = ParseFbdContent(overContent);
+        CHECK_FALSE(rOver.ok);
+        CHECK(rOver.errorCode == FbdErrorCode::FieldTooLong);
+    }
+
+    TEST_CASE("DEBTOR= value exactly at the 4096-character limit is "
+              "accepted; one character over is rejected as FieldTooLong") {
+        std::wstring atLimit(kMaxDebtorCashExprLength, L'1');
+        std::wstring overLimit(kMaxDebtorCashExprLength + 1, L'1');
+
+        auto rOk = ParseFbdContent(L"DEBTOR=" + atLimit + L"\nBEGIN\nEND\n");
+        REQUIRE(rOk.ok);
+        CHECK(rOk.debtor.size() == kMaxDebtorCashExprLength);
+
+        auto rOver = ParseFbdContent(L"DEBTOR=" + overLimit + L"\nBEGIN\nEND\n");
+        CHECK_FALSE(rOver.ok);
+        CHECK(rOver.errorCode == FbdErrorCode::FieldTooLong);
+    }
+
+    TEST_CASE("CASH= value exactly at the 4096-character limit is accepted; "
+              "one character over is rejected as FieldTooLong") {
+        std::wstring atLimit(kMaxDebtorCashExprLength, L'2');
+        std::wstring overLimit(kMaxDebtorCashExprLength + 1, L'2');
+
+        auto rOk = ParseFbdContent(L"CASH=" + atLimit + L"\nBEGIN\nEND\n");
+        REQUIRE(rOk.ok);
+        CHECK(rOk.cash.size() == kMaxDebtorCashExprLength);
+
+        auto rOver = ParseFbdContent(L"CASH=" + overLimit + L"\nBEGIN\nEND\n");
+        CHECK_FALSE(rOver.ok);
+        CHECK(rOver.errorCode == FbdErrorCode::FieldTooLong);
+    }
+
+    TEST_CASE("DRAFT_SUPPLIER=/DRAFT_SPECIES= exactly at their 255-character "
+              "limit are accepted; one character over is rejected as "
+              "FieldTooLong") {
+        std::wstring atLimit(kMaxSupplierSpeciesLength, L'C');
+        std::wstring overLimit(kMaxSupplierSpeciesLength + 1, L'C');
+
+        auto rOk = ParseFbdContent(L"DRAFT_SUPPLIER=" + atLimit + L"\nDRAFT_SPECIES=" + atLimit + L"\nBEGIN\nEND\n");
+        REQUIRE(rOk.ok);
+        CHECK(rOk.draftSupplier.size() == kMaxSupplierSpeciesLength);
+        CHECK(rOk.draftSpecies.size() == kMaxSupplierSpeciesLength);
+
+        auto rOverSup = ParseFbdContent(L"DRAFT_SUPPLIER=" + overLimit + L"\nBEGIN\nEND\n");
+        CHECK_FALSE(rOverSup.ok);
+        CHECK(rOverSup.errorCode == FbdErrorCode::FieldTooLong);
+
+        auto rOverSpec = ParseFbdContent(L"DRAFT_SPECIES=" + overLimit + L"\nBEGIN\nEND\n");
+        CHECK_FALSE(rOverSpec.ok);
+        CHECK(rOverSpec.errorCode == FbdErrorCode::FieldTooLong);
+    }
+
+    TEST_CASE("DRAFT_NOTES= exactly at the 4096-character limit is "
+              "accepted; one character over is rejected as FieldTooLong") {
+        std::wstring atLimit(kMaxNotesLength, L'd');
+        std::wstring overLimit(kMaxNotesLength + 1, L'd');
+
+        auto rOk = ParseFbdContent(L"DRAFT_NOTES=" + atLimit + L"\nBEGIN\nEND\n");
+        REQUIRE(rOk.ok);
+        CHECK(rOk.draftNotes.size() == kMaxNotesLength);
+
+        auto rOver = ParseFbdContent(L"DRAFT_NOTES=" + overLimit + L"\nBEGIN\nEND\n");
+        CHECK_FALSE(rOver.ok);
+        CHECK(rOver.errorCode == FbdErrorCode::FieldTooLong);
+    }
+
+    TEST_CASE("DRAFT_KGS=/DRAFT_PRICE= exactly at their 256-character limit "
+              "are accepted; one character over is rejected as "
+              "FieldTooLong") {
+        std::wstring atLimit(kMaxDraftKgsPriceTextLength, L'9');
+        std::wstring overLimit(kMaxDraftKgsPriceTextLength + 1, L'9');
+
+        auto rOk = ParseFbdContent(L"DRAFT_KGS=" + atLimit + L"\nDRAFT_PRICE=" + atLimit + L"\nBEGIN\nEND\n");
+        REQUIRE(rOk.ok);
+        CHECK(rOk.draftKgs.size() == kMaxDraftKgsPriceTextLength);
+        CHECK(rOk.draftPrice.size() == kMaxDraftKgsPriceTextLength);
+
+        auto rOverKgs = ParseFbdContent(L"DRAFT_KGS=" + overLimit + L"\nBEGIN\nEND\n");
+        CHECK_FALSE(rOverKgs.ok);
+        CHECK(rOverKgs.errorCode == FbdErrorCode::FieldTooLong);
+
+        auto rOverPrice = ParseFbdContent(L"DRAFT_PRICE=" + overLimit + L"\nBEGIN\nEND\n");
+        CHECK_FALSE(rOverPrice.ok);
+        CHECK(rOverPrice.errorCode == FbdErrorCode::FieldTooLong);
+    }
+
+    TEST_CASE("SOURCE_FILE= exactly at the 32767-character limit is "
+              "accepted; one character over is rejected as FieldTooLong") {
+        std::wstring atLimit(kMaxSourceFileLength, L'x');
+        std::wstring overLimit(kMaxSourceFileLength + 1, L'x');
+
+        auto rOk = ParseFbdContent(L"SOURCE_FILE=" + atLimit + L"\nBEGIN\nEND\n");
+        REQUIRE(rOk.ok);
+        CHECK(rOk.hasSourceFile);
+        CHECK(rOk.sourceFile.size() == kMaxSourceFileLength);
+
+        auto rOver = ParseFbdContent(L"SOURCE_FILE=" + overLimit + L"\nBEGIN\nEND\n");
+        CHECK_FALSE(rOver.ok);
+        CHECK(rOver.errorCode == FbdErrorCode::FieldTooLong);
+    }
+
+    TEST_CASE("a decoded line exactly at the 65536-character limit passes "
+              "the line-length gate (it is rejected for a DIFFERENT, more "
+              "specific reason - unrecognized content outside the data "
+              "section - proving LineTooLong itself didn't fire early); one "
+              "character over is rejected specifically as LineTooLong") {
+        std::wstring atLimit(kMaxLineLength, L'z');
+        std::wstring overLimit(kMaxLineLength + 1, L'z');
+
+        auto rAt = ParseFbdContent(atLimit + L"\nBEGIN\nEND\n");
+        CHECK_FALSE(rAt.ok);
+        CHECK(rAt.errorCode == FbdErrorCode::UnexpectedContentOutsideDataSection);
+
+        auto rOver = ParseFbdContent(overLimit + L"\nBEGIN\nEND\n");
+        CHECK_FALSE(rOver.ok);
+        CHECK(rOver.errorCode == FbdErrorCode::LineTooLong);
+    }
+
+    TEST_CASE("exactly kMaxEntryRecords (100,000) valid rows load "
+              "successfully; one more row over the limit is rejected as "
+              "RecordLimitExceeded") {
+        std::wstring atLimitContent = L"BEGIN\n";
+        for (size_t i = 0; i < kMaxEntryRecords; i++) {
+            atLimitContent += L"Supplier|Species|1.0|2.0\n";
+        }
+        atLimitContent += L"END\n";
+        auto rAt = ParseFbdContent(atLimitContent);
+        REQUIRE(rAt.ok);
+        CHECK(rAt.entries.size() == kMaxEntryRecords);
+
+        std::wstring overLimitContent = L"BEGIN\n";
+        for (size_t i = 0; i < kMaxEntryRecords + 1; i++) {
+            overLimitContent += L"Supplier|Species|1.0|2.0\n";
+        }
+        overLimitContent += L"END\n";
+        auto rOver = ParseFbdContent(overLimitContent);
+        CHECK_FALSE(rOver.ok);
+        CHECK(rOver.errorCode == FbdErrorCode::RecordLimitExceeded);
+    }
+}
+
+TEST_SUITE("ParseFbdContent - Phase 1 / F1: SOURCE_FILE identity marker") {
+    TEST_CASE("a SOURCE_FILE= line is parsed and hasSourceFile is set") {
+        std::wstring content = L"SOURCE_FILE=C:\\Data\\March.fbd\nBEGIN\nEND\n";
+        auto r = ParseFbdContent(content);
+        REQUIRE(r.ok);
+        CHECK(r.hasSourceFile);
+        CHECK(r.sourceFile == L"C:\\Data\\March.fbd");
+    }
+
+    TEST_CASE("an empty SOURCE_FILE= (an unsaved sheet at the time it was "
+              "written) is still a present marker, not a missing one") {
+        std::wstring content = L"SOURCE_FILE=\nBEGIN\nEND\n";
+        auto r = ParseFbdContent(content);
+        REQUIRE(r.ok);
+        CHECK(r.hasSourceFile);
+        CHECK(r.sourceFile.empty());
+    }
+
+    TEST_CASE("a document with no SOURCE_FILE= line at all (any save from "
+              "before this field existed) leaves hasSourceFile false - "
+              "callers must not treat missing metadata as an empty match") {
+        std::wstring content = L"DEBTOR=1\nCASH=2\nBEGIN\nEND\n";
+        auto r = ParseFbdContent(content);
+        REQUIRE(r.ok);
+        CHECK_FALSE(r.hasSourceFile);
+        CHECK(r.sourceFile.empty());
+    }
+
+    TEST_CASE("SOURCE_FILE doesn't interfere with normal entry/Debtor/Cash "
+              "parsing") {
+        std::wstring content =
+            L"DEBTOR=100\n"
+            L"CASH=50\n"
+            L"SOURCE_FILE=C:\\Data\\March.fbd\n"
+            L"BEGIN\n"
+            L"A|B|1.0|2.0\n"
+            L"END\n";
+        auto r = ParseFbdContent(content);
+        REQUIRE(r.ok);
+        CHECK(r.debtor == L"100");
+        CHECK(r.cash == L"50");
+        REQUIRE(r.entries.size() == 1);
+        CHECK(r.hasSourceFile);
+        CHECK(r.sourceFile == L"C:\\Data\\March.fbd");
     }
 }

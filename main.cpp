@@ -51,10 +51,14 @@
 #include <cwchar>
 #include <cwctype>
 #include <cmath>
+#include <new>       // std::bad_alloc - Phase 1 completeness follow-up (2026-09-30, v0.9.50)
+#include <stdexcept> // std::length_error - same
 
 #include "resource.h"
 #include "version.h"
 #include "FishBalanceCore.h"
+#include "FishBalanceWin32IO.h"
+#include "FishBalanceControlLimits.h"
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "comdlg32.lib")
@@ -81,6 +85,15 @@ static std::wstring g_currentFile; // empty = unsaved / using autosave only
 // Un-finalize clears this again. Set from FbdLoadResult::finalizedDate on
 // load, or directly by DoFinalizeDay() on success.
 static std::wstring g_finalizedDate;
+
+// Phase 1 / F1 audit remediation: set by LoadFromFile() from the just-loaded
+// document's SOURCE_FILE= marker (FbdLoadResult::sourceFile/hasSourceFile).
+// wWinMain's startup sequence is the only reader - after silently reloading
+// autosave.fbd, it compares g_lastLoadSourceFile against g_settings.lastFile
+// before deciding whether it's safe to associate the recovered content with
+// that named file (see the startup comment for the full reasoning).
+static std::wstring g_lastLoadSourceFile;
+static bool g_lastLoadHasSourceFile = false;
 
 // v0.9.30: tracks whether anything has actually changed since the last
 // explicit Save/Save As or the last successful load (New/Open/Recent
@@ -186,6 +199,12 @@ static HWND hListBySpecies;
 static std::vector<HWND> g_tab1Ctrls, g_tab2Ctrls, g_tab3Ctrls, g_tab4Ctrls;
 static bool g_diffOk = true;
 static bool g_ovDiffOk = true;
+// F5 (Phase 1): tracks whether Debtor/Cash currently contain a validly
+// parseable sum expression at all (as opposed to a validly parseable one
+// that merely doesn't balance yet - g_diffOk). Finalize Day and the report
+// builder must both refuse to proceed when this is false, since there is
+// no trustworthy total to check or print.
+static bool g_reconciliationValid = true;
 
 // Autocomplete state for the Supplier / Species combo boxes.
 static bool g_acBusy = false;
@@ -282,6 +301,7 @@ std::wstring HistoryDir();
 void ApplyFinalizedLockState();
 void DoFinalizeDay();
 void DoUnfinalizeDay();
+FinalizeOutcome ExecuteFinalizeDay(const std::wstring& date); // v0.9.51 test-automation refactor
 LRESULT CALLBACK FinalizeWndProc(HWND, UINT, WPARAM, LPARAM);
 void OpenFinalizeDatePrompt();
 
@@ -290,8 +310,9 @@ void OpenFinalizeDatePrompt();
 // ---------------------------------------------------------------------------
 
 // TrimW, ToFixed, FormatMoney, FormatNum, FormatKg, ParseDoubleW, and
-// ParseSumExpr all now live in FishBalanceCore.h (unchanged logic, just
-// relocated so they can be unit-tested without a Win32 dependency).
+// ParseSumExprStrict (formerly the lenient ParseSumExpr, replaced 2026-09-30
+// per Phase 1 / F5 audit remediation - see FishBalanceCore.h) all live in
+// FishBalanceCore.h so they can be unit-tested without a Win32 dependency.
 
 // FormatDateISO/ParseISODate keep their original SYSTEMTIME-based
 // signature here (nothing else in main.cpp needs to change) but delegate
@@ -317,23 +338,25 @@ bool ParseISODate(const std::wstring& s, SYSTEMTIME& out) {
     return true;
 }
 
-std::string WToUtf8(const std::wstring& w) {
-    if (w.empty()) return {};
-    int len = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), nullptr, 0, nullptr, nullptr);
-    std::string s(len, 0);
-    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), &s[0], len, nullptr, nullptr);
-    return s;
-}
+// Test-automation refactor (2026-09-30, v0.9.51): WToUtf8/Utf8ToW/OpenFileW
+// moved to FishBalanceWin32IO.h unchanged (see that header's comment) so the
+// Windows integration test suite can use the exact same conversion/open
+// logic without linking this file. Nothing at any call site here changes -
+// FishBalanceWin32IO.h is included above via the #include block near the
+// top of this file, alongside FishBalanceCore.h.
 
-std::wstring Utf8ToW(const std::string& s) {
-    if (s.empty()) return {};
-    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
-    std::wstring w(len, 0);
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], len);
-    return w;
-}
+// Test-automation refactor (v0.9.51): overridable so integration tests can
+// point every path this app builds (autosave.fbd, settings.txt, recent.txt,
+// emails.txt, backups\, history\) at an isolated temporary directory instead
+// of the real folder next to the exe - never touching production data. Empty
+// (the default) means "use the real exe directory," exactly the original
+// behavior; production code never calls SetExeDirOverrideForTests, so this
+// is a pure addition, not a behavior change, for the shipped application.
+static std::wstring g_exeDirOverrideForTests;
+inline void SetExeDirOverrideForTests(const std::wstring& dir) { g_exeDirOverrideForTests = dir; }
 
 std::wstring GetExeDir() {
+    if (!g_exeDirOverrideForTests.empty()) return g_exeDirOverrideForTests;
     wchar_t path[MAX_PATH];
     GetModuleFileNameW(nullptr, path, MAX_PATH);
     std::wstring p(path);
@@ -341,85 +364,18 @@ std::wstring GetExeDir() {
     return (pos == std::wstring::npos) ? L"." : p.substr(0, pos);
 }
 
-// Every file this app opens goes through here. Under MSVC, this genuinely
-// uses the safer _wfopen_s (it validates its arguments and reports errors
-// through its return code, unlike plain _wfopen) rather than just
-// suppressing MSVC's deprecation warning - an actual fix, not a silenced
-// one. _wfopen_s is a Microsoft-only CRT extension not available on
-// MinGW, which is why this is gated: MinGW keeps using the plain, already
-// memory-safe standard _wfopen (every call site here passes a fixed
-// literal mode string, never attacker-influenced data), and never raised
-// this warning in the first place since it's specifically an MSVC CRT
-// header annotation, not a general compiler diagnostic.
-FILE* OpenFileW(const std::wstring& path, const wchar_t* mode) {
-#ifdef _MSC_VER
-    FILE* f = nullptr;
-    errno_t err = _wfopen_s(&f, path.c_str(), mode);
-    return (err == 0) ? f : nullptr;
-#else
-    return _wfopen(path.c_str(), mode);
-#endif
+// Phase 1 / F1 follow-up (2026-09-30, post-review): the single canonical
+// path for autosave.fbd, so BuildFbdSaveContent()/SaveToFile() can tell
+// whether a given save IS the autosave write without duplicating this
+// string construction at every call site.
+std::wstring AutosavePath() {
+    return GetExeDir() + L"\\autosave.fbd";
 }
 
-// Writes `utf8Content` to `path` as safely as this app can manage: write to
-// a temporary file in the SAME directory first (so the final rename is on
-// the same volume, which is required for it to be atomic rather than a
-// slow, interruptible copy+delete), checking every write/flush/close along
-// the way, and only atomically swap it into place if every step succeeded.
-//
-// If anything fails partway through - disk full, the destination locked by
-// another program, a crash - the temporary file is cleaned up and the REAL
-// destination is left completely untouched, exactly as it was before this
-// call. Previously every save path in this app (`.fbd`, settings.txt,
-// recent.txt, emails.txt, CSV export) opened the destination directly with
-// "wb" (truncating it immediately) and never checked whether any of the
-// writes actually succeeded - a write failure partway through could leave
-// a truncated file while the app reported success the whole time. See
-// SecurityHardeningRegister.md for the full writeup.
-//
-// Returns true only if the entire operation succeeded. On failure, if
-// outError is non-null, it's filled with a short, human-readable reason
-// suitable for showing directly to the user.
-bool WriteFileAtomicUtf8(const std::wstring& path, const std::string& utf8Content, std::wstring* outError = nullptr) {
-    auto fail = [&](const wchar_t* reason) {
-        if (outError) *outError = reason;
-        return false;
-    };
-
-    std::wstring tempPath = path + L".tmp";
-    FILE* f = OpenFileW(tempPath, L"wb");
-    if (!f) return fail(L"could not create a temporary file for saving (check the destination folder is writable)");
-
-    bool writeOk = true;
-    if (!utf8Content.empty()) {
-        size_t written = fwrite(utf8Content.data(), 1, utf8Content.size(), f);
-        if (written != utf8Content.size()) writeOk = false;
-    }
-    if (writeOk && ferror(f)) writeOk = false;
-    // Flush the C library's own buffer to the OS now, rather than waiting
-    // for fclose() to do it implicitly - lets us check the result
-    // explicitly instead of only learning about a failure from fclose().
-    if (writeOk && fflush(f) != 0) writeOk = false;
-
-    int closeResult = fclose(f);
-    if (closeResult != 0) writeOk = false;
-
-    if (!writeOk) {
-        _wremove(tempPath.c_str()); // best-effort cleanup; a leftover .tmp file is harmless either way
-        return fail(L"writing the file failed partway through - the disk may be full, or the file is locked by another program");
-    }
-
-    // Atomically swap the fully-written temp file into place. MOVEFILE_WRITE_THROUGH
-    // waits for the rename itself to actually reach disk before returning,
-    // rather than just the filesystem cache. If this fails, the temp file
-    // is cleaned up and the REAL destination is untouched - whatever was
-    // there before (if anything) is still exactly as it was.
-    if (!MoveFileExW(tempPath.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        _wremove(tempPath.c_str());
-        return fail(L"could not replace the destination file - it may be open in another program, or read-only");
-    }
-    return true;
-}
+// WriteFileAtomicUtf8 moved to FishBalanceWin32IO.h in v0.9.51 (see that
+// header for the full comment) - same signature, same default behavior,
+// now with an optional injectable FileWriteOps for the integration test
+// suite's fault-injection tests (Phase 1 item 4). No call site here changes.
 
 // Keeps the currently open/saved file name visible in the title bar, so it's
 // always obvious what's loaded and whether it's been saved to a named file.
@@ -464,34 +420,10 @@ HICON LoadAppIcon(HINSTANCE hInstance, int size) {
     return h;
 }
 
-// Reads a whole text file (UTF-8) into a list of lines. Returns false (with
-// an empty list) if the file doesn't exist - this is expected on first run.
-bool ReadAllLines(const std::wstring& path, std::vector<std::wstring>& outLines) {
-    outLines.clear();
-    FILE* f = OpenFileW(path, L"rb");
-    if (!f) return false;
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz < 0) { fclose(f); return false; }
-    std::string data((size_t)sz, 0);
-    if (sz > 0) fread(&data[0], 1, (size_t)sz, f);
-    fclose(f);
-
-    std::wstring all = Utf8ToW(data);
-    std::wstring cur;
-    for (wchar_t c : all) {
-        if (c == L'\n') {
-            if (!cur.empty() && cur.back() == L'\r') cur.pop_back();
-            outLines.push_back(cur);
-            cur.clear();
-        } else {
-            cur.push_back(c);
-        }
-    }
-    if (!cur.empty()) outLines.push_back(cur);
-    return true;
-}
+// ReadBytesError/DescribeReadBytesError/ReadAllBytes/ReadAllLines all moved
+// to FishBalanceWin32IO.h in v0.9.51, same signatures, same default
+// behavior, ReadAllBytes gaining an optional injectable FileReadOps for the
+// integration test suite. No call site here changes.
 
 // ---------------------------------------------------------------------------
 // Window size/position + last-file association (settings.txt)
@@ -611,6 +543,15 @@ void LoadSupplierEmails() {
         if (pos == std::wstring::npos) continue;
         std::wstring sup = l.substr(0, pos);
         std::wstring email = l.substr(pos + 1);
+        // Phase 1 completeness follow-up (2026-09-30, v0.9.50): companion-
+        // file content sharing the Supplier-name field gets the same bound
+        // applied to that field everywhere else (kMaxSupplierSpeciesLength).
+        // emails.txt has never had transactional/whole-file-reject semantics
+        // like .fbd loading - a line this app itself could never have
+        // written (both fields are UI-limited at entry, see EM_LIMITTEXT
+        // above) is simply skipped, same as the existing empty-field/no-pipe
+        // cases just above, rather than failing the entire load.
+        if (sup.size() > kMaxSupplierSpeciesLength || email.size() > kMaxSupplierSpeciesLength) continue;
         if (!sup.empty() && !email.empty()) g_supplierEmails[sup] = email;
     }
 }
@@ -636,16 +577,37 @@ bool SaveSupplierEmails() {
 // born already carrying FINALIZED= without a separate write-then-rewrite
 // step. Every other caller passes nothing and gets g_finalizedDate (empty
 // for an ordinary working file, or the locked-in date once loaded from one).
-std::string BuildFbdSaveContent(const std::wstring& finalizedDateOverride = L"") {
+std::string BuildFbdSaveContent(const std::wstring& finalizedDateOverride = L"", bool includeSourceFile = false) {
     std::string content;
     auto writeLine = [&](const std::wstring& line) {
         content += WToUtf8(line) + "\n";
     };
-    wchar_t buf[512];
-    GetWindowTextW(hEditDebtor, buf, 512);
+    // Phase 1 completeness follow-up (2026-09-30, v0.9.50): sized to the
+    // largest of the field limits this shared buffer is reused for below
+    // (kMaxNotesLength/kMaxDebtorCashExprLength, both 4096) - the previous
+    // 512-wchar buffer would have silently truncated a legitimately long
+    // (but now UI-permitted) Debtor/Cash expression or Notes value right
+    // before writing it to disk.
+    wchar_t buf[kMaxNotesLength + 1];
+    GetWindowTextW(hEditDebtor, buf, (int)(kMaxNotesLength + 1));
     writeLine(std::wstring(L"DEBTOR=") + buf);
-    GetWindowTextW(hEditCash, buf, 512);
+    GetWindowTextW(hEditCash, buf, (int)(kMaxNotesLength + 1));
     writeLine(std::wstring(L"CASH=") + buf);
+
+    // Phase 1 / F1 audit remediation, narrowed post-review (2026-09-30): the
+    // SOURCE_FILE= identity marker is only ever READ back by wWinMain's
+    // startup logic, and only from autosave.fbd specifically - so it's only
+    // written here (includeSourceFile=true, passed by SaveToFile only for
+    // the autosave path). Writing g_currentFile's absolute path into every
+    // .fbd save (named files, history\ snapshots, backups\) was the original
+    // Phase 1 implementation, but on reflection that embeds the original
+    // machine's Windows username/folder path into files that routinely
+    // leave the machine - emailed, backed up, or opened on another computer
+    // - for no benefit, since nothing ever reads this marker out of a named/
+    // history/backup file. Scoping it to autosave.fbd alone keeps the exact
+    // same safety property (see FbdLoadResult::sourceFile/hasSourceFile in
+    // FishBalanceCore.h) without that exposure.
+    if (includeSourceFile) writeLine(L"SOURCE_FILE=" + g_currentFile);
 
     const std::wstring& finalizedDate = finalizedDateOverride.empty() ? g_finalizedDate : finalizedDateOverride;
     if (!finalizedDate.empty()) writeLine(L"FINALIZED=" + finalizedDate);
@@ -654,15 +616,15 @@ std::string BuildFbdSaveContent(const std::wstring& finalizedDateOverride = L"")
     // loss and not just a graceful close - whatever's currently sitting in
     // these fields (even if nothing/blank) is written on every save, the
     // same way Debtor/Cash already are.
-    GetWindowTextW(hCmbSupplier, buf, 512);
+    GetWindowTextW(hCmbSupplier, buf, (int)(kMaxNotesLength + 1));
     writeLine(std::wstring(L"DRAFT_SUPPLIER=") + buf);
-    GetWindowTextW(hCmbProduct, buf, 512);
+    GetWindowTextW(hCmbProduct, buf, (int)(kMaxNotesLength + 1));
     writeLine(std::wstring(L"DRAFT_SPECIES=") + buf);
-    GetWindowTextW(hEditKgs, buf, 512);
+    GetWindowTextW(hEditKgs, buf, (int)(kMaxNotesLength + 1));
     writeLine(std::wstring(L"DRAFT_KGS=") + buf);
-    GetWindowTextW(hEditPrice, buf, 512);
+    GetWindowTextW(hEditPrice, buf, (int)(kMaxNotesLength + 1));
     writeLine(std::wstring(L"DRAFT_PRICE=") + buf);
-    GetWindowTextW(hEditNotes, buf, 512);
+    GetWindowTextW(hEditNotes, buf, (int)(kMaxNotesLength + 1));
     writeLine(std::wstring(L"DRAFT_NOTES=") + buf);
     if (hDtpDate) {
         SYSTEMTIME st{};
@@ -682,7 +644,12 @@ std::string BuildFbdSaveContent(const std::wstring& finalizedDateOverride = L"")
 }
 
 bool SaveToFile(const std::wstring& path, std::wstring* outError = nullptr) {
-    return WriteFileAtomicUtf8(path, BuildFbdSaveContent(), outError);
+    // Only the autosave write includes SOURCE_FILE= - see BuildFbdSaveContent's
+    // comment. A case-insensitive compare matches how the startup identity
+    // check itself compares paths (_wcsicmp), for the same reason: Windows
+    // paths are case-insensitive.
+    bool isAutosave = (_wcsicmp(path.c_str(), AutosavePath().c_str()) == 0);
+    return WriteFileAtomicUtf8(path, BuildFbdSaveContent(L"", isAutosave), outError);
 }
 
 // Loads and STRICTLY validates a .fbd file. This function is now just the
@@ -700,20 +667,39 @@ bool SaveToFile(const std::wstring& path, std::wstring* outError = nullptr) {
 // just show the user a wrong screen, it silently destroys the recovery
 // copy too. See SecurityHardeningRegister.md and ARCHITECTURE.md for why
 // this function gets this much scrutiny.
-bool LoadFromFile(const std::wstring& path) {
-    FILE* f = OpenFileW(path, L"rb");
-    if (!f) return false;
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz < 0) { fclose(f); return false; }
-    std::string data((size_t)sz, 0);
-    if (sz > 0) fread(&data[0], 1, (size_t)sz, f);
-    fclose(f);
+// Phase 1 completeness follow-up (2026-09-30, v0.9.50): outError, when
+// non-null, is filled with a specific, structured reason on failure -
+// combining ReadAllBytes' read-side diagnostic, a UTF-8-validity failure, or
+// ParseFbdContent's own structured FbdErrorCode/line-number/message (see
+// FishBalanceCore.h). Every one of this function's four callers (File >
+// Open, Recent Files, Restore from Backup, startup autosave recovery) now
+// shows this in its message box instead of relying solely on one fixed
+// generic sentence - the sentence stays too, as a plain-language summary,
+// with the specific reason appended.
+bool LoadFromFile(const std::wstring& path, std::wstring* outError = nullptr) {
+    // Test-automation refactor (v0.9.51): the read+decode+parse steps below
+    // used to be inline here; they now live in FishBalanceWin32IO.h's
+    // LoadFbdFileContent() (identical logic, moved verbatim) so the Windows
+    // integration test suite can exercise "load a real file from disk" with
+    // injectable FileReadOps, without linking any of this file's GUI code.
+    // This wrapper is unchanged: it still owns the one thing that must stay
+    // here - committing a successful parse into the app's global state.
+    LoadFbdFileResult loaded = LoadFbdFileContent(path);
+    if (!loaded.ok) {
+        if (outError) *outError = loaded.errorMessage;
+        return false;
+    }
+    const FbdLoadResult& result = loaded.parsed;
 
-    std::wstring all = Utf8ToW(data);
-    FbdLoadResult result = ParseFbdContent(all);
-    if (!result.ok) return false;
+    // Phase 1 / F1: expose the loaded document's identity marker to
+    // wWinMain's startup logic, which needs it to decide whether a
+    // recovered autosave.fbd genuinely corresponds to settings.txt's
+    // remembered last-opened file (see g_lastLoadSourceFile's declaration).
+    // Every other caller of LoadFromFile (Open, Recent Files, Un/Finalize's
+    // own re-save) already manages g_currentFile explicitly and simply
+    // ignores these.
+    g_lastLoadSourceFile = result.sourceFile;
+    g_lastLoadHasSourceFile = result.hasSourceFile;
 
     g_entries = result.entries;
     SetWindowTextW(hEditDebtor, result.debtor.c_str());
@@ -739,6 +725,13 @@ bool LoadFromFile(const std::wstring& path) {
     g_prevSupplierLen = (int)result.draftSupplier.size();
     g_prevProductLen = (int)result.draftSpecies.size();
 
+    // Phase 1 / F3+F2 (2026-09-30): ParseFbdContent() is now transactional -
+    // a document containing any row it can't safely reconstruct is rejected
+    // outright (result.ok is false, and LoadFromFile has already returned
+    // above) rather than being partially committed. result.skippedLines is
+    // therefore always 0 whenever result.ok is true, so this warning is
+    // unreachable in current builds; left in place only in case a future,
+    // more permissive load mode reintroduces partial-document skipping.
     if (result.skippedLines > 0 && g_hMainWnd) {
         std::wstring msg = L"Warning: " + std::to_wstring(result.skippedLines) +
             (result.skippedLines == 1 ? L" row could" : L" rows could") +
@@ -926,11 +919,46 @@ void RecalcTotals() {
     double entered = 0;
     for (auto& e : g_entries) entered += e.Total();
 
-    wchar_t buf[512];
-    GetWindowTextW(hEditDebtor, buf, 512);
-    double debtor = ParseSumExpr(buf);
-    GetWindowTextW(hEditCash, buf, 512);
-    double cash = ParseSumExpr(buf);
+    // Phase 1 completeness follow-up (2026-09-30, v0.9.50): sized to
+    // kMaxDebtorCashExprLength+1, matching EM_LIMITTEXT on these controls -
+    // the old 512-wchar buffer would have silently truncated a legitimately
+    // long (but now UI-permitted, up to 4096 char) expression right before
+    // parsing it.
+    wchar_t buf[kMaxDebtorCashExprLength + 1];
+    GetWindowTextW(hEditDebtor, buf, (int)(kMaxDebtorCashExprLength + 1));
+    SumParseResult debtorResult = ParseSumExprStrict(buf);
+    GetWindowTextW(hEditCash, buf, (int)(kMaxDebtorCashExprLength + 1));
+    SumParseResult cashResult = ParseSumExprStrict(buf);
+
+    g_reconciliationValid = debtorResult.ok && cashResult.ok;
+
+    if (!g_reconciliationValid) {
+        // Fail closed (Phase 1 / F5): an invalid Debtor/Cash entry must not
+        // be silently treated as balanced (or unbalanced) against anything -
+        // there is no trustworthy total to compare, so say so plainly rather
+        // than showing a number computed from a partially-ignored expression.
+        g_diffOk = false;
+        g_ovDiffOk = false;
+        const std::wstring& badField = !debtorResult.ok ? L"Debtor" : L"Cash";
+        const std::wstring& badTerm = !debtorResult.ok ? debtorResult.errorTerm : cashResult.errorTerm;
+        std::wstring msg = L"Difference: cannot check - " + badField +
+                            L" has an invalid entry (\"" + badTerm + L"\")";
+
+        SetWindowTextW(hLblBook, L"Book Total (Debtor + Cash): --");
+        SetWindowTextW(hLblEntered, (L"Entered Total (this sheet): " + FormatMoney(entered)).c_str());
+        SetWindowTextW(hLblDiff, msg.c_str());
+
+        SetWindowTextW(hLblOvBook, L"Book Total (Debtor + Cash): --");
+        SetWindowTextW(hLblOvGrand, (L"Grand Total (all suppliers): " + FormatMoney(entered)).c_str());
+        SetWindowTextW(hLblOvDiff, msg.c_str());
+
+        InvalidateRect(hLblDiff, nullptr, TRUE);
+        InvalidateRect(hLblOvDiff, nullptr, TRUE);
+        return;
+    }
+
+    double debtor = debtorResult.value;
+    double cash = cashResult.value;
     double book = debtor + cash;
     double diff = book - entered;
     g_diffOk = std::abs(diff) < 0.005;
@@ -1088,7 +1116,7 @@ void RefreshBreakdownList() {
 // warn-once/reset-on-recovery behavior from one place instead of two
 // copies that could drift apart.
 void AutosaveNow() {
-    bool ok = SaveToFile(GetExeDir() + L"\\autosave.fbd");
+    bool ok = SaveToFile(AutosavePath());
     if (ok) {
         g_autosaveFailWarned = false; // problem (if any) has cleared - a future failure should warn again
         MaybeBackupOnTimer();
@@ -1256,16 +1284,22 @@ void CommitEntryForm() {
     // directly, so this guard is the real backstop against editing a
     // locked-in (finalized) day.
     if (!g_finalizedDate.empty()) return;
-    wchar_t buf[256];
-    GetWindowTextW(hCmbSupplier, buf, 256);
+    // Phase 1 completeness follow-up (2026-09-30, v0.9.50): sized to
+    // kMaxNotesLength+1 - Notes can now legitimately hold up to 4096
+    // characters (EM_LIMITTEXT on hEditNotes), so the old 256-wchar buffer
+    // would have silently truncated it right before it's committed.
+    // Supplier/Species/Kgs/Price all fit comfortably within this same
+    // larger buffer too.
+    wchar_t buf[kMaxNotesLength + 1];
+    GetWindowTextW(hCmbSupplier, buf, (int)(kMaxNotesLength + 1));
     std::wstring supplier = TrimW(buf);
-    GetWindowTextW(hCmbProduct, buf, 256);
+    GetWindowTextW(hCmbProduct, buf, (int)(kMaxNotesLength + 1));
     std::wstring product = TrimW(buf);
-    GetWindowTextW(hEditKgs, buf, 256);
+    GetWindowTextW(hEditKgs, buf, (int)(kMaxNotesLength + 1));
     std::wstring kgsStr = buf;
-    GetWindowTextW(hEditPrice, buf, 256);
+    GetWindowTextW(hEditPrice, buf, (int)(kMaxNotesLength + 1));
     std::wstring priceStr = buf;
-    GetWindowTextW(hEditNotes, buf, 256);
+    GetWindowTextW(hEditNotes, buf, (int)(kMaxNotesLength + 1));
     std::wstring notes = TrimW(buf);
 
     if (supplier.empty() || product.empty()) {
@@ -1427,6 +1461,40 @@ void ClearUndoState() {
     if (g_hEditMenu) EnableMenuItem(g_hEditMenu, ID_EDIT_UNDO_DELETE, MF_BYCOMMAND | MF_GRAYED);
 }
 
+// Test-automation refactor (v0.9.51): the actual delete - no dialogs, no
+// selection lookup - extracted out of DeleteSelectedEntry() so the headless
+// end-to-end smoke test (Phase 1 item 6) can delete a specific row through a
+// callable application command, without needing to drive the confirm
+// MessageBoxW ("do not introduce UI automation dependencies if direct
+// function/control testing is sufficient" - the blocking dialog stays in
+// DeleteSelectedEntry, the caller-facing command). Returns false (and
+// changes nothing) for an out-of-range index, same as the old function's
+// bounds check.
+bool DeleteEntryAt(int sel) {
+    if (!g_finalizedDate.empty()) return false; // see CommitEntryForm's identical guard
+    if (sel < 0 || sel >= (int)g_entries.size()) return false;
+
+    Entry& e = g_entries[sel];
+    g_undoEntry = e;
+    g_undoIndex = sel;
+    std::wstring undoProduct = e.product, undoDate = e.date; // captured before erase invalidates e
+    g_hasUndo = true;
+    if (g_hEditMenu) EnableMenuItem(g_hEditMenu, ID_EDIT_UNDO_DELETE, MF_BYCOMMAND | MF_ENABLED);
+
+    g_entries.erase(g_entries.begin() + sel);
+    g_dirty = true; // v0.9.30
+    // Removing this entry can change whether its siblings still look like
+    // outliers (the baseline they're judged against just shrank) - see
+    // ReevaluateOutlierFlagsForSpeciesOnDate / ROADMAP.md item 7.
+    ReevaluateOutlierFlagsForSpeciesOnDate(g_entries, undoProduct, undoDate);
+    // Deleting shifts every later index down by one, and may remove the
+    // row currently loaded in the form - simplest and safest is to just
+    // drop out of edit mode rather than try to track the shift.
+    if (g_editIndex != -1) CancelEdit();
+    RefreshAll();
+    return true;
+}
+
 void DeleteSelectedEntry() {
     if (!g_finalizedDate.empty()) return; // see CommitEntryForm's identical guard
     int selRow = ListView_GetNextItem(hListEntries, -1, LVNI_SELECTED);
@@ -1446,23 +1514,7 @@ void DeleteSelectedEntry() {
     if (MessageBoxW(g_hMainWnd, msg.c_str(), L"Confirm Delete", MB_YESNO | MB_ICONQUESTION) != IDYES)
         return;
 
-    g_undoEntry = e;
-    g_undoIndex = sel;
-    std::wstring undoProduct = e.product, undoDate = e.date; // captured before erase invalidates e
-    g_hasUndo = true;
-    if (g_hEditMenu) EnableMenuItem(g_hEditMenu, ID_EDIT_UNDO_DELETE, MF_BYCOMMAND | MF_ENABLED);
-
-    g_entries.erase(g_entries.begin() + sel);
-    g_dirty = true; // v0.9.30
-    // Removing this entry can change whether its siblings still look like
-    // outliers (the baseline they're judged against just shrank) - see
-    // ReevaluateOutlierFlagsForSpeciesOnDate / ROADMAP.md item 7.
-    ReevaluateOutlierFlagsForSpeciesOnDate(g_entries, undoProduct, undoDate);
-    // Deleting shifts every later index down by one, and may remove the
-    // row currently loaded in the form - simplest and safest is to just
-    // drop out of edit mode rather than try to track the shift.
-    if (g_editIndex != -1) CancelEdit();
-    RefreshAll();
+    DeleteEntryAt(sel);
 }
 
 void UndoDelete() {
@@ -1676,7 +1728,8 @@ void DoFileOpen() {
         // an acknowledgement, so the data being discarded still needs its own
         // snapshot the same way an explicit Save already gets one.
         WriteBackupSnapshot();
-        if (LoadFromFile(file)) {
+        std::wstring loadErr;
+        if (LoadFromFile(file, &loadErr)) {
             g_currentFile = file;
             CancelEdit();
             ClearUndoState();
@@ -1685,10 +1738,12 @@ void DoFileOpen() {
             RefreshAll();
             RememberRecentFile(file);
         } else {
+            // Phase 1 completeness follow-up (2026-09-30, v0.9.50): loadErr
+            // carries a specific reason (see LoadFromFile) - appended to the
+            // existing plain-language summary rather than replacing it.
             MessageBoxW(g_hMainWnd,
-                L"Could not open the selected file - it isn't readable, doesn't look like a "
-                L"Fish Balance (.fbd) file, or looks like it was cut off partway through being "
-                L"saved. Nothing has been changed.",
+                (L"Could not open the selected file: " + loadErr +
+                 L".\n\nNothing has been changed.").c_str(),
                 L"Error", MB_OK | MB_ICONERROR);
         }
     }
@@ -1741,7 +1796,8 @@ void DoRestoreFromBackup() {
     // discarded before the restore overwrites it in memory.
     WriteBackupSnapshot();
 
-    if (LoadFromFile(file)) {
+    std::wstring loadErr;
+    if (LoadFromFile(file, &loadErr)) {
         g_currentFile.clear();
         CancelEdit();
         ClearUndoState();
@@ -1754,8 +1810,7 @@ void DoRestoreFromBackup() {
             L"Backup Loaded", MB_OK | MB_ICONINFORMATION);
     } else {
         MessageBoxW(g_hMainWnd,
-            L"Could not load that backup - it isn't readable or doesn't look like a valid "
-            L".fbd file. Nothing has been changed.",
+            (L"Could not load that backup: " + loadErr + L".\n\nNothing has been changed.").c_str(),
             L"Error", MB_OK | MB_ICONERROR);
     }
 }
@@ -1771,16 +1826,29 @@ void DoFileSaveAs() {
     ofn.lpstrDefExt = L"fbd";
     ofn.Flags = OFN_OVERWRITEPROMPT;
     if (GetSaveFileNameW(&ofn)) {
-        std::wstring err;
-        if (SaveToFile(file, &err)) {
-            g_currentFile = file;
-            g_dirty = false; // v0.9.30 - explicit save, matches disk again
-            UpdateTitle();
-            RememberRecentFile(file);
+        // Test-automation refactor (v0.9.51): the previous-file-restore-on-
+        // failure logic below is now CoordinateSaveAs() (FishBalanceCore.h),
+        // a pure function tested against injected write failures (Phase 1
+        // item 4) - proving a failed Save As restores g_currentFile/title to
+        // exactly what they were before, with no destination or temp file
+        // incorrectly retained (WriteFileAtomicUtf8's own temp-file cleanup,
+        // unchanged). This wrapper still owns the actual file dialog and the
+        // Win32 write call itself, same as before.
+        std::wstring previousFile = g_currentFile;
+        std::wstring newFile = file;
+        SaveAsOutcome outcome = CoordinateSaveAs(previousFile, newFile,
+            [](const std::wstring& path, std::wstring* outError) {
+                return SaveToFile(path, outError);
+            });
+        g_currentFile = outcome.resultingCurrentFile;
+        g_dirty = outcome.dirtyAfter;
+        UpdateTitle();
+        if (outcome.success) {
+            RememberRecentFile(newFile);
             WriteBackupSnapshot(); // deliberate user Save - always worth its own snapshot, not just the timer
             MessageBoxW(g_hMainWnd, L"Saved.", L"Save", MB_OK | MB_ICONINFORMATION);
         } else {
-            MessageBoxW(g_hMainWnd, (L"Could not save the file: " + err).c_str(), L"Error", MB_OK | MB_ICONERROR);
+            MessageBoxW(g_hMainWnd, (L"Could not save the file: " + outcome.errorMessage).c_str(), L"Error", MB_OK | MB_ICONERROR);
         }
     }
 }
@@ -1859,6 +1927,46 @@ void DoUnfinalizeDay() {
     RefreshAll(); // also re-syncs autosave.fbd, which AutosaveNow() always writes to regardless of g_currentFile
 }
 
+// Test-automation refactor (2026-09-30, v0.9.51): the actual Finalize Day
+// persistence coordination - previously inline in FinalizeWndProc's
+// ID_FIN_OK handler - now goes through CoordinateFinalizeDay()
+// (FishBalanceCore.h), a pure function tested against every success/failure
+// combination of history-write and named-file-sync (Phase 1 item 2). This
+// wrapper supplies the real Win32 ports (WriteBackupSnapshot/
+// WriteFileAtomicUtf8/SaveToFile) and applies the resulting state
+// (g_finalizedDate, g_dirty, UpdateTitle/RefreshAll) exactly as the old
+// inline code did - the history-record path/overwrite confirmation stay in
+// the caller (FinalizeWndProc), since those are dialog/UI concerns, not
+// persistence coordination. Also callable directly by the headless
+// end-to-end smoke test (Phase 1 item 6) to finalize a day without going
+// through the Finalize Day popup window at all.
+FinalizeOutcome ExecuteFinalizeDay(const std::wstring& date) {
+    std::wstring dir = HistoryDir();
+    CreateDirectoryW(dir.c_str(), nullptr);
+    std::wstring path = dir + L"\\" + date + L".fbd";
+
+    FinalizePersistencePorts ports;
+    ports.writeBackupSnapshot = []() { WriteBackupSnapshot(); };
+    ports.writeHistoryRecord = [path, date](std::wstring* outError) {
+        std::string content = BuildFbdSaveContent(date);
+        return WriteFileAtomicUtf8(path, content, outError);
+    };
+    ports.hasNamedFile = !g_currentFile.empty();
+    ports.writeNamedFileSync = [](std::wstring* outError) {
+        return SaveToFile(g_currentFile, outError);
+    };
+
+    FinalizeOutcome outcome = CoordinateFinalizeDay(ports, date);
+    if (outcome.finalized) {
+        g_finalizedDate = date;
+        ApplyFinalizedLockState();
+    }
+    g_dirty = outcome.dirtyAfter;
+    UpdateTitle();
+    RefreshAll();
+    return outcome;
+}
+
 LRESULT CALLBACK FinalizeWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
@@ -1914,27 +2022,18 @@ LRESULT CALLBACK FinalizeWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
                     return 0;
             }
 
-            WriteBackupSnapshot(); // safety net before writing the permanent history record
-            std::string content = BuildFbdSaveContent(date);
-            std::wstring writeErr;
-            if (!WriteFileAtomicUtf8(path, content, &writeErr)) {
-                MessageBoxW(hwnd, (L"Could not write the history record: " + writeErr).c_str(),
-                            L"Error", MB_OK | MB_ICONERROR);
+            FinalizeOutcome outcome = ExecuteFinalizeDay(date);
+            if (outcome.kind == FinalizeResultKind::HistoryWriteFailed) {
+                MessageBoxW(hwnd, outcome.message.c_str(), L"Error", MB_OK | MB_ICONERROR);
                 return 0;
             }
 
-            g_finalizedDate = date;
-            ApplyFinalizedLockState();
-            g_dirty = false;
-            if (!g_currentFile.empty()) SaveToFile(g_currentFile); // keep the working file's own FINALIZED= marker in sync
-            UpdateTitle();
-            RefreshAll();
-
             DestroyWindow(hwnd);
 
-            int r = MessageBoxW(g_hMainWnd,
-                (L"Finalized as " + date + L". Start a new entry sheet now?").c_str(),
-                L"Day Finalized", MB_YESNO | MB_ICONQUESTION);
+            bool namedFileSynced = (outcome.kind == FinalizeResultKind::FinalizedClean);
+            std::wstring successMsg = outcome.message + L" Start a new entry sheet now?";
+            int r = MessageBoxW(g_hMainWnd, successMsg.c_str(), L"Day Finalized",
+                namedFileSynced ? (MB_YESNO | MB_ICONQUESTION) : (MB_YESNO | MB_ICONWARNING));
             if (r == IDYES) {
                 // Same clear-to-blank as DoFileNew() - and, like DoFileNew(),
                 // this needs to actually detach from the file that was just
@@ -2010,6 +2109,14 @@ void OpenFinalizeDatePrompt() {
 }
 
 void DoFinalizeDay() {
+    if (!g_reconciliationValid) {
+        MessageBoxW(g_hMainWnd,
+            L"Debtor or Cash contains an entry that can't be understood as a number or sum - "
+            L"a day can't be finalized until both fields contain a valid figure. Fix the entry "
+            L"on Tab 1 (Book Reconciliation) first.",
+            L"Invalid Entry", MB_OK | MB_ICONWARNING);
+        return;
+    }
     if (!g_diffOk) {
         MessageBoxW(g_hMainWnd,
             L"Debtor + Cash doesn't balance against the entered total yet - a day can't be "
@@ -2473,6 +2580,22 @@ LRESULT CALLBACK ManageWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         g_hManageTarget = MakeControl(L"EDIT", L"", WS_VISIBLE | WS_BORDER | WS_TABSTOP, ID_MNG_TARGET, hwnd);
         g_hManageApplyBtn = MakeControl(L"BUTTON", L"Apply", WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON | BS_DEFPUSHBUTTON, ID_MNG_APPLY, hwnd);
         g_hManageCloseBtn = MakeControl(L"BUTTON", L"Close", WS_VISIBLE | WS_TABSTOP, ID_MNG_CLOSE, hwnd);
+        // Phase 1 completeness follow-up (2026-09-30, v0.9.50): g_hManageTarget
+        // is a Supplier/Species NAME field like any other - without this, a
+        // name longer than the 255-wchar GetWindowTextW buffer used to read it
+        // (ManageApply/UpdateManageApplyButton) would be silently truncated at
+        // read time instead of being visibly capped at entry time. The buffer
+        // itself is unchanged (256 wchar = 255 usable chars, already exactly
+        // kMaxSupplierSpeciesLength), so this makes the existing bound an
+        // explicit UI limit rather than an accidental one. g_hManageEmailEdit
+        // gets the same bound for consistency, even though Jack's spec didn't
+        // separately name an email-address limit - same buffer, same risk.
+        {
+            FieldLengthLimitTargets limits;
+            limits.manageTargetEdit = g_hManageTarget;
+            limits.manageEmailEdit = g_hManageEmailEdit;
+            ApplyFieldLengthLimits(limits);
+        }
 
         SendMessageW(g_hManageRadioSupplier, BM_SETCHECK, BST_CHECKED, 0);
         g_manageIsSupplier = true;
@@ -2700,18 +2823,32 @@ std::vector<RenderedPage> RenderReportPages(int pageWidthPx, int pageHeightPx, i
             // balance check document.
             double entered = 0;
             for (auto& e : g_entries) entered += e.Total();
-            wchar_t buf[512];
-            GetWindowTextW(hEditDebtor, buf, 512);
-            double debtor = ParseSumExpr(buf);
-            GetWindowTextW(hEditCash, buf, 512);
-            double cash = ParseSumExpr(buf);
-            double book = debtor + cash;
-            double diff = book - entered;
-            bool ok = std::abs(diff) < 0.005;
+            // Phase 1 completeness follow-up (2026-09-30, v0.9.50): same
+            // buffer-size fix as RecalcTotals() - see its comment.
+            wchar_t buf[kMaxDebtorCashExprLength + 1];
+            GetWindowTextW(hEditDebtor, buf, (int)(kMaxDebtorCashExprLength + 1));
+            SumParseResult debtorResult = ParseSumExprStrict(buf);
+            GetWindowTextW(hEditCash, buf, (int)(kMaxDebtorCashExprLength + 1));
+            SumParseResult cashResult = ParseSumExprStrict(buf);
 
-            std::wstring l1 = L"Book Total (Debtor + Cash): " + FormatMoney(book);
-            std::wstring l2 = L"Entered Total: " + FormatMoney(entered);
-            std::wstring l3 = L"Difference: " + FormatMoney(diff) + (ok ? L"  (OK - balanced)" : L"  (OUT OF BALANCE)");
+            std::wstring l1, l2, l3;
+            if (!debtorResult.ok || !cashResult.ok) {
+                // F5 (Phase 1): fail closed here too - a printed/PDF report
+                // must never show a Book Total or Difference computed from
+                // a Debtor/Cash entry that couldn't actually be parsed.
+                l1 = L"Book Total (Debtor + Cash): --";
+                l2 = L"Entered Total: " + FormatMoney(entered);
+                l3 = L"Difference: cannot check - Debtor/Cash has an invalid entry";
+            } else {
+                double debtor = debtorResult.value;
+                double cash = cashResult.value;
+                double book = debtor + cash;
+                double diff = book - entered;
+                bool ok = std::abs(diff) < 0.005;
+                l1 = L"Book Total (Debtor + Cash): " + FormatMoney(book);
+                l2 = L"Entered Total: " + FormatMoney(entered);
+                l3 = L"Difference: " + FormatMoney(diff) + (ok ? L"  (OK - balanced)" : L"  (OUT OF BALANCE)");
+            }
             TextOutW(curDC, marginX, y, l1.c_str(), (int)l1.size());
             y += lineHeight;
             TextOutW(curDC, marginX, y, l2.c_str(), (int)l2.size());
@@ -3284,23 +3421,43 @@ void ShowTab(int idx) {
 // - and apparently that race isn't always won within 50ms on every
 // machine, hence the two further, later retries added in v0.9.42.
 //
-// v0.9.42 also escalated the fix itself, not just the retry count/timing:
-// a plain RedrawWindow (even with RDW_FRAME) only invalidates and repaints
+// v0.9.42 escalated the fix itself, not just the retry count/timing: a
+// plain RedrawWindow (even with RDW_FRAME) only invalidates and repaints
 // pixels - it doesn't force ComCtl32's visual-styles engine to redo its
-// theme-handle setup for the control, which is the actual thing failing
-// to happen in time here. Toggling visibility (SW_HIDE then SW_SHOW) forces
-// a full re-show and reliably kicks that theme initialization into
-// actually running, per this function's own earlier note that this was
-// the next thing to try if plain redraw-on-a-timer wasn't enough. Safe to
-// call here because this only ever runs during startup, while Tab 1 (the
-// only tab these two controls live on) is already the visible tab.
+// theme-handle setup for the control. Toggling visibility (SW_HIDE then
+// SW_SHOW) before redrawing was meant to force that, but v0.9.42 testing
+// showed it still isn't enough, and neither was v0.9.44's SWP_FRAMECHANGED
+// escalation (forcing non-client recalculation) - both still left it
+// broken on every launch.
+//
+// v0.9.46 added a temporary message-logging subclass to actually see what
+// happens, instead of guessing again, and it gave a clear, specific
+// answer: a hover produces ONLY WM_MOUSEMOVE -> WM_PAINT -> WM_ERASEBKGND
+// on the affected control - no WM_NCPAINT, no WM_NCCALCSIZE at all. That
+// directly disproves the v0.9.44 theory (this was never a non-client/frame
+// problem) and explains why v0.9.42/v0.9.44's hide-show/frame-change fixes
+// never worked even though the log showed THEM also producing
+// WM_PAINT/WM_NCPAINT/WM_ERASEBKGND cycles at 328ms, 344ms, 391ms, 407ms,
+// and again at 1141-1157ms after launch - none of that is the mechanism
+// that actually fixes it. Only a genuine WM_MOUSEMOVE reaching the control
+// does. (Log evidence also removed the temporary diagnostic subclass once
+// it had done its job, per the plan when it was added.)
+//
+// v0.9.46's fix is a synthetic WM_MOUSEMOVE - reproducing exactly the
+// interaction the log evidence showed actually works, without needing the
+// user's real cursor to physically be over the control. This replaces the
+// SWP_FRAMECHANGED/hide-show approach entirely rather than adding to it,
+// since the log evidence shows that approach doesn't contribute to the fix.
 void FixComboBoxFirstPaint() {
     HWND boxes[] = { hCmbSupplier, hCmbProduct };
     for (HWND h : boxes) {
         if (!h) continue;
-        ShowWindow(h, SW_HIDE);
-        ShowWindow(h, SW_SHOW);
-        RedrawWindow(h, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME | RDW_UPDATENOW | RDW_ALLCHILDREN);
+        RECT rc{};
+        GetClientRect(h, &rc);
+        LPARAM pos = MAKELPARAM(5, (rc.bottom - rc.top) / 2);
+        SendMessageW(h, WM_MOUSEMOVE, 0, pos);
+        InvalidateRect(h, nullptr, TRUE);
+        UpdateWindow(h);
     }
 }
 
@@ -3350,6 +3507,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         hEditKgs = MakeControl(L"EDIT", L"", WS_VISIBLE | WS_BORDER | WS_TABSTOP, ID_EDIT_KGS, hwnd);
         hLblPrice = MakeControl(L"STATIC", L"Price:", WS_VISIBLE | SS_CENTERIMAGE, 0, hwnd);
         hEditPrice = MakeControl(L"EDIT", L"", WS_VISIBLE | WS_BORDER | WS_TABSTOP, ID_EDIT_PRICE, hwnd);
+        // Phase 1 completeness follow-up (2026-09-30, v0.9.50): make the
+        // interactive form's own field-length limits real, enforced Win32
+        // control limits (EM_LIMITTEXT/CB_LIMITTEXT) rather than an
+        // accidental side effect of whatever fixed-size buffer a given
+        // GetWindowTextW call happened to use - a hand-edited/loaded .fbd
+        // file is now rejected at exactly these same limits (see
+        // FishBalanceCore.h's kMaxSupplierSpeciesLength etc.), so the UI
+        // and the file format agree on what's representable.
+        // Test-automation refactor (v0.9.51): the actual EM_LIMITTEXT/
+        // CB_LIMITTEXT calls now live in FishBalanceControlLimits.h's
+        // ApplyFieldLengthLimits(), shared with the Windows integration test
+        // suite's control-limit test (Phase 1 item 5) so both this real form
+        // and the test's own throwaway controls are verified against the
+        // exact same function - see the call after hEditCash is created
+        // below, once every field it targets exists.
         hBtnAdd = MakeControl(L"BUTTON", L"Add Entry", WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON | BS_DEFPUSHBUTTON, ID_BTN_ADD, hwnd);
         hBtnDelete = MakeControl(L"BUTTON", L"Delete Selected Row", WS_VISIBLE | WS_TABSTOP, ID_BTN_DELETE, hwnd);
         hBtnEdit = MakeControl(L"BUTTON", L"Edit Selected Row", WS_VISIBLE | WS_TABSTOP, ID_BTN_EDIT, hwnd);
@@ -3385,6 +3557,17 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         hEditDebtor = MakeControl(L"EDIT", L"", WS_VISIBLE | WS_BORDER | WS_TABSTOP, ID_EDIT_DEBTOR, hwnd);
         hLblCash = MakeControl(L"STATIC", L"Cash amount(s):", WS_VISIBLE, 0, hwnd);
         hEditCash = MakeControl(L"EDIT", L"", WS_VISIBLE | WS_BORDER | WS_TABSTOP, ID_EDIT_CASH, hwnd);
+        {
+            FieldLengthLimitTargets limits;
+            limits.supplierCombo = hCmbSupplier;
+            limits.speciesCombo = hCmbProduct;
+            limits.kgsEdit = hEditKgs;
+            limits.priceEdit = hEditPrice;
+            limits.notesEdit = hEditNotes;
+            limits.debtorEdit = hEditDebtor;
+            limits.cashEdit = hEditCash;
+            ApplyFieldLengthLimits(limits);
+        }
         hLblBook = MakeControl(L"STATIC", L"Book Total: $0.00", WS_VISIBLE, 0, hwnd);
         hLblEntered = MakeControl(L"STATIC", L"Entered Total: $0.00", WS_VISIBLE, 0, hwnd);
         hLblDiff = MakeControl(L"STATIC", L"Difference: $0.00", WS_VISIBLE, 0, hwnd);
@@ -3471,18 +3654,19 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // chance at manual recovery.
         bool autosaveLoadFailed = false;
         {
-            std::wstring autosavePath = GetExeDir() + L"\\autosave.fbd";
+            std::wstring autosavePath = AutosavePath();
             DWORD attrs = GetFileAttributesW(autosavePath.c_str());
             bool autosaveExists = (attrs != INVALID_FILE_ATTRIBUTES) && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
-            if (autosaveExists && !LoadFromFile(autosavePath)) {
+            std::wstring loadErr;
+            if (autosaveExists && !LoadFromFile(autosavePath, &loadErr)) {
                 autosaveLoadFailed = true;
                 MessageBoxW(hwnd,
-                    L"The autosave file next to this program (autosave.fbd) could not be read - "
-                    L"it may be corrupted, or the last save was interrupted partway through.\n\n"
-                    L"To avoid losing that data, it has NOT been overwritten. This session is "
-                    L"starting with a blank sheet instead. The unreadable autosave.fbd is still "
-                    L"in this program's folder - make a copy of it before doing anything else if "
-                    L"you need help recovering the data in it.",
+                    (L"The autosave file next to this program (autosave.fbd) could not be read: " +
+                     loadErr +
+                     L".\n\nTo avoid losing that data, it has NOT been overwritten. This session is "
+                     L"starting with a blank sheet instead. The unreadable autosave.fbd is still "
+                     L"in this program's folder - make a copy of it before doing anything else if "
+                     L"you need help recovering the data in it.").c_str(),
                     L"Autosave Could Not Be Loaded", MB_OK | MB_ICONWARNING);
             }
             // A missing autosave.fbd (first run, or it was deliberately
@@ -3502,7 +3686,47 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // reloaded autosave content. Skipped when the autosave failed to
         // load, so a later Save can't overwrite a real named file with the
         // blank sheet this session is starting with instead.
-        if (!autosaveLoadFailed && !g_settings.lastFile.empty()) g_currentFile = g_settings.lastFile;
+        //
+        // Phase 1 / F1 audit remediation (2026-09-30): settings.txt's
+        // LASTFILE is only written on a clean exit (SaveSettings, called
+        // from WM_DESTROY) - after a crash or a forced close, it still holds
+        // whatever it was at the PREVIOUS clean exit, while autosave.fbd has
+        // gone on being rewritten by every edit since (possibly through
+        // several New/Open/Finalize operations). Blindly trusting LASTFILE
+        // here used to associate that unrelated recovered content with a
+        // named file it might not correspond to at all - and the next Save
+        // (explicit, or the very next autosave tick) would silently
+        // overwrite that named file on disk with the mismatched content.
+        // Now only re-associate when the recovered autosave's own
+        // SOURCE_FILE= marker actually agrees with LASTFILE; otherwise treat
+        // it as recovered-but-unsaved and require an explicit Save As,
+        // exactly like an autosave written before this field existed (no
+        // SOURCE_FILE= at all).
+        bool identityMatches = !autosaveLoadFailed && g_lastLoadHasSourceFile &&
+            _wcsicmp(g_lastLoadSourceFile.c_str(), g_settings.lastFile.c_str()) == 0;
+        if (!autosaveLoadFailed && !g_settings.lastFile.empty()) {
+            if (identityMatches) {
+                g_currentFile = g_settings.lastFile;
+            } else {
+                // g_currentFile stays empty ("(unsaved)" in the title bar) -
+                // the recovered data is still fully present in g_entries and
+                // will be autosaved again below, just not silently tied to a
+                // named file it may not actually match. A Save/Save As from
+                // here writes a fresh file rather than overwriting the old
+                // one with content that may not belong to it.
+                MessageBoxW(hwnd,
+                    (!g_lastLoadHasSourceFile
+                        ? L"Recovered your last unsaved work from autosave.fbd. It isn't linked to "
+                          L"a named file (this autosave predates that tracking), so use File > Save "
+                          L"As to save it somewhere if you want to keep it."
+                        : L"Recovered your last unsaved work from autosave.fbd. It doesn't appear "
+                          L"to match \"" + g_settings.lastFile + L"\" (the last file you had open), "
+                          L"so it hasn't been re-linked to that file automatically - use File > Save "
+                          L"As to save it somewhere if you want to keep it, so nothing is "
+                          L"accidentally overwritten.").c_str(),
+                    L"Recovered Unsaved Work", MB_OK | MB_ICONINFORMATION);
+            }
+        }
         RefreshAll(!autosaveLoadFailed);
         UpdateTitle();
 
@@ -3663,7 +3887,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 // v0.9.28: same reasoning as DoFileOpen - snapshot what's
                 // about to be discarded before Recent Files overwrites it.
                 WriteBackupSnapshot();
-                if (LoadFromFile(path)) {
+                std::wstring loadErr;
+                if (LoadFromFile(path, &loadErr)) {
                     g_currentFile = path;
                     CancelEdit();
                     ClearUndoState();
@@ -3673,9 +3898,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     RememberRecentFile(path); // move to front
                 } else {
                     MessageBoxW(g_hMainWnd,
-                        L"Could not open that file - it may have been moved or deleted, or it "
-                        L"doesn't look like a valid Fish Balance (.fbd) file anymore. Nothing has "
-                        L"been changed.",
+                        (L"Could not open that file: " + loadErr +
+                         L".\n\nNothing has been changed.").c_str(),
                         L"Error", MB_OK | MB_ICONERROR);
                 }
             }
@@ -3795,7 +4019,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         KillTimer(hwnd, ID_TIMER_FIRST_PAINT_FIX3);
         KillTimer(hwnd, ID_TIMER_BACKUP_CHECK);
         SaveSettings();
-        bool ok = SaveToFile(GetExeDir() + L"\\autosave.fbd");
+        bool ok = SaveToFile(AutosavePath());
         if (!ok && !g_autosaveFailWarned) {
             // Last chance to warn before the process actually exits and
             // whatever's only in memory is gone for good - worth a pause
@@ -3820,30 +4044,37 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 // Entry point
 // ---------------------------------------------------------------------------
 
-int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
-    INITCOMMONCONTROLSEX icc{ sizeof(icc), ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES | ICC_BAR_CLASSES | ICC_STANDARD_CLASSES | ICC_DATE_CLASSES };
-    InitCommonControlsEx(&icc);
-
-    {
-        HDC screenDC = GetDC(nullptr);
-        g_dpi = GetDeviceCaps(screenDC, LOGPIXELSX);
-        ReleaseDC(nullptr, screenDC);
-        if (g_dpi <= 0) g_dpi = 96;
+// Test-automation refactor (2026-09-30, v0.9.51): menu creation, window-class
+// registration, and CreateWindowExW/ShowWindow/UpdateWindow, extracted out of
+// wWinMain so the headless end-to-end smoke test (Phase 1 item 6) can create
+// the REAL main window (triggering the real WM_CREATE control-creation and
+// startup autosave-recovery logic) hidden/off-screen, without needing a
+// message loop - SendMessageW/GetWindowTextW/SetWindowTextW all work
+// synchronously against a window on the same thread regardless of whether
+// anything is pumping its message queue. wWinMain's own remaining body
+// (DPI/settings init before this call, the message loop after it) stays
+// inline below, guarded by #ifndef FBM_BUILDING_TESTS, since a test binary
+// supplies its own doctest main() and never needs a message loop for direct
+// function/control testing ("do not introduce UI automation dependencies if
+// direct function/control testing is sufficient"). Idempotent class
+// registration (classRegistered guard) since a test binary may call this
+// more than once across separate TEST_CASEs.
+HWND CreateFishBalanceMainWindow(HINSTANCE hInstance, int nCmdShow) {
+    static bool classRegistered = false;
+    if (!classRegistered) {
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(wc);
+        wc.style = CS_HREDRAW | CS_VREDRAW;
+        wc.lpfnWndProc = WndProc;
+        wc.hInstance = hInstance;
+        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+        wc.lpszClassName = L"FishBalanceMainWindow";
+        wc.hIcon = LoadAppIcon(hInstance, 32);
+        wc.hIconSm = LoadAppIcon(hInstance, 16);
+        RegisterClassExW(&wc);
+        classRegistered = true;
     }
-
-    LoadSettings(); // window size/position + last-file, read before creating the window
-
-    WNDCLASSEXW wc{};
-    wc.cbSize = sizeof(wc);
-    wc.style = CS_HREDRAW | CS_VREDRAW;
-    wc.lpfnWndProc = WndProc;
-    wc.hInstance = hInstance;
-    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
-    wc.lpszClassName = L"FishBalanceMainWindow";
-    wc.hIcon = LoadAppIcon(hInstance, 32);
-    wc.hIconSm = LoadAppIcon(hInstance, 16);
-    RegisterClassExW(&wc);
 
     HMENU hMenu = CreateMenu();
     HMENU hFileMenu = CreatePopupMenu();
@@ -3877,7 +4108,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     AppendMenuW(hHelpMenu, MF_STRING, ID_FILE_ABOUT, L"&About");
     AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hHelpMenu, L"&Help");
 
-    HWND hwnd = CreateWindowExW(0, wc.lpszClassName, L"Fish Balance Manager",
+    HWND hwnd = CreateWindowExW(0, L"FishBalanceMainWindow", L"Fish Balance Manager",
         WS_OVERLAPPEDWINDOW, g_settings.x, g_settings.y, g_settings.w, g_settings.h,
         nullptr, hMenu, hInstance, nullptr);
 
@@ -3888,6 +4119,25 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     // FixComboBoxFirstPaint()'s comment for the full explanation and why
     // there's also a delayed second attempt via a timer.
     FixComboBoxFirstPaint();
+
+    return hwnd;
+}
+
+#ifndef FBM_BUILDING_TESTS
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
+    INITCOMMONCONTROLSEX icc{ sizeof(icc), ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES | ICC_BAR_CLASSES | ICC_STANDARD_CLASSES | ICC_DATE_CLASSES };
+    InitCommonControlsEx(&icc);
+
+    {
+        HDC screenDC = GetDC(nullptr);
+        g_dpi = GetDeviceCaps(screenDC, LOGPIXELSX);
+        ReleaseDC(nullptr, screenDC);
+        if (g_dpi <= 0) g_dpi = 96;
+    }
+
+    LoadSettings(); // window size/position + last-file, read before creating the window
+
+    HWND hwnd = CreateFishBalanceMainWindow(hInstance, nCmdShow);
 
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0)) {
@@ -3919,3 +4169,358 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     }
     return (int)msg.wParam;
 }
+#endif // FBM_BUILDING_TESTS
+
+// ---------------------------------------------------------------------------
+// Windows integration tests built directly into main.cpp (2026-09-30, v0.9.51)
+//
+// g_entries, g_hMainWnd, and most of this file's other application state are
+// declared `static` at file scope - internal linkage, unreachable via
+// `extern` from a separate translation unit. Rather than build a fragile,
+// hand-maintained extern-declaration header just to reach them from outside,
+// the two Phase 1 items that genuinely need this file's own globals and real
+// window-creation code (item 5's control-limit test and item 6's headless
+// end-to-end smoke test) live directly here, compiled straight into the
+// Windows integration test executable alongside main.cpp itself (see
+// tests/win32_integration/run_integration_tests.ps1, which compiles this
+// file with -DFBM_BUILDING_TESTS). That define also guards wWinMain above -
+// with it defined, this file supplies no WinMain, so it links cleanly next
+// to the doctest-generated main() in tests/win32_integration/
+// test_integration_main.cpp without a duplicate-entry-point error.
+//
+// The other Phase 1 integration areas (item 3's file-loading tests, item 4's
+// Save/Save As fault injection) don't need any of this file's globals or
+// window code at all - they exercise FishBalanceWin32IO.h directly - so they
+// live in their own separate tests/win32_integration/test_io_integration.cpp
+// and tests/win32_integration/test_save_fault_injection.cpp files instead,
+// compiled into the same executable.
+// ---------------------------------------------------------------------------
+#ifdef FBM_BUILDING_TESTS
+
+#include "tests/doctest_setup.h"
+#include "tests/doctest.h"
+
+namespace {
+
+// A hidden top-level popup window, never shown (WS_VISIBLE is deliberately
+// omitted), used as the parent for the throwaway EDIT/COMBOBOX controls in
+// the control-limit test below - real Win32 controls, created for real, but
+// nothing ever paints on screen even if this test executable is run on an
+// interactive desktop. One class registration shared across every TEST_CASE
+// in this translation unit.
+HWND MakeHiddenTestHostWindow() {
+    static bool registered = false;
+    if (!registered) {
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = DefWindowProcW;
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.lpszClassName = L"FbmIntegrationTestHostWindow";
+        RegisterClassExW(&wc);
+        registered = true;
+    }
+    return CreateWindowExW(0, L"FbmIntegrationTestHostWindow", L"", WS_POPUP,
+                            0, 0, 10, 10, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+}
+
+// Simulates the user typing `charsToType` identical characters into `hEdit`
+// (a plain EDIT control, or the editable child of a COMBOBOX) by sending raw
+// WM_CHAR messages one at a time - the same message an EDIT control's window
+// procedure sees for real keystrokes, and the level at which EM_LIMITTEXT/
+// CB_LIMITTEXT actually enforce their cap (unlike WM_SETTEXT, which is
+// documented to bypass the limit entirely - so WM_SETTEXT alone could never
+// prove enforcement here). Returns the control's resulting text length, for
+// the caller to compare against the configured limit.
+int TypeCharsAndGetResultingLength(HWND hEdit, int charsToType) {
+    for (int i = 0; i < charsToType; i++) {
+        SendMessageW(hEdit, WM_CHAR, (WPARAM)L'A', 1);
+    }
+    return GetWindowTextLengthW(hEdit);
+}
+
+// Best-effort recursive delete of a directory tree - used only to clean up
+// TempTestDir below. Never called on anything outside a path this same test
+// process just created under the system temp folder.
+void RemoveDirectoryTreeRecursive(const std::wstring& dir) {
+    std::wstring pattern = dir + L"\\*";
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW(pattern.c_str(), &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            std::wstring name = fd.cFileName;
+            if (name == L"." || name == L"..") continue;
+            std::wstring child = dir + L"\\" + name;
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                RemoveDirectoryTreeRecursive(child);
+            } else {
+                SetFileAttributesW(child.c_str(), FILE_ATTRIBUTE_NORMAL);
+                DeleteFileW(child.c_str());
+            }
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+    }
+    RemoveDirectoryW(dir.c_str());
+}
+
+// A fresh, empty, uniquely-named directory under the system temp path, used
+// as GetExeDir()'s test override (see SetExeDirOverrideForTests) so every
+// path this app builds - autosave.fbd, settings.txt, recent.txt, emails.txt,
+// backups\, history\ - is redirected into complete isolation from this
+// machine's real application folder and real user data for the lifetime of
+// one TEST_CASE. Recursively removed when the guard goes out of scope.
+struct TempTestDir {
+    std::wstring path;
+    TempTestDir() {
+        wchar_t base[MAX_PATH];
+        GetTempPathW(MAX_PATH, base);
+        wchar_t unique[MAX_PATH];
+        // GetTempFileNameW's real job here is just generating a collision-free
+        // name - it creates an empty file to reserve it, which we immediately
+        // replace with a same-named directory.
+        GetTempFileNameW(base, L"fbm", 0, unique);
+        DeleteFileW(unique);
+        CreateDirectoryW(unique, nullptr);
+        path = unique;
+    }
+    ~TempTestDir() {
+        RemoveDirectoryTreeRecursive(path);
+    }
+};
+
+// Resets every piece of mutable application state the tests below touch
+// back to a fresh-launch baseline. Necessary because g_entries and friends
+// are process-wide globals shared across every TEST_CASE in this
+// executable, not per-test state doctest can isolate on its own.
+void ResetApplicationStateForTest() {
+    g_entries.clear();
+    g_currentFile.clear();
+    g_finalizedDate.clear();
+    g_dirty = false;
+    g_editIndex = -1;
+    g_hasUndo = false;
+    g_lastLoadSourceFile.clear();
+    g_lastLoadHasSourceFile = false;
+    g_autosaveFailWarned = false;
+    g_backupFailWarned = false;
+    g_lastBackupTick = 0;
+    g_lastBackupContent.clear();
+    g_settings = AppSettings{};
+    g_recentFiles.clear();
+    g_supplierEmails.clear();
+    g_filteredIndices.clear();
+    g_sortColumn = -1;
+    g_sortAscending = true;
+}
+
+} // namespace
+
+TEST_SUITE("Windows integration - control length limits (Phase 1 item 5)") {
+
+TEST_CASE("EM_LIMITTEXT enforced on Kgs/Price/Notes/Debtor/Cash edit controls") {
+    HWND host = MakeHiddenTestHostWindow();
+    REQUIRE(host != nullptr);
+    // ES_AUTOHSCROLL: per MSDN, a single-line EDIT control WITHOUT this
+    // style rejects (does not insert) any typed character once the text
+    // no longer fits within the control's own visible width - a separate
+    // mechanism from EM_LIMITTEXT entirely, and the one this test actually
+    // needs to get out of the way to observe EM_LIMITTEXT's own limit
+    // (confirmed against a real Windows build: without it, these 50px-wide
+    // throwaway controls silently capped typed input at ~6 characters, far
+    // below any of the real EM_LIMITTEXT values being tested here).
+    HWND hKgs = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 50, 20, host, nullptr, GetModuleHandleW(nullptr), nullptr);
+    HWND hPrice = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 50, 20, host, nullptr, GetModuleHandleW(nullptr), nullptr);
+    HWND hNotes = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 50, 20, host, nullptr, GetModuleHandleW(nullptr), nullptr);
+    HWND hDebtor = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 50, 20, host, nullptr, GetModuleHandleW(nullptr), nullptr);
+    HWND hCash = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 50, 20, host, nullptr, GetModuleHandleW(nullptr), nullptr);
+    REQUIRE((hKgs && hPrice && hNotes && hDebtor && hCash));
+
+    FieldLengthLimitTargets limits;
+    limits.kgsEdit = hKgs;
+    limits.priceEdit = hPrice;
+    limits.notesEdit = hNotes;
+    limits.debtorEdit = hDebtor;
+    limits.cashEdit = hCash;
+    ApplyFieldLengthLimits(limits);
+
+    CHECK(TypeCharsAndGetResultingLength(hKgs, (int)kMaxDraftKgsPriceTextLength + 20) == (int)kMaxDraftKgsPriceTextLength);
+    CHECK(TypeCharsAndGetResultingLength(hPrice, (int)kMaxDraftKgsPriceTextLength + 20) == (int)kMaxDraftKgsPriceTextLength);
+    CHECK(TypeCharsAndGetResultingLength(hNotes, (int)kMaxNotesLength + 20) == (int)kMaxNotesLength);
+    CHECK(TypeCharsAndGetResultingLength(hDebtor, (int)kMaxDebtorCashExprLength + 20) == (int)kMaxDebtorCashExprLength);
+    CHECK(TypeCharsAndGetResultingLength(hCash, (int)kMaxDebtorCashExprLength + 20) == (int)kMaxDebtorCashExprLength);
+
+    DestroyWindow(host);
+}
+
+TEST_CASE("CB_LIMITTEXT enforced on Supplier/Species combo box edit portions") {
+    HWND host = MakeHiddenTestHostWindow();
+    REQUIRE(host != nullptr);
+    // CBS_AUTOHSCROLL is the combo box's own equivalent of ES_AUTOHSCROLL
+    // (see the comment on the previous TEST_CASE) - without it, the same
+    // visible-width typing cap applies to the combo's embedded edit
+    // control, for the same reason.
+    HWND hSupplier = CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | CBS_DROPDOWN | CBS_AUTOHSCROLL,
+                                      0, 0, 100, 200, host, nullptr, GetModuleHandleW(nullptr), nullptr);
+    HWND hSpecies = CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | CBS_DROPDOWN | CBS_AUTOHSCROLL,
+                                     0, 0, 100, 200, host, nullptr, GetModuleHandleW(nullptr), nullptr);
+    REQUIRE((hSupplier && hSpecies));
+
+    FieldLengthLimitTargets limits;
+    limits.supplierCombo = hSupplier;
+    limits.speciesCombo = hSpecies;
+    ApplyFieldLengthLimits(limits);
+
+    COMBOBOXINFO cbiSup{}; cbiSup.cbSize = sizeof(cbiSup);
+    REQUIRE(GetComboBoxInfo(hSupplier, &cbiSup));
+    COMBOBOXINFO cbiSpec{}; cbiSpec.cbSize = sizeof(cbiSpec);
+    REQUIRE(GetComboBoxInfo(hSpecies, &cbiSpec));
+
+    CHECK(TypeCharsAndGetResultingLength(cbiSup.hwndItem, (int)kMaxSupplierSpeciesLength + 20) == (int)kMaxSupplierSpeciesLength);
+    CHECK(TypeCharsAndGetResultingLength(cbiSpec.hwndItem, (int)kMaxSupplierSpeciesLength + 20) == (int)kMaxSupplierSpeciesLength);
+
+    DestroyWindow(host);
+}
+
+TEST_CASE("Manage Names rename/merge and email fields enforce the same limit") {
+    HWND host = MakeHiddenTestHostWindow();
+    REQUIRE(host != nullptr);
+    HWND hTarget = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 100, 20, host, nullptr, GetModuleHandleW(nullptr), nullptr);
+    HWND hEmail = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 100, 20, host, nullptr, GetModuleHandleW(nullptr), nullptr);
+    REQUIRE((hTarget && hEmail));
+
+    FieldLengthLimitTargets limits;
+    limits.manageTargetEdit = hTarget;
+    limits.manageEmailEdit = hEmail;
+    ApplyFieldLengthLimits(limits);
+
+    CHECK(TypeCharsAndGetResultingLength(hTarget, (int)kMaxSupplierSpeciesLength + 20) == (int)kMaxSupplierSpeciesLength);
+    CHECK(TypeCharsAndGetResultingLength(hEmail, (int)kMaxSupplierSpeciesLength + 20) == (int)kMaxSupplierSpeciesLength);
+
+    DestroyWindow(host);
+}
+
+TEST_CASE("a target left null is skipped, not a crash") {
+    FieldLengthLimitTargets limits; // every field defaults to nullptr
+    ApplyFieldLengthLimits(limits); // must not crash
+    CHECK(true);
+}
+
+} // TEST_SUITE control length limits
+
+TEST_SUITE("Windows integration - headless end-to-end smoke test (Phase 1 item 6)") {
+
+TEST_CASE("add, edit, delete, reconcile, save, reload and finalize via callable commands only") {
+    TempTestDir tempDir;
+    // The single lever that keeps every file this app touches during this
+    // test inside tempDir.path instead of this machine's real application
+    // folder - see SetExeDirOverrideForTests's comment at its declaration.
+    SetExeDirOverrideForTests(tempDir.path);
+    ResetApplicationStateForTest();
+    LoadSettings(); // reads (nonexistent) settings.txt from tempDir - just defaults
+
+    // Hidden/off-screen: nCmdShow = SW_HIDE, so no window is ever actually
+    // shown on screen even though this creates the app's real main window
+    // and runs its real WM_CREATE handler (control creation, autosave
+    // recovery, etc.) exactly as a real launch would.
+    HWND hwnd = CreateFishBalanceMainWindow(GetModuleHandleW(nullptr), SW_HIDE);
+    REQUIRE(hwnd != nullptr);
+    REQUIRE(g_hMainWnd == hwnd);
+    // Nothing recovered from a fresh, empty temp directory - a genuinely
+    // isolated first run, not a leftover from some other test or from this
+    // developer's own machine.
+    REQUIRE(g_entries.empty());
+
+    // --- Add an entry through the same form fields and command the real
+    // "Add Entry" button drives (CommitEntryForm) - no dialogs on this path. ---
+    SetWindowTextW(hCmbSupplier, L"Smoke Test Supplier");
+    SetWindowTextW(hCmbProduct, L"Smoke Test Species");
+    SetWindowTextW(hEditKgs, L"10");
+    SetWindowTextW(hEditPrice, L"5");
+    SetWindowTextW(hEditNotes, L"");
+    CommitEntryForm();
+    REQUIRE(g_entries.size() == 1);
+    CHECK(g_entries[0].supplier == L"Smoke Test Supplier");
+    CHECK(g_entries[0].kgs == doctest::Approx(10.0));
+    CHECK(g_entries[0].price == doctest::Approx(5.0));
+
+    // --- Add a second entry, to prove delete removes the right one. ---
+    SetWindowTextW(hCmbSupplier, L"Second Supplier");
+    SetWindowTextW(hCmbProduct, L"Second Species");
+    SetWindowTextW(hEditKgs, L"3");
+    SetWindowTextW(hEditPrice, L"2");
+    SetWindowTextW(hEditNotes, L"");
+    CommitEntryForm();
+    REQUIRE(g_entries.size() == 2);
+
+    // --- Edit the first entry via LoadEntryIntoForm + CommitEntryForm,
+    // exactly like double-clicking a row and changing a field. ---
+    LoadEntryIntoForm(0);
+    SetWindowTextW(hEditKgs, L"20");
+    CommitEntryForm();
+    REQUIRE(g_entries.size() == 2); // update, not a third row
+    CHECK(g_entries[0].kgs == doctest::Approx(20.0));
+
+    // --- Delete the second entry via the direct-function command (Phase 1
+    // item 6 explicitly calls for "direct function/control testing", not
+    // driving the confirm MessageBoxW that DeleteSelectedEntry() itself
+    // owns). ---
+    REQUIRE(DeleteEntryAt(1));
+    REQUIRE(g_entries.size() == 1);
+    CHECK(g_entries[0].supplier == L"Smoke Test Supplier");
+
+    // --- Reconcile: Debtor + Cash must equal the one remaining entry's
+    // total (20 kg * $5 = $100). RecalcTotals() is the same function the
+    // real EN_CHANGE handlers call on every keystroke. ---
+    SetWindowTextW(hEditDebtor, L"60");
+    SetWindowTextW(hEditCash, L"40");
+    RecalcTotals();
+    CHECK(g_reconciliationValid);
+    CHECK(g_diffOk); // 60 + 40 == 100, matches the one remaining entry exactly
+
+    // --- Save to a real named file inside the isolated temp directory,
+    // through the same SaveToFile() the File > Save menu command calls. ---
+    std::wstring savedPath = tempDir.path + L"\\smoke_test.fbd";
+    std::wstring saveErr;
+    REQUIRE(SaveToFile(savedPath, &saveErr));
+    g_currentFile = savedPath;
+    g_dirty = false;
+
+    // --- Reload: clear in-memory state and load the just-saved file back
+    // through LoadFromFile(), the same function every Open/Recent
+    // Files/startup-recovery path uses. ---
+    g_entries.clear();
+    std::wstring loadErr;
+    REQUIRE(LoadFromFile(savedPath, &loadErr));
+    REQUIRE(g_entries.size() == 1);
+    CHECK(g_entries[0].supplier == L"Smoke Test Supplier");
+    CHECK(g_entries[0].kgs == doctest::Approx(20.0));
+
+    // --- Finalize through ExecuteFinalizeDay(), the same coordination
+    // function the Finalize Day dialog's OK button calls - proving the
+    // whole day-in-the-life sequence (add/edit/delete/reconcile/save/
+    // reload/finalize) works end-to-end through nothing but callable
+    // application commands, never a message loop or simulated mouse/
+    // keyboard UI automation. ---
+    RecalcTotals(); // re-derive g_diffOk/g_reconciliationValid after the reload above
+    REQUIRE(g_reconciliationValid);
+    REQUIRE(g_diffOk);
+    FinalizeOutcome outcome = ExecuteFinalizeDay(L"2026-09-30");
+    CHECK(outcome.finalized);
+    CHECK(outcome.kind == FinalizeResultKind::FinalizedClean);
+    CHECK(g_finalizedDate == L"2026-09-30");
+    CHECK_FALSE(g_dirty);
+
+    // The permanent history record must actually exist on disk, inside the
+    // isolated temp directory - never this machine's real history\ folder.
+    std::wstring historyPath = HistoryDir() + L"\\2026-09-30.fbd";
+    DWORD historyAttrs = GetFileAttributesW(historyPath.c_str());
+    CHECK(historyAttrs != INVALID_FILE_ATTRIBUTES);
+    CHECK(historyPath.find(tempDir.path) == 0);
+
+    DestroyWindow(hwnd);
+    g_hMainWnd = nullptr;
+    SetExeDirOverrideForTests(L""); // leave no override active for whatever test runs next
+}
+
+} // TEST_SUITE headless end-to-end smoke test
+
+#endif // FBM_BUILDING_TESTS

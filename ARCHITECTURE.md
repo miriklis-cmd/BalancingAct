@@ -158,7 +158,18 @@ definition, add it there rather than reordering large chunks of the file.
 ## Build
 
 No compiler is available in the development environment this project was
-built in. All correctness checking is done by:
+built in, which is why `FishBalanceCore.h` exists as a separate,
+platform-independent header: it holds the parsing/aggregation/formatting
+logic pulled out of `main.cpp` specifically so it can be covered by a real,
+compiler-verified automated test suite (`tests/`, doctest-based - see
+README.md's "Note on testing" and Testing.md) that Jack runs on his own
+machine via CTest or `run_tests.bat`/`run_tests.ps1`. That suite is real
+coverage, not a substitute for the steps below - it just covers the
+portable half of the codebase, not the Win32-specific half.
+
+For everything in `main.cpp` itself (window creation, message handling,
+printing, file dialogs - code that can't be unit-tested without a Win32
+environment), all correctness checking on Claude's end is done by:
 1. Reading the diff carefully against the specific gotchas above.
 2. A structural balance check (parens/braces, accounting for string and
    char literals) run after every edit.
