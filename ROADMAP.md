@@ -4,7 +4,7 @@ This file is the single source of truth for "what's built, what's being
 tested, and what's next." Check here first if you've lost track of where
 things stand — that's exactly what this file is for.
 
-## Status: v0.9.58 — Phase 2 verified on Windows through v0.9.57 (tests, build, manual checks all OK); v0.9.58 adds supplier name to email subject
+## Status: v0.9.61 — Phase 2 verified on Windows (v0.9.57/58); v0.9.59-61 rework the Data Entry tab per Jack's mockup (icons/columns fixed in .61, awaiting visual check). Phase 3 (F8/F6/F24/doc drift) proposed, NOT started; WinUI 3 discussion planned alongside the main.cpp split. Known: intermittent first-paint glitch on Supplier/Species combos (parked until WinUI 3 decision).
 
 Phase 2 (authorized after Jack confirmed Phase 1's `run_tests.bat` +
 `build_msvc.bat` both passed on his Windows machine, and Reconciliation was

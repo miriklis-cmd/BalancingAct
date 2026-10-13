@@ -12,6 +12,78 @@ possible, grouped into logical releases.
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.9.61] - Fix black button icons; list columns now DPI-scaled
+
+Jack's v0.9.60 check (screenshots):
+1. Delete/Edit/Cancel Edit showed solid black squares instead of icons. Cause
+   (my bug): the glyph bitmap was still selected into a device context when
+   it was handed to ImageList_Add, which Windows doesn't allow. Now the
+   glyph is drawn, the DC is released, and only then is each state converted
+   to a real alpha icon (CreateIconIndirect + ImageList_AddIcon).
+2. Data Entry list cells were truncated (Date "2026-09-...", Price header
+   "Price ($/k...", large Totals "$222,000..."). Cause: every list column
+   width was a fixed pixel number, never passed through S() like the rest of
+   the layout, so at 125-150% display scaling columns were 1.25-1.5x too
+   narrow. AddColumn now scales widths with S() (affects all four tabs), and
+   the Data Entry Price/Total/Date columns were also widened a little
+   (115/125/110).
+Known/unchanged: the Supplier/Species drop-downs very occasionally draw
+incompletely on first launch (long-standing, intermittent, documented in
+FixComboBoxFirstPaint's comment; hovering fixes it). Deliberately not
+worked on again now - a WinUI 3 move would remove the cause.
+
+## [0.9.60] - Mockup polish on the Data Entry tab (Win32 version)
+
+Follow-up to v0.9.59, from Jack's mockup: everything from it that plain
+Win32 can do without owner-draw, in one go. Visual only; no calculation,
+validation or data-format change. Needs a visual check on Windows.
+- Reconciliation box now has three columns with thin divider lines:
+  Debtor/Cash | Book Total + Entered Total | status badge + Difference, and
+  Finalize Day at the far right.
+- Book Total, Entered Total, Difference and the status badge are bold.
+- New badge above Difference: green "tick Balanced", red "cross Out of
+  balance", or red "cross Cannot check" (the fail-closed cases). On Tab 1
+  the Difference line now shows just "Difference: $x" (the old "(OK -
+  balanced)" / "(OUT OF BALANCE)" suffix is replaced by the badge); when the
+  check fails closed it shows only the reason (e.g. "Debtor total is over
+  the maximum allowed ($1,000,000.00)") under the "Cannot check" badge. The
+  Total Overview tab is unchanged (still the full sentence).
+- Book/Entered label text shortened to "Book Total: $x" / "Entered Total:
+  $x" (the box title already says it checks Debtor + Cash).
+- Icons on Delete (trash, red), Edit (pencil, blue) and Cancel Edit (x):
+  drawn at runtime from the Segoe MDL2 Assets icon font built into
+  Windows 10/11 (no image files). If that font is missing or anything fails,
+  the button silently stays plain text.
+- All four list views get taller rows (28px at 100% DPI) for the roomier
+  "cell" look.
+Still NOT done (needs owner-draw or WinUI 3): blue accent Add Entry,
+rounded cards, underlined tab style, two-decimal Kgs.
+
+## [0.9.59] - Data Entry tab layout reworked to match Jack's mockup
+
+Jack's request (2026-10-14, WinUI 3 concept screenshot): lay out the Data
+Entry tab like the mockup. Done as a pure re-positioning in LayoutAll() (no
+handler/logic changes); every size goes through S():
+- Field labels now sit above their boxes (Supplier / Species / Kgs / Price
+  / kg, then Date / Notes); label text no longer has a trailing colon and
+  "Price:" is now "Price / kg".
+- Supplier, Species, Kgs, Price fields and the Add Entry button stretch to
+  fill the window width (proportions 3:3:2:2); Notes stretches between Date
+  and the two Duplicate buttons.
+- Delete / Edit / Cancel Edit on the left, Filter now right-aligned.
+- Reconciliation box (title now "Reconciliation (checks Debtor + Cash
+  against entries above)"): Debtor/Cash stacked on the left, Book total /
+  Entered total / Difference in a middle column that grows with the window,
+  Finalize Day at the right. The Difference row is taller so its longer
+  fail-closed messages no longer wrap into a clipped single-line box (seen
+  in the v0.9.55 screenshot).
+Deliberately NOT done (not possible with plain Win32 controls without
+owner-draw, or a data-format change): blue accent Add Entry button, button
+icons, rounded "card" panels, green "Balanced" badge, tab underline style,
+two-decimal Kgs column. Candidates for the WinUI 3 discussion.
+Not compiled here - needs build + a visual check on Windows (and at a
+couple of window sizes / 125-150% DPI).
+
 ## [0.9.58] - Supplier name always in the email subject
 
 Jack's request after trying v0.9.57: subject is now "Prices - <date> - <supplier>"

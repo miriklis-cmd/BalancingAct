@@ -186,6 +186,13 @@ static HWND hBtnFinalize = nullptr; // "Finalize Day" / "Un-finalize Day" - rela
 static HWND hListEntries;
 static HWND hGrpRecon, hLblDebtor, hEditDebtor, hLblCash, hEditCash;
 static HWND hLblBook, hLblEntered, hLblDiff;
+// v0.9.60: Tab 1 reconciliation polish (see CHANGELOG [0.9.60]): a bold
+// "tick + Balanced" / "cross + Out of balance" badge, and two thin vertical
+// divider lines between the reconciliation columns.
+static HWND hLblStatus, hDivRecon1, hDivRecon2;
+// Owned icon image lists for the Delete/Edit/Cancel Edit buttons (BCM_SETIMAGELIST
+// does not take ownership) - destroyed at WM_DESTROY.
+static std::vector<HIMAGELIST> g_buttonIconLists;
 
 // Tab 2
 static HWND hLblOvBook, hLblOvGrand, hLblOvDiff, hListOverview;
@@ -767,7 +774,7 @@ void AddColumn(HWND lv, int idx, LPCWSTR text, int width) {
     LVCOLUMNW col{};
     col.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
     col.pszText = const_cast<LPWSTR>(text);
-    col.cx = width;
+    col.cx = S(width); // v0.9.61: DPI-scaled like every other layout dimension (columns were fixed pixels, so text truncated at 125-150% scaling)
     col.iSubItem = idx;
     ListView_InsertColumn(lv, idx, &col);
 }
@@ -965,27 +972,30 @@ void RecalcTotals() {
         g_diffOk = false;
         g_ovDiffOk = false;
         std::wstring msg;
+        std::wstring detail; // v0.9.60: the reason alone, shown on Tab 1 beside a "Cannot check" badge
         std::wstring enteredText;
         if (enteredOverflow) {
-            msg = L"Difference: cannot check - the entered total is too large to compute reliably";
+            detail = L"the entered total is too large to compute reliably";
             enteredText = L"--";
         } else {
             const std::wstring& badField = !debtorResult.ok ? L"Debtor" : L"Cash";
             const SumParseResult& badResult = !debtorResult.ok ? debtorResult : cashResult;
             if (badResult.tooLarge) {
                 // v0.9.57: absurdly large Debtor/Cash total - say so plainly.
-                msg = L"Difference: cannot check - " + badField + L" total is over the maximum allowed (" +
-                      FormatMoney(kMaxDebtorCashTotalDollars) + L")";
+                detail = badField + L" total is over the maximum allowed (" +
+                         FormatMoney(kMaxDebtorCashTotalDollars) + L")";
             } else {
-                msg = L"Difference: cannot check - " + badField +
-                      L" has an invalid entry (\"" + badResult.errorTerm + L"\")";
+                detail = badField + L" has an invalid entry (\"" + badResult.errorTerm + L"\")";
             }
             enteredText = FormatMoney(entered);
         }
+        msg = L"Difference: cannot check - " + detail; // Total Overview tab keeps the full sentence
 
-        SetWindowTextW(hLblBook, L"Book Total (Debtor + Cash): --");
-        SetWindowTextW(hLblEntered, (L"Entered Total (this sheet): " + enteredText).c_str());
-        SetWindowTextW(hLblDiff, msg.c_str());
+        SetWindowTextW(hLblBook, L"Book Total: --");
+        SetWindowTextW(hLblEntered, (L"Entered Total: " + enteredText).c_str());
+        SetWindowTextW(hLblStatus, L"\u2717  Cannot check");
+        SetWindowTextW(hLblDiff, detail.c_str());
+        InvalidateRect(hLblStatus, nullptr, TRUE);
 
         SetWindowTextW(hLblOvBook, L"Book Total (Debtor + Cash): --");
         SetWindowTextW(hLblOvGrand, (L"Grand Total (all suppliers): " + enteredText).c_str());
@@ -1003,10 +1013,11 @@ void RecalcTotals() {
     g_diffOk = std::isfinite(diff) && std::abs(diff) < 0.005;
     g_ovDiffOk = g_diffOk;
 
-    SetWindowTextW(hLblBook, (L"Book Total (Debtor + Cash): " + FormatMoney(book)).c_str());
-    SetWindowTextW(hLblEntered, (L"Entered Total (this sheet): " + FormatMoney(entered)).c_str());
-    SetWindowTextW(hLblDiff, (L"Difference: " + FormatMoney(diff) +
-                               (g_diffOk ? L"   (OK - balanced)" : L"   (OUT OF BALANCE)")).c_str());
+    SetWindowTextW(hLblBook, (L"Book Total: " + FormatMoney(book)).c_str());
+    SetWindowTextW(hLblEntered, (L"Entered Total: " + FormatMoney(entered)).c_str());
+    SetWindowTextW(hLblStatus, g_diffOk ? L"\u2713  Balanced" : L"\u2717  Out of balance");
+    SetWindowTextW(hLblDiff, (L"Difference: " + FormatMoney(diff)).c_str());
+    InvalidateRect(hLblStatus, nullptr, TRUE);
 
     SetWindowTextW(hLblOvBook, (L"Book Total (Debtor + Cash): " + FormatMoney(book)).c_str());
     SetWindowTextW(hLblOvGrand, (L"Grand Total (all suppliers): " + FormatMoney(entered)).c_str());
@@ -2166,7 +2177,7 @@ void DoFinalizeDay() {
         MessageBoxW(g_hMainWnd,
             L"Debtor or Cash contains an entry that can't be understood as a number or sum - "
             L"a day can't be finalized until both fields contain a valid figure. Fix the entry "
-            L"on Tab 1 (Book Reconciliation) first.",
+            L"on Tab 1 (Reconciliation) first.",
             L"Invalid Entry", MB_OK | MB_ICONWARNING);
         return;
     }
@@ -3669,6 +3680,126 @@ void DoEmailSuppliers() {
 // Layout
 // ---------------------------------------------------------------------------
 
+// v0.9.60: button icons + taller list rows, per Jack's mockup.
+//
+// MakeGlyphButtonImageList renders one Segoe MDL2 Assets glyph (the icon
+// font built into Windows 10/11 - no icon files/resources needed) into a
+// 32-bit alpha image list holding the six button states in the order
+// BCM_SETIMAGELIST expects (normal, hot, pressed, disabled, defaulted,
+// stylus-hot). Returns nullptr - and the button simply keeps its plain text
+// - if anything fails, including the font not actually being installed
+// (checked via GetTextFace, since GDI silently substitutes a different font
+// when the requested one is missing).
+HIMAGELIST MakeGlyphButtonImageList(wchar_t glyph, COLORREF color, int sizePx) {
+    if (sizePx < 8 || sizePx > 128) return nullptr;
+    LOGFONTW lf{};
+    lf.lfHeight = -sizePx;
+    lf.lfWeight = FW_NORMAL;
+    lf.lfQuality = ANTIALIASED_QUALITY;
+    const wchar_t* face = L"Segoe MDL2 Assets";
+#ifdef _MSC_VER
+    wcsncpy_s(lf.lfFaceName, LF_FACESIZE, face, _TRUNCATE);
+#else
+    wcsncpy(lf.lfFaceName, face, LF_FACESIZE - 1);
+    lf.lfFaceName[LF_FACESIZE - 1] = 0;
+#endif
+    UniqueFont font(CreateFontIndirectW(&lf));
+    if (!font) return nullptr;
+    UniqueDC dc(CreateCompatibleDC(nullptr));
+    if (!dc) return nullptr;
+
+    BITMAPINFO bmi{};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = sizePx;
+    bmi.bmiHeader.biHeight = -sizePx; // top-down
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+    void* bits = nullptr;
+    HBITMAP hbm = CreateDIBSection(nullptr, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!hbm || !bits) { if (hbm) DeleteObject(hbm); return nullptr; }
+
+    const size_t n = (size_t)sizePx * (size_t)sizePx;
+    std::vector<unsigned char> coverage(n, 0);
+    bool glyphOk = false;
+    {
+        // Draw while the bitmap is selected into the DC; everything that
+        // hands the bitmap to another API happens AFTER this scope has
+        // restored the DC (v0.9.61: a bitmap must not be selected into a DC
+        // when passed to ImageList_Add / CreateIconIndirect - v0.9.60 did
+        // that and produced solid black squares instead of icons).
+        ScopedSelect selBmp(dc.get(), hbm);
+        ScopedSelect selFont(dc.get(), font.get());
+        wchar_t actual[LF_FACESIZE] = {};
+        if (GetTextFaceW(dc.get(), LF_FACESIZE, actual) > 0 && _wcsicmp(actual, face) == 0) {
+            // Black glyph on white; the resulting grey level becomes the alpha channel.
+            RECT r{ 0, 0, sizePx, sizePx };
+            FillRect(dc.get(), &r, (HBRUSH)GetStockObject(WHITE_BRUSH));
+            SetBkMode(dc.get(), TRANSPARENT);
+            SetTextColor(dc.get(), RGB(0, 0, 0));
+            DrawTextW(dc.get(), &glyph, 1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            GdiFlush();
+            const unsigned char* px = static_cast<const unsigned char*>(bits);
+            for (size_t i = 0; i < n; i++) coverage[i] = (unsigned char)(255 - px[i * 4]); // B channel of the grey render
+            glyphOk = true;
+        }
+    }
+    if (!glyphOk) { DeleteObject(hbm); return nullptr; }
+
+    HBITMAP hMask = CreateBitmap(sizePx, sizePx, 1, 1, nullptr); // all-zero mask; the colour bitmap's alpha does the work
+    HIMAGELIST il = ImageList_Create(sizePx, sizePx, ILC_COLOR32, 6, 0);
+    bool ok = (hMask != nullptr && il != nullptr);
+    if (ok) {
+        const COLORREF states[6] = { color, color, color, RGB(160, 160, 160), color, color };
+        for (int st = 0; st < 6 && ok; st++) {
+            unsigned char* out = static_cast<unsigned char*>(bits);
+            const unsigned r8 = GetRValue(states[st]), g8 = GetGValue(states[st]), b8 = GetBValue(states[st]);
+            for (size_t i = 0; i < n; i++) {
+                out[i * 4 + 0] = (unsigned char)b8; // straight (non-premultiplied) BGRA, as icons expect
+                out[i * 4 + 1] = (unsigned char)g8;
+                out[i * 4 + 2] = (unsigned char)r8;
+                out[i * 4 + 3] = coverage[i];
+            }
+            ICONINFO ii{};
+            ii.fIcon = TRUE;
+            ii.hbmMask = hMask;
+            ii.hbmColor = hbm;
+            HICON hIcon = CreateIconIndirect(&ii); // copies both bitmaps
+            if (!hIcon) { ok = false; break; }
+            if (ImageList_AddIcon(il, hIcon) < 0) ok = false;
+            DestroyIcon(hIcon);
+        }
+    }
+    if (hMask) DeleteObject(hMask);
+    DeleteObject(hbm);
+    if (!ok && il) { ImageList_Destroy(il); il = nullptr; }
+    return ok ? il : nullptr;
+}
+
+// Attaches a glyph icon to the left of a push button's text. On any
+// failure the button is left exactly as it was (plain text).
+void AddButtonGlyphIcon(HWND btn, wchar_t glyph, COLORREF color) {
+    if (!btn) return;
+    HIMAGELIST il = MakeGlyphButtonImageList(glyph, color, S(16));
+    if (!il) return;
+    BUTTON_IMAGELIST bil{};
+    bil.himl = il;
+    bil.margin = { S(10), 0, S(6), 0 };
+    bil.uAlign = BUTTON_IMAGELIST_ALIGN_LEFT;
+    if (SendMessageW(btn, BCM_SETIMAGELIST, 0, (LPARAM)&bil))
+        g_buttonIconLists.push_back(il); // freed at WM_DESTROY
+    else
+        ImageList_Destroy(il);
+}
+
+// Standard trick for taller ListView rows: give the list a (blank) small
+// image list of the desired height. The ListView owns and frees it.
+void SetListRowHeight(HWND lv, int heightPx) {
+    if (!lv || heightPx < 1) return;
+    HIMAGELIST il = ImageList_Create(1, heightPx, ILC_COLOR, 1, 1);
+    if (il) ListView_SetImageList(lv, il, LVSIL_SMALL);
+}
+
 void LayoutAll(HWND hwnd) {
     RECT rc;
     GetClientRect(hwnd, &rc);
@@ -3704,54 +3835,107 @@ void LayoutAll(HWND hwnd) {
     // inside the neighboring EDIT/COMBOBOX itself, so the two always agree
     // regardless of DPI or font, instead of two independent guesses that
     // can drift apart.
-    MoveWindow(hLblSupplier, left, top, S(65), S(22), TRUE);
-    MoveWindow(hCmbSupplier, left + S(70), top, S(150), S(200), TRUE);
-    MoveWindow(hLblProduct, left + S(230), top, S(55), S(22), TRUE);
-    MoveWindow(hCmbProduct, left + S(290), top, S(150), S(200), TRUE);
-    MoveWindow(hLblKgs, left + S(450), top, S(35), S(22), TRUE);
-    MoveWindow(hEditKgs, left + S(488), top, S(70), S(22), TRUE);
-    MoveWindow(hLblPrice, left + S(568), top, S(45), S(22), TRUE);
-    MoveWindow(hEditPrice, left + S(616), top, S(70), S(22), TRUE);
-    MoveWindow(hBtnAdd, left + S(700), top - S(2), S(110), S(28), TRUE);
+    // v0.9.59: Data Entry layout reworked to match Jack's mockup (2026-10-14
+    // screenshot): field labels sit ABOVE their boxes instead of beside
+    // them, the four entry fields plus Add Entry stretch to fill the window
+    // width, Filter sits at the right end of the button row, and the
+    // reconciliation box is grouped into columns (Debtor/Cash on the left,
+    // Book/Entered/Difference in the middle, Finalize Day at the right).
+    // Positions only - no control, handler or text-formatting logic changed.
+    // All sizes go through S() (DPI scaling - see ARCHITECTURE.md).
+    const int lblH = S(18);   // label row height
+    const int boxH = S(22);   // closed height of every EDIT/COMBOBOX/date box
+    const int btnH = S(28);
+    const int gap = S(14);
+    const int labelToBox = S(20);
 
-    int row1b = top + S(36);
-    MoveWindow(hLblDate, left, row1b + S(3), S(40), S(22), TRUE);
-    MoveWindow(hDtpDate, left + S(45), row1b, S(140), S(22), TRUE);
-    MoveWindow(hLblNotes, left + S(200), row1b + S(3), S(45), S(22), TRUE);
-    MoveWindow(hEditNotes, left + S(248), row1b, S(340), S(22), TRUE);
-    MoveWindow(hBtnDuplicate, left + S(600), row1b - S(2), S(190), S(28), TRUE);
-    MoveWindow(hBtnDuplicateSupSpec, left + S(800), row1b - S(2), S(220), S(28), TRUE);
+    // -- Row A: Supplier | Species | Kgs | Price | Add Entry --
+    const int addW = S(120);
+    int fieldsW = (right - left) - addW - 4 * gap;
+    if (fieldsW < S(400)) fieldsW = S(400);
+    int supW = fieldsW * 3 / 10, spW = fieldsW * 3 / 10;
+    int kgW = fieldsW * 2 / 10, prW = fieldsW - supW - spW - kgW;
+    int x = left;
+    int boxY = top + labelToBox;
+    MoveWindow(hLblSupplier, x, top, supW, lblH, TRUE);
+    MoveWindow(hCmbSupplier, x, boxY, supW, S(200), TRUE); // S(200) = dropped-down list height, closed box is boxH
+    x += supW + gap;
+    MoveWindow(hLblProduct, x, top, spW, lblH, TRUE);
+    MoveWindow(hCmbProduct, x, boxY, spW, S(200), TRUE);
+    x += spW + gap;
+    MoveWindow(hLblKgs, x, top, kgW, lblH, TRUE);
+    MoveWindow(hEditKgs, x, boxY, kgW, boxH, TRUE);
+    x += kgW + gap;
+    MoveWindow(hLblPrice, x, top, prW, lblH, TRUE);
+    MoveWindow(hEditPrice, x, boxY, prW, boxH, TRUE);
+    x += prW + gap;
+    MoveWindow(hBtnAdd, x, boxY - S(3), addW, btnH, TRUE);
 
-    int row2 = row1b + S(36);
-    MoveWindow(hBtnDelete, left, row2, S(180), S(28), TRUE);
-    MoveWindow(hBtnEdit, left + S(190), row2, S(160), S(28), TRUE);
-    MoveWindow(hBtnCancelEdit, left + S(360), row2, S(160), S(28), TRUE);
-    MoveWindow(hLblFilter, left + S(535), row2 + S(4), S(40), S(22), TRUE);
-    MoveWindow(hEditFilter, left + S(580), row2 + S(2), S(220), S(22), TRUE);
+    // -- Row B: Date | Notes (stretches) | Duplicate buttons --
+    int row1b = boxY + boxH + S(14);
+    int dateW = S(150), dup1W = S(190), dup2W = S(220);
+    int notesW = (right - left) - dateW - dup1W - dup2W - 4 * gap;
+    if (notesW < S(120)) notesW = S(120);
+    int boxYb = row1b + labelToBox;
+    x = left;
+    MoveWindow(hLblDate, x, row1b, dateW, lblH, TRUE);
+    MoveWindow(hDtpDate, x, boxYb, dateW, boxH, TRUE);
+    x += dateW + gap;
+    MoveWindow(hLblNotes, x, row1b, notesW, lblH, TRUE);
+    MoveWindow(hEditNotes, x, boxYb, notesW, boxH, TRUE);
+    x += notesW + gap;
+    MoveWindow(hBtnDuplicate, x, boxYb - S(3), dup1W, btnH, TRUE);
+    x += dup1W + gap;
+    MoveWindow(hBtnDuplicateSupSpec, x, boxYb - S(3), dup2W, btnH, TRUE);
 
-    int listTop = row2 + S(40);
-    int reconHeight = S(170); // was S(135) - grown to fit the Finalize Day button row below the Difference line
+    // -- Row C: Delete | Edit | Cancel Edit ............ Filter --
+    int row2 = boxYb + boxH + S(16);
+    MoveWindow(hBtnDelete, left, row2, S(180), btnH, TRUE);
+    MoveWindow(hBtnEdit, left + S(190), row2, S(160), btnH, TRUE);
+    MoveWindow(hBtnCancelEdit, left + S(360), row2, S(160), btnH, TRUE);
+    int filterW = S(260);
+    int filterX = right - filterW;
+    MoveWindow(hEditFilter, filterX, row2 + S(3), filterW, boxH, TRUE);
+    MoveWindow(hLblFilter, filterX - S(50), row2 + S(7), S(45), lblH, TRUE);
+
+    int listTop = row2 + btnH + S(12);
+    int reconHeight = S(140);
     int listBottom = disp.bottom - reconHeight - S(10);
     if (listBottom < listTop + S(60)) listBottom = listTop + S(60);
     MoveWindow(hListEntries, left, listTop, right - left, listBottom - listTop, TRUE);
 
+    // -- Reconciliation box --
+    // v0.9.60, per Jack's mockup: left column Debtor / Cash; thin divider;
+    // middle column Book Total / Entered Total (bold); thin divider; a
+    // status column (bold tick/cross badge, then the Difference or - when
+    // the check fails closed - the reason, which can need two lines); and
+    // Finalize Day at the far right.
     int reconTop = listBottom + S(12);
     MoveWindow(hGrpRecon, left, reconTop, right - left, disp.bottom - reconTop - S(5), TRUE);
-    MoveWindow(hLblDebtor, left + S(15), reconTop + S(26), S(130), S(22), TRUE);
-    MoveWindow(hEditDebtor, left + S(150), reconTop + S(24), S(260), S(22), TRUE);
-    // hLblCash was only S(65) wide - too narrow for its actual text ("Cash
-    // amount(s):"), so the STATIC control silently word-wrapped it onto a
-    // second line that its S(22)-tall box then clipped - "Cash" visible,
-    // "amount(s):" cut off to a sliver, sitting lower than the Debtor label
-    // beside it. Jack: "labels/text boxes are misaligned - one is higher
-    // than the other." Widened to fit on one line; hEditCash shifted right
-    // to match, same S(5) gap pattern as the Debtor label/box pair.
-    MoveWindow(hLblCash, left + S(430), reconTop + S(26), S(140), S(22), TRUE);
-    MoveWindow(hEditCash, left + S(575), reconTop + S(24), S(260), S(22), TRUE);
-    MoveWindow(hLblBook, left + S(15), reconTop + S(58), S(320), S(22), TRUE);
-    MoveWindow(hLblEntered, left + S(345), reconTop + S(58), S(320), S(22), TRUE);
-    MoveWindow(hLblDiff, left + S(15), reconTop + S(84), S(460), S(24), TRUE);
-    MoveWindow(hBtnFinalize, left + S(15), reconTop + S(114), S(220), S(30), TRUE);
+    int rowR1 = reconTop + S(28);
+    int rowR2 = reconTop + S(62);
+    int c1x = left + S(15);
+    MoveWindow(hLblDebtor, c1x, rowR1, S(115), boxH, TRUE);
+    MoveWindow(hEditDebtor, c1x + S(120), rowR1, S(200), boxH, TRUE);
+    MoveWindow(hLblCash, c1x, rowR2, S(115), boxH, TRUE);
+    MoveWindow(hEditCash, c1x + S(120), rowR2, S(200), boxH, TRUE);
+    int div1x = c1x + S(120) + S(200) + gap;
+    int divH = S(80);
+    MoveWindow(hDivRecon1, div1x, rowR1 - S(4), S(2), divH, TRUE);
+    int c2x = div1x + S(2) + gap;
+    int c2w = S(230);
+    MoveWindow(hLblBook, c2x, rowR1, c2w, boxH, TRUE);
+    MoveWindow(hLblEntered, c2x, rowR2, c2w, boxH, TRUE);
+    int div2x = c2x + c2w + gap;
+    MoveWindow(hDivRecon2, div2x, rowR1 - S(4), S(2), divH, TRUE);
+    int c3x = div2x + S(2) + gap;
+    int finW = S(140);
+    int finX = right - S(15) - finW;
+    int c3w = finX - gap - c3x;
+    if (c3w < S(160)) c3w = S(160);
+    MoveWindow(hLblStatus, c3x, rowR1, c3w, boxH, TRUE);
+    MoveWindow(hLblDiff, c3x, rowR2, c3w, S(44), TRUE);
+    MoveWindow(hBtnFinalize, finX, rowR1 + S(16), finW, S(34), TRUE);
 
     // ---- Tab 2 ----
     MoveWindow(hLblOvBook, left, top, S(300), S(22), TRUE);
@@ -3880,13 +4064,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // comment by their MoveWindow calls for the full reasoning. Every
         // other label in the app keeps its original top+S(3) offset
         // unchanged for now, scoped to exactly the row Jack flagged.
-        hLblSupplier = MakeControl(L"STATIC", L"Supplier:", WS_VISIBLE | SS_CENTERIMAGE, 0, hwnd);
+        hLblSupplier = MakeControl(L"STATIC", L"Supplier", WS_VISIBLE, 0, hwnd);
         hCmbSupplier = MakeControl(L"COMBOBOX", L"", WS_VISIBLE | WS_VSCROLL | CBS_DROPDOWN | WS_TABSTOP, ID_CMB_SUPPLIER, hwnd);
-        hLblProduct = MakeControl(L"STATIC", L"Species:", WS_VISIBLE | SS_CENTERIMAGE, 0, hwnd);
+        hLblProduct = MakeControl(L"STATIC", L"Species", WS_VISIBLE, 0, hwnd);
         hCmbProduct = MakeControl(L"COMBOBOX", L"", WS_VISIBLE | WS_VSCROLL | CBS_DROPDOWN | WS_TABSTOP, ID_CMB_PRODUCT, hwnd);
-        hLblKgs = MakeControl(L"STATIC", L"Kgs:", WS_VISIBLE | SS_CENTERIMAGE, 0, hwnd);
+        hLblKgs = MakeControl(L"STATIC", L"Kgs", WS_VISIBLE, 0, hwnd);
         hEditKgs = MakeControl(L"EDIT", L"", WS_VISIBLE | WS_BORDER | WS_TABSTOP, ID_EDIT_KGS, hwnd);
-        hLblPrice = MakeControl(L"STATIC", L"Price:", WS_VISIBLE | SS_CENTERIMAGE, 0, hwnd);
+        hLblPrice = MakeControl(L"STATIC", L"Price / kg", WS_VISIBLE, 0, hwnd);
         hEditPrice = MakeControl(L"EDIT", L"", WS_VISIBLE | WS_BORDER | WS_TABSTOP, ID_EDIT_PRICE, hwnd);
         // Phase 1 completeness follow-up (2026-09-30, v0.9.50): make the
         // interactive form's own field-length limits real, enforced Win32
@@ -3910,9 +4094,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         hBtnDuplicate = MakeControl(L"BUTTON", L"Duplicate Last Entry", WS_VISIBLE | WS_TABSTOP, ID_BTN_DUPLICATE, hwnd);
         hBtnDuplicateSupSpec = MakeControl(L"BUTTON", L"Duplicate Supplier && Species", WS_VISIBLE | WS_TABSTOP, ID_BTN_DUPLICATE_SUPSPEC, hwnd);
 
-        hLblDate = MakeControl(L"STATIC", L"Date:", WS_VISIBLE, 0, hwnd);
+        hLblDate = MakeControl(L"STATIC", L"Date", WS_VISIBLE, 0, hwnd);
         hDtpDate = MakeControl(DATETIMEPICK_CLASS, L"", WS_VISIBLE | WS_TABSTOP | DTS_SHORTDATEFORMAT, ID_DTP_DATE, hwnd);
-        hLblNotes = MakeControl(L"STATIC", L"Notes:", WS_VISIBLE, 0, hwnd);
+        hLblNotes = MakeControl(L"STATIC", L"Notes", WS_VISIBLE, 0, hwnd);
         // ES_AUTOHSCROLL (2026-10-02): without this, a single-line EDIT
         // control rejects any further typed character once the text no
         // longer fits the control's own visible width (a separate
@@ -3938,12 +4122,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         AddColumn(hListEntries, 0, L"Supplier", 140);
         AddColumn(hListEntries, 1, L"Species", 150);
         AddColumn(hListEntries, 2, L"Kgs", 80);
-        AddColumn(hListEntries, 3, L"Price ($/kg)", 100);
-        AddColumn(hListEntries, 4, L"Total ($)", 100);
-        AddColumn(hListEntries, 5, L"Date", 100);
+        AddColumn(hListEntries, 3, L"Price ($/kg)", 115);
+        AddColumn(hListEntries, 4, L"Total ($)", 125);
+        AddColumn(hListEntries, 5, L"Date", 110);
         AddColumn(hListEntries, 6, L"Notes", 160);
 
-        hGrpRecon = MakeControl(L"BUTTON", L"Book Reconciliation (checks Debtor + Cash against entries above)", WS_VISIBLE | BS_GROUPBOX, 0, hwnd);
+        hGrpRecon = MakeControl(L"BUTTON", L"Reconciliation (checks Debtor + Cash against entries above)", WS_VISIBLE | BS_GROUPBOX, 0, hwnd);
         hLblDebtor = MakeControl(L"STATIC", L"Debtor amount(s):", WS_VISIBLE, 0, hwnd);
         // ES_AUTOHSCROLL - see hEditNotes' comment above for why. Debtor/
         // Cash are ~260px wide on screen, well short of what's needed to
@@ -3965,6 +4149,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         hLblBook = MakeControl(L"STATIC", L"Book Total: $0.00", WS_VISIBLE, 0, hwnd);
         hLblEntered = MakeControl(L"STATIC", L"Entered Total: $0.00", WS_VISIBLE, 0, hwnd);
         hLblDiff = MakeControl(L"STATIC", L"Difference: $0.00", WS_VISIBLE, 0, hwnd);
+        hLblStatus = MakeControl(L"STATIC", L"", WS_VISIBLE, 0, hwnd);
+        hDivRecon1 = MakeControl(L"STATIC", L"", WS_VISIBLE | SS_ETCHEDVERT, 0, hwnd);
+        hDivRecon2 = MakeControl(L"STATIC", L"", WS_VISIBLE | SS_ETCHEDVERT, 0, hwnd);
+        // Bold totals/status per the mockup.
+        if (g_boldFont) {
+            for (HWND hb : { hLblBook, hLblEntered, hLblDiff, hLblStatus })
+                if (hb) SendMessageW(hb, WM_SETFONT, (WPARAM)g_boldFont, TRUE);
+        }
         hBtnFinalize = MakeControl(L"BUTTON", L"Finalize Day", WS_VISIBLE | WS_TABSTOP, ID_BTN_FINALIZE, hwnd);
 
         // Tab 2
@@ -3999,12 +4191,19 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         AddColumn(hListBySpecies, 4, L"Highest Price", 110);
         AddColumn(hListBySpecies, 5, L"Lowest Price", 110);
 
+        AddButtonGlyphIcon(hBtnDelete, L'\uE74D', RGB(196, 43, 28));  // trash
+        AddButtonGlyphIcon(hBtnEdit, L'\uE70F', RGB(0, 95, 184));     // pencil
+        AddButtonGlyphIcon(hBtnCancelEdit, L'\uE711', RGB(90, 90, 90)); // cancel (x)
+        for (HWND lv : { hListEntries, hListOverview, hListBreakdown, hListBySpecies })
+            SetListRowHeight(lv, S(28));
+
         g_tab1Ctrls = { hLblSupplier, hCmbSupplier, hLblProduct, hCmbProduct, hLblKgs, hEditKgs,
                          hLblPrice, hEditPrice, hBtnAdd, hBtnDelete, hBtnEdit, hBtnCancelEdit, hBtnDuplicate,
                          hBtnDuplicateSupSpec,
                          hLblDate, hDtpDate, hLblNotes, hEditNotes,
                          hLblFilter, hEditFilter, hListEntries, hGrpRecon,
                          hLblDebtor, hEditDebtor, hLblCash, hEditCash, hLblBook, hLblEntered, hLblDiff,
+                         hLblStatus, hDivRecon1, hDivRecon2,
                          hBtnFinalize };
         g_tab2Ctrls = { hLblOvBook, hLblOvGrand, hLblOvDiff, hListOverview };
         g_tab3Ctrls = { hBtnPrintPreview, hBtnPrintBreakdown, hBtnEmailSuppliers, hListBreakdown };
@@ -4154,9 +4353,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_CTLCOLORSTATIC: {
         HWND hCtl = (HWND)lParam;
-        if (hCtl == hLblDiff || hCtl == hLblOvDiff) {
+        if (hCtl == hLblDiff || hCtl == hLblStatus || hCtl == hLblOvDiff) {
             HDC hdc = (HDC)wParam;
-            bool ok = (hCtl == hLblDiff) ? g_diffOk : g_ovDiffOk;
+            bool ok = (hCtl == hLblDiff || hCtl == hLblStatus) ? g_diffOk : g_ovDiffOk;
             SetBkMode(hdc, TRANSPARENT);
             SetTextColor(hdc, ok ? RGB(0, 128, 0) : RGB(200, 0, 0));
             return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
@@ -4425,6 +4624,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 L"File > Save was used recently before closing again next time.",
                 L"Autosave Failed", MB_OK | MB_ICONWARNING);
         }
+        for (HIMAGELIST il : g_buttonIconLists) ImageList_Destroy(il);
+        g_buttonIconLists.clear();
         if (g_normalFont) DeleteObject(g_normalFont);
         if (g_boldFont) DeleteObject(g_boldFont);
         PostQuitMessage(0);
