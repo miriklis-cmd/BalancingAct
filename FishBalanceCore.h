@@ -98,11 +98,31 @@ inline std::wstring FormatDateISO(const SimpleDate& d) {
     return ss.str();
 }
 
-// NOTE: this does NOT validate that the day is actually valid for the given
-// month/year (e.g. "2026-02-31" currently passes). That's a known, already
-// documented gap (see SecurityHardeningRegister.md / ROADMAP.md) - it's
-// preserved here unchanged rather than silently fixed as part of this
-// extraction, so this refactor doesn't also change behavior.
+// Phase 2 / F14 (2026-10-02): real calendar validation (leap years and
+// correct month lengths), replacing the old flat 1-31 day-of-month check
+// that let impossible dates like "2026-02-31" through. year/month/day are
+// taken as already-range-checked small integers by the caller below.
+inline bool IsLeapYear(int year) {
+    return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+}
+
+inline int DaysInMonth(int year, int month) {
+    static const int kDays[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    if (month < 1 || month > 12) return 0;
+    if (month == 2 && IsLeapYear(year)) return 29;
+    return kDays[month - 1];
+}
+
+inline bool IsValidCalendarDate(int year, int month, int day) {
+    if (month < 1 || month > 12) return false;
+    if (day < 1) return false;
+    return day <= DaysInMonth(year, month);
+}
+
+// Previously only range-checked each field independently (year >= 1900,
+// 1 <= month <= 12, 1 <= day <= 31), which let a calendar-impossible date
+// like "2026-02-31" or "2026-04-31" through as "valid" - see
+// IsValidCalendarDate() above, now used here, for the real fix.
 inline bool ParseISODate(const std::wstring& s, SimpleDate& out) {
     if (s.size() != 10 || s[4] != L'-' || s[7] != L'-') return false;
     SimpleDate d;
@@ -113,7 +133,7 @@ inline bool ParseISODate(const std::wstring& s, SimpleDate& out) {
     d.year = (int)wcstol(s.substr(0, 4).c_str(), nullptr, 10);
     d.month = (int)wcstol(s.substr(5, 2).c_str(), nullptr, 10);
     d.day = (int)wcstol(s.substr(8, 2).c_str(), nullptr, 10);
-    if (d.year < 1900 || d.month < 1 || d.month > 12 || d.day < 1 || d.day > 31) return false;
+    if (d.year < 1900 || !IsValidCalendarDate(d.year, d.month, d.day)) return false;
     out = d;
     return true;
 }
@@ -171,6 +191,83 @@ inline bool ParseDoubleW(const std::wstring& sIn, double& out) {
     }
 }
 
+// Phase 2 / F15 (2026-10-02): business-defined magnitude ceilings for a
+// single entry's Kgs and Price. No authoritative maximum was documented
+// anywhere in this project (BUSINESS_RULES.md, DATA_FORMATS.md both
+// checked), so these were confirmed directly with Jack (2026-10-02) rather
+// than invented:
+//   - Kgs:   10,000 kg - "a very large single truckload", meant as a
+//            generous backstop, not a figure expected to be hit.
+//   - Price: $250/kg   - Jack: "I don't think I've seen anything above
+//            $120, but let's make it $250" - built-in headroom above
+//            anything actually observed.
+// Both exist to catch a typo (an extra digit), a corrupted/malicious file,
+// or a unit mistake (e.g. grams entered as kg) - not to constrain a
+// legitimate entry. Centralized here and used by both interactive entry
+// (CommitEntryForm in main.cpp) and file loading (ParseFbdContent below),
+// so the same rule applies everywhere rather than being duplicated.
+static const double kMaxWeightKg = 10000.0;
+static const double kMaxPriceDollars = 250.0;
+
+struct NumericValidationResult {
+    bool ok = false;
+    std::wstring error; // meaningful only when ok == false; safe to show the user as-is
+};
+
+inline NumericValidationResult ValidateWeightKg(double kgs) {
+    NumericValidationResult r;
+    if (!std::isfinite(kgs)) { r.error = L"Kgs must be a finite number."; return r; }
+    if (kgs < 0) { r.error = L"Kgs can't be negative."; return r; }
+    if (kgs > kMaxWeightKg) {
+        r.error = L"Kgs is larger than the maximum allowed (" + FormatKg(kMaxWeightKg) + L" kg).";
+        return r;
+    }
+    r.ok = true;
+    return r;
+}
+
+inline NumericValidationResult ValidatePriceDollars(double price) {
+    NumericValidationResult r;
+    if (!std::isfinite(price)) { r.error = L"Price must be a finite number."; return r; }
+    if (price < 0) { r.error = L"Price can't be negative."; return r; }
+    if (price > kMaxPriceDollars) {
+        r.error = L"Price is larger than the maximum allowed (" + FormatMoney(kMaxPriceDollars) + L"/kg).";
+        return r;
+    }
+    r.ok = true;
+    return r;
+}
+
+// Multiplication/accumulation overflow guards (Phase 2 / F15). With both
+// Kgs and Price bounded by ValidateWeightKg/ValidatePriceDollars above (and
+// the total record count bounded by kMaxEntryRecords), a real double
+// overflow is not reachable in practice (worst case: 10,000 x $250 x
+// 100,000 rows is still many orders of magnitude below a double's ~1.8e308
+// range) - these exist as defense-in-depth for call sites that compute a
+// total, so a future change to those ceilings (or an unexpected calling
+// pattern) fails closed - producing an explicit "cannot compute" signal -
+// rather than silently displaying inf/-inf/NaN as if it were a real
+// figure. Applied at this phase to the Reconciliation total in
+// RenderReportPages (main.cpp), the one figure an actual balance decision
+// is made from; not retrofitted into every aggregation call site in
+// BuildBreakdownData below, since that would mean threading an overflow
+// result through four call sites (Breakdown tab, print report, CSV export,
+// email body) for a condition that is already structurally prevented by
+// the bounds above - a broader change than this phase's authorized scope.
+inline bool SafeMultiplyFinite(double a, double b, double& outResult) {
+    double r = a * b;
+    if (!std::isfinite(r)) return false;
+    outResult = r;
+    return true;
+}
+
+inline bool SafeAccumulate(double& accum, double delta) {
+    double r = accum + delta;
+    if (!std::isfinite(r)) return false;
+    accum = r;
+    return true;
+}
+
 // Parses simple sums/differences like "250.7+1826+2552+286" or
 // "123+11-21" (mirrors how the original spreadsheet's Debtor/Cash cells
 // were built up from several manual figures, including corrections/
@@ -187,7 +284,16 @@ struct SumParseResult {
     bool ok = false;
     double value = 0.0;
     std::wstring errorTerm; // the offending term/fragment, for user-facing messages
+    bool tooLarge = false;  // true when ok=false because the TOTAL exceeded kMaxDebtorCashTotalDollars
 };
+
+// v0.9.57: ceiling on the absolute value of a single Debtor (or single Cash)
+// box's evaluated total. Chosen by Jack (2026-10-14): a real day's total was
+// $135,000, and he picked $1,000,000. Found in his manual check of v0.9.55:
+// the Debtor/Cash boxes accepted absurd values (e.g. 40+ digit numbers) and
+// displayed them (clipped) instead of refusing - the Phase 2 Kgs/Price
+// ceilings never covered these two boxes.
+static const double kMaxDebtorCashTotalDollars = 1000000.0;
 
 // Phase 1 / F5 audit remediation (2026-09-30): replaces the old lenient
 // ParseSumExpr(), which silently dropped any term that failed to parse
@@ -299,6 +405,17 @@ inline SumParseResult ParseSumExprStrict(const std::wstring& sIn) {
         return fail(lastTerm);
     }
     sum += curSign * v;
+
+    // v0.9.57: magnitude ceiling on the evaluated total (see
+    // kMaxDebtorCashTotalDollars). Also catches a non-finite sum. Checked on
+    // the final total, not each term, so a legitimate "5000000-4999000"
+    // style expression that nets to a small figure is still accepted.
+    if (!std::isfinite(sum) || std::abs(sum) > kMaxDebtorCashTotalDollars) {
+        result.ok = false;
+        result.value = 0.0;
+        result.tooLarge = true;
+        return result;
+    }
 
     result.ok = true;
     result.value = sum;
@@ -856,12 +973,18 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
             }
 
             double kgs = 0, price = 0;
-            bool numbersOk = ParseDoubleW(parts[2], kgs) && kgs >= 0 &&
-                              ParseDoubleW(parts[3], price) && price >= 0;
+            // Phase 2 / F15 (2026-10-02): the same ValidateWeightKg/
+            // ValidatePriceDollars ceilings CommitEntryForm (main.cpp)
+            // applies at entry time are now applied here too, so a
+            // hand-edited or otherwise-tampered file can't smuggle in a
+            // value the UI would have refused outright.
+            bool numbersOk = ParseDoubleW(parts[2], kgs) && ValidateWeightKg(kgs).ok &&
+                              ParseDoubleW(parts[3], price) && ValidatePriceDollars(price).ok;
             if (!numbersOk) {
-                // A Kgs/Price value that isn't a valid finite non-negative
-                // number - same "can't be safely reconstructed" reasoning.
-                return reject(FbdErrorCode::InvalidNumericField, lineNo, L"row has an invalid or negative Kgs/Price value");
+                // A Kgs/Price value that isn't a valid finite number within
+                // the supported range - same "can't be safely reconstructed"
+                // reasoning.
+                return reject(FbdErrorCode::InvalidNumericField, lineNo, L"row has an invalid, negative, or out-of-range Kgs/Price value");
             }
 
             Entry e;
@@ -1150,15 +1273,61 @@ inline SaveAsOutcome CoordinateSaveAs(const std::wstring& previousFile, const st
 // CSV export helpers
 // ---------------------------------------------------------------------------
 
+// Phase 2 / F12 (2026-10-02): CSV/spreadsheet-injection hardening.
+//
+// Documented policy (every attacker-controlled textual field passed to
+// ExportToCsv() in main.cpp goes through this one function, via the
+// csvRow() helper there, so the policy applies uniformly everywhere):
+//
+//   1. Control-character handling: NUL and every other C0 control
+//      character EXCEPT TAB and LF are stripped from the field entirely -
+//      they have no legitimate display meaning in a spreadsheet cell. CR
+//      is stripped too (not just "other controls"): left unstripped, a CR
+//      is how a field could masquerade as extra CSV records to a parser
+//      that splits raw lines on CR/LF instead of respecting RFC4180
+//      quoting. LF is deliberately preserved - it is how a genuine
+//      multi-line Notes entry is represented - and, exactly as before,
+//      forces the field to be quoted below.
+//   2. Formula-injection guard: Excel/LibreOffice/Google Sheets treat a
+//      cell starting with =, +, -, or @ as a formula. If the field's first
+//      character that is NOT a plain space or tab is one of those four,
+//      the field gets a single leading tab character. A tab makes the
+//      cell's literal first character something other than a formula
+//      trigger, which is what actually matters - not whether a formula
+//      character appears somewhere inside leading whitespace. This closes
+//      a previously-documented gap (see CHANGELOG.md / the old version of
+//      this comment) where a leading space alone (" =1+1") bypassed a
+//      first-character-only check.
+//   3. RFC4180 quoting/escaping (comma, double-quote, embedded LF),
+//      applied last, unchanged from the original logic.
+//
+// Limitation (documented, not silently hidden): only =, +, -, @ are
+// treated as formula initiators, matching the spreadsheet applications
+// this business actually uses (Excel/LibreOffice/Google Sheets). A
+// different spreadsheet application with a wider or different set of
+// formula-trigger characters is not covered.
+inline std::wstring SanitizeCsvControlChars(const std::wstring& s) {
+    std::wstring out;
+    out.reserve(s.size());
+    for (wchar_t c : s) {
+        if (c == L'\0' || c == L'\r') continue;              // stripped unconditionally
+        if (c < 0x20 && c != L'\t' && c != L'\n') continue;  // other C0 controls stripped
+        out.push_back(c);
+    }
+    return out;
+}
+
 inline std::wstring CsvField(const std::wstring& s) {
-    std::wstring field = s;
-    // Excel treats a field starting with =, +, -, or @ as a formula, which
-    // is a known CSV-injection vector when the field came from free-text
-    // user input. Prefix with a tab to neutralize it as plain text while
-    // keeping it readable (a leading apostrophe would be visible in the
-    // cell; a tab is not).
-    if (!field.empty() && (field[0] == L'=' || field[0] == L'+' || field[0] == L'-' || field[0] == L'@'))
-        field = L"\t" + field;
+    std::wstring field = SanitizeCsvControlChars(s);
+
+    // Formula-injection guard: look past leading spaces/tabs to find the
+    // first character that actually matters to a spreadsheet application.
+    size_t firstSignificant = field.find_first_not_of(L" \t");
+    if (firstSignificant != std::wstring::npos) {
+        wchar_t c = field[firstSignificant];
+        if (c == L'=' || c == L'+' || c == L'-' || c == L'@')
+            field = L"\t" + field;
+    }
 
     bool needQuote = field.find(L',') != std::wstring::npos || field.find(L'"') != std::wstring::npos ||
                      field.find(L'\n') != std::wstring::npos;
@@ -1235,15 +1404,88 @@ inline std::wstring UrlEncodeForMailto(const std::wstring& text) {
     return out;
 }
 
-// Very basic sanity check - not full RFC validation, just enough to catch
-// obvious typos before they get saved.
+// Phase 2 / F13 (2026-10-02): email/mailto construction hardening.
+//
+// Accepts exactly the address shape this app actually supports: a single
+// mailbox "local-part@domain", with no surrounding or embedded whitespace,
+// no control characters, and none of the characters that would let a
+// stored value escape its place in a mailto: URI or a "To"/"Cc" header if
+// concatenated into one (?, &, #, %, comma, semicolon, angle brackets, and
+// a few other URI/mailbox-syntax separators). This is deliberately NOT a
+// full RFC 5321/5322 mailbox-syntax validator - quoted local parts,
+// comments, and IP-literal domains are all rejected rather than partially
+// supported, since this business has never used any of those forms and a
+// narrower accepted shape is easier to reason about safely. Used both when
+// an address is entered (main.cpp's Manage Names email field) and when
+// addresses are loaded from emails.txt (LoadSupplierEmails in main.cpp),
+// so a hand-edited or otherwise-tampered emails.txt can't smuggle in
+// something this function would have rejected at entry time.
 inline bool LooksLikeEmail(const std::wstring& email) {
-    if (email.find(L' ') != std::wstring::npos) return false;
+    if (email.empty()) return false;
+    for (wchar_t c : email) {
+        if (c <= 0x20 || c == 0x7F) return false; // space, CR, LF, NUL, other controls, DEL
+        if (c == L'?' || c == L'&' || c == L'#' || c == L'%' || c == L',' || c == L';' ||
+            c == L'"' || c == L'\'' || c == L'<' || c == L'>' || c == L'\\' || c == L'/' ||
+            c == L'(' || c == L')' || c == L'[' || c == L']' || c == L':')
+            return false;
+    }
     size_t at = email.find(L'@');
     if (at == std::wstring::npos || at == 0 || at == email.size() - 1) return false;
-    size_t dot = email.find(L'.', at);
-    if (dot == std::wstring::npos || dot == email.size() - 1) return false;
+    if (email.find(L'@', at + 1) != std::wstring::npos) return false; // exactly one '@'
+
+    std::wstring localPart = email.substr(0, at);
+    std::wstring domain = email.substr(at + 1);
+    if (localPart.front() == L'.' || localPart.back() == L'.' || localPart.find(L"..") != std::wstring::npos)
+        return false;
+
+    size_t dot = domain.find(L'.');
+    if (dot == std::wstring::npos || dot == domain.size() - 1) return false;
+    if (domain.front() == L'.' || domain.back() == L'.' || domain.find(L"..") != std::wstring::npos)
+        return false;
     return true;
+}
+
+// Result of building a mailto: URI - see BuildMailtoUri() below.
+struct MailtoBuildResult {
+    bool ok = false;
+    std::wstring uri;     // meaningful only when ok == true
+    std::wstring error;   // meaningful only when ok == false; safe to show the user as-is
+};
+
+// Builds a mailto: URI for at most one recipient, with the recipient,
+// subject, and body each percent-encoded INDEPENDENTLY, so nothing in any
+// one of them can inject another query parameter (a second "&subject=", an
+// "&cc="/"&bcc=", extra recipients separated by a comma, etc.) into the
+// final URI. An empty `email` is a deliberately supported case (the app
+// lets the user leave a supplier's address unset and pick a recipient
+// manually in their email client), so it produces a recipient-less
+// "mailto:?subject=...&body=..." URI rather than being treated as invalid.
+// A non-empty `email` that fails LooksLikeEmail() is refused outright
+// (ok == false, with a user-facing error) rather than attempting to encode
+// around whatever made it invalid - launching a "best-effort" URI built
+// from an untrusted, malformed address is exactly the failure mode this
+// guards against. The '@' separating localPart/domain is the one character
+// RFC 6068 requires to appear literally in a mailto: address, so it is
+// never itself percent-encoded.
+inline MailtoBuildResult BuildMailtoUri(const std::wstring& email, const std::wstring& subject,
+                                         const std::wstring& body) {
+    MailtoBuildResult result;
+    std::wstring encodedEmail;
+    if (!email.empty()) {
+        if (!LooksLikeEmail(email)) {
+            result.error = L"This supplier's stored email address isn't valid, so the email "
+                            L"couldn't be opened. Fix it in Manage Names and try again.";
+            return result;
+        }
+        size_t at = email.find(L'@');
+        std::wstring localPart = email.substr(0, at);
+        std::wstring domain = email.substr(at + 1);
+        encodedEmail = UrlEncodeForMailto(localPart) + L"@" + UrlEncodeForMailto(domain);
+    }
+    result.ok = true;
+    result.uri = L"mailto:" + encodedEmail + L"?subject=" + UrlEncodeForMailto(subject) +
+                 L"&body=" + UrlEncodeForMailto(body);
+    return result;
 }
 
 inline std::wstring GreetingForHour(int hour) {
@@ -1296,4 +1538,110 @@ inline std::wstring BuildSupplierEmailBody(const SupplierGroup& sg, int currentH
                L"Kind regards,";
     }
     return body;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 / F10-F11 (2026-10-02): print & print-preview resource bounds.
+//
+// Pure, GDI-free helpers so the dimension/overflow/memory-budget decisions
+// behind report rendering can be unit tested without a display, a printer,
+// or any Win32 dependency. The actual GDI rendering (main.cpp's
+// RenderReportPages/PrintBreakdownReport/OpenPrintPreview) calls these
+// before touching any GDI object, and is the only place that still does
+// real drawing - these functions never draw anything.
+// ---------------------------------------------------------------------------
+
+// Portable equivalent of Win32's MulDiv(value, num, den) (rounds to nearest,
+// using a 64-bit intermediate so pixel/DPI-sized inputs can't overflow).
+// Returns 0 for a zero or negative denominator - a bad denominator should
+// never scale a coordinate up into something huge or sign-flipped; 0 just
+// means "no offset", which is the safe direction for layout math.
+inline int ScaleRound(int value, int num, int den) {
+    if (den <= 0) return 0;
+    long long v = (long long)value * (long long)num;
+    long long half = den / 2;
+    long long result = (v >= 0) ? (v + half) / den : -(((-v) + half) / den);
+    if (result > (long long)INT32_MAX) return INT32_MAX;
+    if (result < (long long)INT32_MIN) return INT32_MIN;
+    return (int)result;
+}
+
+// Documented, explicit bounds for report rendering. Generous relative to any
+// real page/printer/screen this app will ever meet - they exist purely to
+// put a hard ceiling on memory use and catch a corrupt/pathological printer
+// driver or display configuration, not to constrain normal operation.
+static const int kReportMinPagePx = 100;          // smaller than any real page/screen
+static const int kReportMaxPagePx = 20000;         // far beyond any real printer/monitor resolution
+static const int kReportMinDpi = 36;               // below typical screen DPI (96) but still sane
+static const int kReportMaxDpi = 2400;             // far beyond any real printer's native DPI
+static const int kReportMaxPages = 200;            // existing cap (was a local constant in main.cpp)
+static const long long kReportMaxSinglePageBytes = 64LL * 1024 * 1024;   // 64MB/page hard ceiling
+static const long long kReportMaxPreviewTotalBytes = 512LL * 1024 * 1024; // total Print Preview budget
+
+// Validates page geometry before any GDI object is created from it. Returns
+// false (with *outError set, if provided) for a width/height/DPI outside
+// the documented bounds above, including <= 0 and overflow-prone values.
+inline bool ValidateReportPageDimensions(int pageWidthPx, int pageHeightPx, int dpiX, int dpiY,
+                                          std::wstring* outError = nullptr) {
+    auto fail = [&](const wchar_t* msg) { if (outError) *outError = msg; return false; };
+    if (pageWidthPx < kReportMinPagePx || pageWidthPx > kReportMaxPagePx)
+        return fail(L"The report page width is outside the supported range.");
+    if (pageHeightPx < kReportMinPagePx || pageHeightPx > kReportMaxPagePx)
+        return fail(L"The report page height is outside the supported range.");
+    if (dpiX < kReportMinDpi || dpiX > kReportMaxDpi)
+        return fail(L"The horizontal print/screen resolution is outside the supported range.");
+    if (dpiY < kReportMinDpi || dpiY > kReportMaxDpi)
+        return fail(L"The vertical print/screen resolution is outside the supported range.");
+    return true;
+}
+
+// Byte size of one top-down 24-bit-per-pixel DIB page at widthPx x heightPx
+// (rows padded to a 4-byte boundary, matching what CreateDIBSection() uses
+// for BI_RGB/24bpp). Returns -1 for non-positive dimensions, arithmetic
+// overflow, or a single page over kReportMaxSinglePageBytes - all of which
+// mean "do not attempt to allocate this".
+inline long long ComputeDibPageBytes(int widthPx, int heightPx) {
+    if (widthPx <= 0 || heightPx <= 0) return -1;
+    if (widthPx > kReportMaxPagePx || heightPx > kReportMaxPagePx) return -1;
+    long long strideBytes = ((long long)widthPx * 3 + 3) & ~3LL; // 24bpp, DWORD-aligned rows
+    if (strideBytes <= 0) return -1;
+    long long total = strideBytes * (long long)heightPx;
+    if (total <= 0 || total > kReportMaxSinglePageBytes) return -1;
+    return total;
+}
+
+// Decides whether an in-memory collection of `pageCount` full pages at
+// widthPx x heightPx fits the documented Print Preview memory budget.
+// Printing never holds more than one rendered page at a time (see
+// PrintBreakdownReport in main.cpp), so this budget applies to Print
+// Preview only.
+//
+// OpenPrintPreview (main.cpp) calls this with pageCount = 1 BEFORE
+// rendering starts, purely as a "does even a single page fit at all"
+// sanity check on the page size/DPI it computed - it does NOT know the
+// real page count yet, and checking against the worst case (kReportMaxPages)
+// at that point would wrongly refuse an ordinary, legitimate multi-page
+// report purely because 200 copies of an ordinary-sized page would be
+// large, even though a real report almost never approaches 200 pages. The
+// actual total-memory bound is enforced progressively instead, inside
+// RenderReportPages itself: it derives how many pages this specific
+// per-page byte size can afford within kReportMaxPreviewTotalBytes (via
+// ComputeDibPageBytes) and stops - exactly like hitting kReportMaxPages -
+// once rendering more pages would exceed that budget, reporting it the
+// same way as the ordinary page-count cap (pageCapHit).
+inline bool PreviewBudgetAllows(int widthPx, int heightPx, long long pageCount,
+                                 std::wstring* outError = nullptr) {
+    auto fail = [&](const wchar_t* msg) { if (outError) *outError = msg; return false; };
+    if (pageCount < 0 || pageCount > (long long)kReportMaxPages)
+        return fail(L"The report has too many pages to preview.");
+    long long perPage = ComputeDibPageBytes(widthPx, heightPx);
+    if (perPage < 0)
+        return fail(L"The report page size is too large to preview.");
+    // Safe from overflow: pageCount <= kReportMaxPages (200) and perPage is
+    // capped at kReportMaxSinglePageBytes (64MB), so the product is at most
+    // ~12.8GB, well inside a 64-bit range.
+    long long totalBytes = perPage * pageCount;
+    if (totalBytes > kReportMaxPreviewTotalBytes)
+        return fail(L"The report is too large to preview at this resolution.");
+    return true;
 }

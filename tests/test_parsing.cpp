@@ -62,6 +62,42 @@ TEST_SUITE("ParseDoubleW") {
 }
 
 TEST_SUITE("ParseSumExprStrict") {
+    // v0.9.57: Debtor/Cash total ceiling (kMaxDebtorCashTotalDollars = $1,000,000).
+    TEST_CASE("a total at the ceiling is accepted, one cent over is rejected as too large") {
+        auto atMax = ParseSumExprStrict(L"1000000");
+        CHECK(atMax.ok);
+        CHECK_FALSE(atMax.tooLarge);
+        auto over = ParseSumExprStrict(L"1000000.01");
+        CHECK_FALSE(over.ok);
+        CHECK(over.tooLarge);
+    }
+    TEST_CASE("a negative total beyond the ceiling is rejected too") {
+        CHECK(ParseSumExprStrict(L"-1000000").ok);
+        auto r = ParseSumExprStrict(L"-1000000.01");
+        CHECK_FALSE(r.ok);
+        CHECK(r.tooLarge);
+    }
+    TEST_CASE("many ordinary terms that add up past the ceiling are rejected") {
+        auto r = ParseSumExprStrict(L"600000+400000+1");
+        CHECK_FALSE(r.ok);
+        CHECK(r.tooLarge);
+    }
+    TEST_CASE("a huge digit string (like the one found in manual testing) is rejected") {
+        auto r = ParseSumExprStrict(L"13213213213213213132132132132132132132132132131");
+        CHECK_FALSE(r.ok);
+        CHECK(r.tooLarge);
+    }
+    TEST_CASE("the ceiling applies to the final total, so a large term that nets small is accepted") {
+        auto r = ParseSumExprStrict(L"5000000-4999000");
+        CHECK(r.ok);
+        CHECK(r.value == 1000);
+    }
+    TEST_CASE("a malformed expression is still reported as invalid, not as too large") {
+        auto r = ParseSumExprStrict(L"100+oops");
+        CHECK_FALSE(r.ok);
+        CHECK_FALSE(r.tooLarge);
+    }
+
     // --- Behavior carried over unchanged from the old ParseSumExpr ---
 
     TEST_CASE("sums plus-separated terms") {
@@ -196,16 +232,56 @@ TEST_SUITE("FormatDateISO / ParseISODate") {
         CHECK_FALSE(ParseISODate(L"2026-08-32", d));  // day out of range
         CHECK_FALSE(ParseISODate(L"1899-08-05", d));  // year below minimum
     }
-    TEST_CASE("CHARACTERIZATION (documented gap, not fixed): day-of-month isn't "
-              "validated against the actual month/year") {
-        // See SecurityHardeningRegister.md / ROADMAP.md Tier 4 - e.g.
-        // "2026-02-31" (February only has 28/29 days) is currently
-        // accepted. Preserved exactly as-is; this test exists so fixing
-        // it later is a deliberate decision, not an accidental side
-        // effect of an unrelated change.
+    TEST_CASE("Phase 2 / F14 (2026-10-02): day-of-month IS now validated "
+              "against the actual month/year - previously documented gap, "
+              "now fixed") {
         SimpleDate d;
-        CHECK(ParseISODate(L"2026-02-31", d));
+        CHECK_FALSE(ParseISODate(L"2026-02-31", d));  // February never has 31 days
+        CHECK_FALSE(ParseISODate(L"2026-04-31", d));  // April has 30 days
+        CHECK_FALSE(ParseISODate(L"2026-06-31", d));  // June has 30 days
+        CHECK_FALSE(ParseISODate(L"2026-02-30", d));  // not even close for Feb
+    }
+    TEST_CASE("leap years: Feb 29 is valid only in a leap year") {
+        SimpleDate d;
+        CHECK(ParseISODate(L"2024-02-29", d));         // 2024 is a leap year
+        CHECK(d.year == 2024);
         CHECK(d.month == 2);
-        CHECK(d.day == 31);
+        CHECK(d.day == 29);
+        CHECK_FALSE(ParseISODate(L"2023-02-29", d));   // 2023 is not
+        CHECK_FALSE(ParseISODate(L"1900-02-29", d));   // divisible by 100, not 400 - not a leap year
+        CHECK(ParseISODate(L"2000-02-29", d));         // divisible by 400 - IS a leap year
+    }
+    TEST_CASE("valid last-day-of-month dates for every month length") {
+        SimpleDate d;
+        CHECK(ParseISODate(L"2026-01-31", d));
+        CHECK(ParseISODate(L"2026-04-30", d));
+        CHECK(ParseISODate(L"2026-02-28", d)); // 2026 is not a leap year
+    }
+}
+
+TEST_SUITE("IsValidCalendarDate / IsLeapYear / DaysInMonth") {
+    TEST_CASE("IsLeapYear follows the Gregorian rule (div 4, not 100, or div 400)") {
+        CHECK(IsLeapYear(2024));
+        CHECK_FALSE(IsLeapYear(2023));
+        CHECK_FALSE(IsLeapYear(1900));
+        CHECK(IsLeapYear(2000));
+    }
+    TEST_CASE("DaysInMonth returns the right length, including February") {
+        CHECK(DaysInMonth(2026, 1) == 31);
+        CHECK(DaysInMonth(2026, 4) == 30);
+        CHECK(DaysInMonth(2026, 2) == 28);
+        CHECK(DaysInMonth(2024, 2) == 29);
+        CHECK(DaysInMonth(2026, 13) == 0);  // out-of-range month
+        CHECK(DaysInMonth(2026, 0) == 0);
+    }
+    TEST_CASE("IsValidCalendarDate boundary cases") {
+        CHECK(IsValidCalendarDate(2026, 1, 1));
+        CHECK(IsValidCalendarDate(2026, 12, 31));
+        CHECK_FALSE(IsValidCalendarDate(2026, 1, 0));   // day 0
+        CHECK_FALSE(IsValidCalendarDate(2026, 1, -1));  // negative day
+        CHECK_FALSE(IsValidCalendarDate(2026, 0, 15));  // month 0
+        CHECK_FALSE(IsValidCalendarDate(2026, 13, 15)); // month 13
+        CHECK(IsValidCalendarDate(2024, 2, 29));
+        CHECK_FALSE(IsValidCalendarDate(2023, 2, 29));
     }
 }

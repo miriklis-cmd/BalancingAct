@@ -4,6 +4,60 @@ This file is the single source of truth for "what's built, what's being
 tested, and what's next." Check here first if you've lost track of where
 things stand — that's exactly what this file is for.
 
+## Status: v0.9.58 — Phase 2 verified on Windows through v0.9.57 (tests, build, manual checks all OK); v0.9.58 adds supplier name to email subject
+
+Phase 2 (authorized after Jack confirmed Phase 1's `run_tests.bat` +
+`build_msvc.bat` both passed on his Windows machine, and Reconciliation was
+manually checked). Addresses the remaining open findings from the external
+audit/findings register: F10/F11 (print/preview resource safety), F12 (CSV
+formula-injection leading-whitespace gap), F13 (email/mailto injection),
+F14 (calendar validation), F15 (no numeric upper bound on Kgs/Price, no
+overflow detection). F6 (atomic writer) was re-verified and confirmed
+already disproven/fixed - correctly NOT re-touched. See CHANGELOG.md's
+`[0.9.53]` entry for full technical detail per item.
+
+One input was needed from Jack mid-phase (per his own instruction: "if no
+authoritative business maximum exists, stop and ask me before inventing
+one") - neither `BUSINESS_RULES.md` nor `DATA_FORMATS.md` documented a
+maximum weight or price anywhere. Jack confirmed: **10,000 kg** maximum
+weight per entry, **$250/kg** maximum price per entry. Both are now
+enforced identically at interactive entry and file loading.
+
+**Verification status:** structurally checked only (balanced braces/
+parens/brackets, careful reading against the current source) — no
+compiler is available in this environment. This is a substantially larger
+change than v0.9.52 (new RAII wrappers, a rewritten print/preview resource
+model, new validators, ~15 new/changed test cases across 5 files) and
+genuinely needs a real Windows build + the full test suite before it can
+be called verified. Awaiting Jack's `run_tests.bat` and `build_msvc.bat`
+results, plus the manual Windows checklist in this version's completion
+report (print-preview appearance, real printer/PDF output, a CSV opened in
+a spreadsheet app, one valid email-client launch).
+
+Phase 3 has NOT been proposed or started, per Jack's explicit instruction
+to stop after delivering Phase 2.
+
+## Status: v0.9.52 — real typing-limit gap fixed on Notes/Debtor/Cash
+
+v0.9.51's own control-limit test surfaced a genuine pre-existing app bug
+(flagged there as a deliberately out-of-scope observation, since that
+release's authorization was test-automation only): `hEditNotes`,
+`hEditDebtor`, and `hEditCash` were created without `ES_AUTOHSCROLL`, so a
+single-line edit control refuses further typed characters once the text no
+longer fits its own visible width - separate from, and far short of,
+`EM_LIMITTEXT`'s 4,096-character cap. At these fields' real on-screen
+widths (~340px/~260px), typing could silently stop at ~35-48 characters.
+Jack confirmed he wanted this fixed. `ES_AUTOHSCROLL` added to all three;
+Kgs/Price and the Manage Names fields were deliberately left untouched (no
+evidence of the same practical problem there). See CHANGELOG.md's
+`[0.9.52]` entry for full detail.
+
+**Verification status:** structurally checked only (balanced braces/
+parens/brackets, careful reading) — no compiler is available in this
+environment. A three-line, additive style-flag change; awaiting Jack's
+confirmation that Notes/Debtor/Cash now scroll correctly while typing on
+his real Windows build.
+
 ## Status: v0.9.51 — remaining Phase 1 manual tests automated; Phase 2 NOT started
 
 Jack confirmed Reconciliation invalid-input handling and Finalize blocking

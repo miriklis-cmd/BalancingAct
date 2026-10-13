@@ -132,6 +132,45 @@ understood:
   decoding as UTF-8 rejects invalid byte sequences instead of silently
   substituting replacement characters. See `DATA_FORMATS.md`.
 
+## Entry limits and validation
+
+- **Maximum weight per entry: 10,000 kg (Phase 2 / F15, 2026-10-02).**
+  Confirmed directly with Jack rather than invented (no maximum was
+  documented anywhere before this): "a very large single truckload",
+  meant as a generous backstop, not a figure expected to be hit in real
+  use. Enforced identically at interactive entry (Add Entry) and when
+  loading a `.fbd` file - a value either path would reject can never be
+  smuggled in via the other. See `kMaxWeightKg` in `DATA_FORMATS.md`.
+- **Maximum price per entry: $250/kg (Phase 2 / F15, 2026-10-02).**
+  Also confirmed directly with Jack: "I don't think I've seen anything
+  above $120, but let's make it $250" - built-in headroom above anything
+  actually observed. Same enforcement (entry + file load) as the weight
+  limit above. See `kMaxPriceDollars` in `DATA_FORMATS.md`.
+- **Maximum Debtor total / Cash total: $1,000,000 each (v0.9.57, 2026-10-14).**
+  Confirmed with Jack: a real day's total was $135,000 and he chose
+  $1,000,000 ("maybe 1,000,000?"). Applies to the evaluated total of each
+  box (Debtor, Cash) separately, positive or negative, not to each term -
+  so "5000000-4999000" (nets to 1,000) is accepted. Over the limit shows
+  "Difference: cannot check - <Debtor|Cash> total is over the maximum
+  allowed ($1,000,000.00)" and is never treated as balanced. See
+  `kMaxDebtorCashTotalDollars` in `FishBalanceCore.h`.
+- **Dates are validated against the real calendar (Phase 2 / F14,
+  2026-10-02).** Previously only range-checked (year >= 1900, month
+  1-12, day 1-31) independently of each other, which let an
+  impossible date like 31 February through. Now checks real month
+  lengths and leap years (`IsValidCalendarDate`/`DaysInMonth`/
+  `IsLeapYear` in `FishBalanceCore.h`) - "2026-02-31" and "2026-04-31"
+  are rejected, while "2024-02-29" (a leap year) is accepted.
+- **Kgs/Price multiplication and running-total accumulation are checked
+  for overflow (Phase 2 / F15, 2026-10-02).** With both values bounded
+  by the ceilings above, a real overflow isn't reachable in practice -
+  this is defense-in-depth so a total that somehow couldn't be computed
+  reliably is reported as "cannot check" (same fail-closed treatment as
+  an invalid Debtor/Cash entry) rather than ever displaying an
+  inf/-inf/NaN figure as if it were real money. Applied to the
+  Entered Total both on-screen (Reconciliation tab) and on the printed
+  report.
+
 ## Price statistics (By Species tab)
 
 - **Average/Highest/Lowest price** on the By Species tab are computed over

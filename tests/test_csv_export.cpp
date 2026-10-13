@@ -33,13 +33,18 @@ TEST_SUITE("CsvField") {
         CHECK(CsvField(L"@cmd") == L"\t@cmd");
     }
 
-    TEST_CASE("the formula-injection guard only looks at the FIRST character") {
-        // Documented, known gap (SecurityHardeningRegister.md / ROADMAP.md
-        // Tier 3): a leading space before the formula character bypasses
-        // this guard. Preserved as-is here as a characterization test, not
-        // fixed as part of this test-suite addition - fixing it is a
-        // separate, deliberate change.
-        CHECK(CsvField(L" =1+1") == L" =1+1"); // NOT tab-prefixed - known gap
+    TEST_CASE("Phase 2 / F12 (2026-10-02): leading spaces/tabs before a formula "
+              "character no longer bypass the guard - previously documented gap, "
+              "now fixed") {
+        CHECK(CsvField(L" =1+1") == L"\t =1+1");
+        CHECK(CsvField(L"  +SUM(A1:A10)") == L"\t  +SUM(A1:A10)");
+        CHECK(CsvField(L"\t-1") == L"\t\t-1");
+        CHECK(CsvField(L" \t@cmd") == L"\t \t@cmd");
+    }
+
+    TEST_CASE("leading whitespace with NO formula character after it is left alone") {
+        CHECK(CsvField(L"  plain text") == L"  plain text");
+        CHECK(CsvField(L"   ") == L"   "); // all whitespace, nothing to guard against
     }
 
     TEST_CASE("a field needing both quoting and the formula guard gets both, "
@@ -49,5 +54,65 @@ TEST_SUITE("CsvField") {
         // already-prefixed string - so the tab ends up right after the
         // opening quote, not before it.
         CHECK(CsvField(L"=1,2") == L"\"\t=1,2\"");
+    }
+
+    TEST_CASE("Phase 2 / F12: NUL and CR are stripped entirely") {
+        CHECK(CsvField(std::wstring(L"a\0b", 3)) == L"ab");
+        CHECK(CsvField(L"a\rb") == L"ab");
+        CHECK(CsvField(L"a\r\nb") == L"\"a\nb\""); // CRLF normalizes to a bare LF, which still forces quoting
+    }
+
+    TEST_CASE("Phase 2 / F12: other C0 control characters are stripped, but TAB "
+              "and LF are preserved") {
+        std::wstring withControls;
+        withControls.push_back(L'a');
+        withControls.push_back(0x01); // SOH - stripped
+        withControls.push_back(0x1F); // unit separator - stripped
+        withControls.push_back(L'\t'); // preserved
+        withControls.push_back(L'b');
+        CHECK(CsvField(withControls) == L"a\tb");
+    }
+
+    TEST_CASE("Unicode text passes through unchanged (no control/formula chars)") {
+        CHECK(CsvField(L"Café Jcasement Æ") == L"Café Jcasement Æ");
+    }
+
+    TEST_CASE("empty value stays empty") {
+        CHECK(CsvField(L"") == L"");
+    }
+}
+
+TEST_SUITE("ExportToCsv-level hardening (full rows, not just CsvField)") {
+    // ExportToCsv() itself lives in main.cpp (it needs g_entries, Win32 file
+    // I/O, etc.) and isn't reachable from this portable suite - but every
+    // field it writes goes through the csvRow()/CsvField() chokepoint this
+    // suite CAN exercise directly, so a full simulated row below exercises
+    // the same code path real export does, just without the Win32 parts.
+    TEST_CASE("a full hostile row is defended consistently across every field") {
+        std::wstring supplier = L" =cmd|'/C calc'!A1";
+        std::wstring species = L"Garfish\r\nFAKE,INJECTED,ROW";
+        std::wstring notes = L"has,comma \"and quote\" and\ttab";
+
+        std::wstring row;
+        auto append = [&](const std::wstring& f) {
+            if (!row.empty()) row += L",";
+            row += CsvField(f);
+        };
+        append(supplier);
+        append(species);
+        append(notes);
+
+        // The formula guard fires even though the real content starts after
+        // a leading space, and the field is still correctly comma/quote-safe.
+        CHECK(row.find(L"\t =cmd") != std::wstring::npos);
+        // No raw CR survives anywhere in the row (species field).
+        CHECK(row.find(L'\r') == std::wstring::npos);
+        // The embedded fake "row" text is still safely inside ONE quoted
+        // field - i.e. it's not actually possible to tell, from the comma
+        // count alone, that this was an injection attempt.
+        CHECK(row.find(L"\"Garfish\nFAKE,INJECTED,ROW\"") != std::wstring::npos);
+        // The notes field's comma/quote/tab content round-trips correctly
+        // quoted.
+        CHECK(row.find(L"\"has,comma \"\"and quote\"\" and\ttab\"") != std::wstring::npos);
     }
 }

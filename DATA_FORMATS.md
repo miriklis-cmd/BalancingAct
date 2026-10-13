@@ -212,6 +212,43 @@ Names dialog's own Supplier-name and email-address fields
 `EM_LIMITTEXT`, so the UI can't produce a value this load-time guard would
 then have to drop.
 
+**Phase 2 / F13 completeness follow-up (2026-10-02)**: a loaded address is
+now also validated with `LooksLikeEmail` (see "Email address validation
+and mailto construction" below) - previously only the length bound above
+was applied at load time, so a hand-edited or otherwise-tampered
+`emails.txt` could carry an address the UI would never have accepted at
+entry time. A line whose email fails that check is skipped, the same way
+a too-long line already was.
+
+## Email address validation and mailto construction (Phase 2 / F13, 2026-10-02)
+
+`LooksLikeEmail` (`FishBalanceCore.h`) accepts exactly one shape - a
+single mailbox `local-part@domain` - and is applied both when an address
+is entered (Manage Names) and when `emails.txt` is loaded (see above), so
+neither path can produce something the other would have rejected. It is
+deliberately **not** a full RFC 5321/5322 validator (quoted local parts,
+comments, IP-literal domains are all rejected rather than partially
+supported). Rejected outright, anywhere in the string: whitespace, CR,
+LF, NUL, any other C0 control character, and the characters `? & # % , ;
+" ' < > \ / ( ) [ ] :` - these are exactly the characters that could let
+a stored value escape its place in a `mailto:` URI or inject extra
+recipients/headers if concatenated into one. Also rejected: more than one
+`@`; a local part or domain starting/ending with `.` or containing `..`;
+a domain with no `.`.
+
+`BuildMailtoUri` (`FishBalanceCore.h`) builds the actual `mailto:` URI
+used by `EmailSupplier` (`main.cpp`). The recipient's local part and
+domain are percent-encoded independently via `UrlEncodeForMailto` (the
+`@` separating them is left literal, per RFC 6068), and the subject/body
+are each percent-encoded independently too - so content in any one of
+the three can never inject another `&subject=`, `&cc=`/`&bcc=`, or extra
+recipient into the final URI. An empty address is a deliberately
+supported case (produces a recipient-less `mailto:?subject=...&body=...`
+URI, for a supplier with no address on file); a non-empty address that
+fails `LooksLikeEmail` is refused outright (`MailtoBuildResult.ok ==
+false`, with a user-facing error) rather than attempting to encode
+around whatever made it invalid.
+
 ## CSV export (`File > Export to CSV...`)
 
 Not a persistence format (nothing reads it back in) — a one-way export for
@@ -219,9 +256,34 @@ opening in Excel. UTF-8 with a BOM (so Excel reads accented characters
 correctly), one file containing four sections back to back: Entries,
 Overview by Supplier, By Species, and Breakdown. Money is written as a
 plain number (no `$`) so Excel can sum it directly; see BUSINESS_RULES.md.
-Fields are also guarded against CSV formula injection (a leading
-`= + - @` gets neutralized) since Supplier/Species/Notes are free text
-that ends up in a file Excel will interpret.
+
+**Sanitization policy (Phase 2 / F12, 2026-10-02)**, applied by `CsvField`
+(`FishBalanceCore.h`) to every field, consistently, since every column in
+every section goes through the same `csvRow`/`CsvField` chokepoint:
+
+1. **Control characters.** NUL and CR are stripped unconditionally; every
+   other C0 control character except TAB and LF is stripped too - none of
+   these have a legitimate display meaning in a spreadsheet cell, and an
+   unstripped CR in particular is how a field could masquerade as extra
+   CSV records to a parser that splits raw lines on CR/LF instead of
+   respecting RFC4180 quoting. LF is preserved (it's how a genuine
+   multi-line Notes entry is represented) and still forces the field to
+   be quoted, as before.
+2. **Formula-injection guard.** If the field's first character that is
+   NOT a plain space or tab is `=`, `+`, `-`, or `@` - the four characters
+   Excel/LibreOffice/Google Sheets treat as a formula start - the field
+   gets a single leading tab character, which makes the cell's literal
+   first character something other than a formula trigger. Previously
+   only the field's very first character was checked, so a leading space
+   (`" =1+1"`) bypassed the guard entirely; fixed in this phase. Only
+   those four characters are covered - a different spreadsheet
+   application with a wider or different formula-trigger set is not.
+3. **RFC4180 quoting/escaping** (comma, double-quote, embedded LF),
+   applied last, unchanged from before this phase.
+
+Sanitization never alters valid business text beyond the above - normal
+Supplier/Species/Notes text with no control characters or leading
+formula-trigger character passes through byte-for-byte.
 
 ## File reading limits (Phase 1 / F4, 2026-09-30, completed v0.9.50)
 
@@ -274,12 +336,44 @@ versa):
 | `DEBTOR=` / `CASH=` expression | 4,096 characters each (`kMaxDebtorCashExprLength`) |
 | Draft Kgs / Price text | 256 characters each (`kMaxDraftKgsPriceTextLength`) |
 | `SOURCE_FILE=` | 32,767 characters (`kMaxSourceFileLength`) |
+| Weight (Kgs) per entry | 10,000 kg (`kMaxWeightKg`, Phase 2 / F15, 2026-10-02) |
+| Price per entry | $250/kg (`kMaxPriceDollars`, Phase 2 / F15, 2026-10-02) |
 
 Over-limit input is rejected with a specific `FieldTooLong`/`LineTooLong`/
-`RecordLimitExceeded` diagnostic (see `FbdErrorCode` below) - it is never
-silently truncated. The Supplier-name field is also bounded in
-`emails.txt` (see that section below), the one companion file that shares
-a field type with `.fbd` content.
+`RecordLimitExceeded`/`InvalidNumericField` diagnostic (see `FbdErrorCode`
+below) - it is never silently truncated or clamped. The Supplier-name
+field is also bounded in `emails.txt` (see that section below), the one
+companion file that shares a field type with `.fbd` content. The last two
+rows (Phase 2) were confirmed directly with Jack rather than invented -
+see BUSINESS_RULES.md's "Entry limits and validation" section for the
+exact reasoning and figures.
+
+## Print / Print Preview resource bounds (Phase 2 / F10-F11, 2026-10-02)
+
+The Breakdown report's rendering (`RenderReportPages` in `main.cpp`) is
+bounded the same way as file loading above - generous, documented limits
+that exist to catch pathological input, not to constrain normal use:
+
+| Bound | Limit |
+|---|---|
+| Page count | 200 pages (`kReportMaxPages`) |
+| Page width/height | 100 - 20,000 px (`kReportMinPagePx` / `kReportMaxPagePx`) |
+| DPI (horizontal/vertical) | 36 - 2,400 (`kReportMinDpi` / `kReportMaxDpi`) |
+| Single rendered page | 64 MiB (`kReportMaxSinglePageBytes`) |
+| Print Preview's total in-memory page budget | 512 MiB (`kReportMaxPreviewTotalBytes`) |
+
+Real printing (`PrintBreakdownReport`) renders and prints one page at a
+time - at most one full-resolution page bitmap exists in memory for the
+whole job, regardless of page count, so only the flat page-count cap
+applies to it. Print Preview still renders every page up front (so Next/
+Previous can page through instantly), but only at a bounded,
+screen-appropriate resolution (capped well below real printer DPI) and
+within the total preview memory budget above - the effective page-count
+cap for Preview is derived from the REAL per-page byte size at the
+resolution actually being rendered, not a worst-case assumption, so an
+ordinary report is never wrongly refused. Hitting either cap truncates
+cleanly (remaining content is dropped, not drawn past the page) and shows
+the user a warning rather than failing silently.
 
 ## Structured parse diagnostics (`FbdErrorCode`, v0.9.50)
 
