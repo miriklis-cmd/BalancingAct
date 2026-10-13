@@ -1,5 +1,6 @@
-# push_update.ps1 - stage, commit, and push the v0.9.51 update
-# (test-automation refactor: remaining Phase 1 manual tests automated)
+# push_update.ps1 - stage, commit, and push the v0.9.58 update
+# (Phase 2 security hardening: print/preview resource safety, CSV/email
+# injection, numeric & calendar validation)
 #
 # Run from the repo root with:
 #   powershell -ExecutionPolicy Bypass -File .\push_update.ps1
@@ -55,38 +56,50 @@ Test-LastExit "git add -A"
 #    -m argument (see the header comment above for exactly why).
 $msgFile = [System.IO.Path]::GetTempFileName()
 @'
-v0.9.51: test-automation refactor - remaining Phase 1 manual tests automated
+v0.9.58: supplier name always in email subject
 
-Jack confirmed Reconciliation invalid-input handling and Finalize blocking
-had been manually checked and worked, then asked for the remaining Phase 1
-manual test areas to be automated. No application behavior changes other
-than two cosmetic message-wording tweaks (see CHANGELOG.md). Phase 2 was
-explicitly NOT started.
+v0.9.53 Phase 2 security hardening - print/preview resource safety,
+CSV/email injection, numeric & calendar validation
 
-- New FishBalanceCore.h pure functions (tested in
-  tests/test_recovery_and_finalize.cpp, 24 test cases): DecideAutosaveRecovery(),
-  CoordinateFinalizeDay(), CoordinateSaveAs().
-- New FishBalanceWin32IO.h: the Win32 file-I/O half of the app, moved out of
-  main.cpp with injectable FileReadOps/FileWriteOps ports for deterministic
-  fault injection.
-- New FishBalanceControlLimits.h: ApplyFieldLengthLimits(), extracted out of
-  main.cpp's WM_CREATE handler and the Manage Names dialog.
-- main.cpp refactored for testable boundaries: SetExeDirOverrideForTests(),
-  DeleteEntryAt(), ExecuteFinalizeDay(), CreateFishBalanceMainWindow()
-  extracted; DoFileSaveAs()/LoadFromFile() now call the new pure/boundary
-  functions.
-- New Windows integration test suite (tests/win32_integration/, 28 test
-  cases across 3 files + main.cpp's own #ifdef FBM_BUILDING_TESTS block):
-  real-file-system loading tests, Save/Save As fault injection, a Windows
-  control test for EM_LIMITTEXT/CB_LIMITTEXT, and a headless end-to-end
-  smoke test - every test isolated from real application data via
-  SetExeDirOverrideForTests and its own unique temp directory.
-- run_tests.bat now builds and runs both the portable and Windows
-  integration suites from one command. CMakeLists.txt gained a
-  FishBalanceIntegrationTests target.
+Phase 2 of the post-audit hardening work (Phase 1 was v0.9.49-v0.9.52).
+Addresses the remaining open findings from the external audit/findings
+register: F10/F11 (print/preview resource handling), F12 (CSV
+formula-injection leading-whitespace gap), F13 (email/mailto injection),
+F14 (calendar validation), F15 (no numeric upper bound). F6 (atomic
+writer) was re-verified against current source and confirmed already
+disproven/fixed - correctly left alone, per Jack's explicit instruction
+not to revive it.
 
-See CHANGELOG.md's [0.9.51] entry and ROADMAP.md's v0.9.51 status section
-for full detail.
+1. Print / Print Preview resource safety (F10/F11): RenderReportPages
+   rewritten with upfront dimension/DPI validation, checked GDI calls, new
+   RAII wrappers (UniqueFont/UniquePen/UniqueBitmap/UniqueDC/ScopedSelect),
+   one-page-at-a-time real printing (was: render every page before
+   printing any), an explicit documented Print Preview memory budget, and
+   AbortDoc on failure. The page-count cap's silent truncation (a newly
+   discovered, tightly-coupled defect) now surfaces a warning to the user.
+2. CSV/spreadsheet-injection hardening (F12): CsvField now strips NUL/CR/
+   other C0 controls and the formula-injection guard looks past leading
+   whitespace (closes the documented " =1+1" bypass).
+3. Email/mailto hardening (F13): LooksLikeEmail rejects control and
+   mailto-significant characters, applied at both entry and emails.txt
+   load time; new BuildMailtoUri percent-encodes recipient/subject/body
+   independently and refuses an invalid stored address outright.
+4. Numeric and calendar validation (F14/F15): ParseISODate now validates
+   real calendar correctness (leap years, month lengths). New explicit
+   Kgs/Price ceilings (10,000kg / $250/kg - confirmed with Jack, not
+   invented) enforced at entry and file load; new overflow-safe
+   accumulation applied to the Entered Total.
+
+New/updated tests across tests/test_csv_export.cpp, tests/test_email.cpp,
+tests/test_parsing.cpp, tests/test_fbd_loader.cpp, and a new
+tests/test_phase2_numeric_and_layout.cpp. BUSINESS_RULES.md and
+DATA_FORMATS.md updated to document the new policies. No compiler is
+available in the environment that produced this change - verified by
+careful reading and a structural balance check only; Jack's
+run_tests.bat/build_msvc.bat results are the real verification step.
+
+See CHANGELOG.md's [0.9.53] entry and ROADMAP.md's status section for
+full detail.
 '@ | Out-File -FilePath $msgFile -Encoding utf8
 
 git commit -F $msgFile
@@ -97,4 +110,4 @@ Remove-Item $msgFile -ErrorAction SilentlyContinue
 git push
 Test-LastExit "git push"
 
-Write-Host "Done: v0.9.51 committed and pushed." -ForegroundColor Green
+Write-Host "Done: v0.9.58 committed and pushed." -ForegroundColor Green

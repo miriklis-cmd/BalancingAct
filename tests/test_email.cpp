@@ -6,11 +6,16 @@ TEST_SUITE("LooksLikeEmail") {
     TEST_CASE("accepts plausible addresses") {
         CHECK(LooksLikeEmail(L"a@b.com"));
         CHECK(LooksLikeEmail(L"jcasement@example.com.au"));
+        CHECK(LooksLikeEmail(L"first.last@example.com"));
+        CHECK(LooksLikeEmail(L"user+tag@example.com"));
     }
     TEST_CASE("rejects missing or misplaced @") {
         CHECK_FALSE(LooksLikeEmail(L"no-at-sign"));
         CHECK_FALSE(LooksLikeEmail(L"@b.com"));   // nothing before @
         CHECK_FALSE(LooksLikeEmail(L"a@"));        // nothing after @, and no dot
+    }
+    TEST_CASE("rejects more than one @") {
+        CHECK_FALSE(LooksLikeEmail(L"a@b@c.com"));
     }
     TEST_CASE("rejects a space anywhere") {
         CHECK_FALSE(LooksLikeEmail(L"a b@c.com"));
@@ -20,14 +25,94 @@ TEST_SUITE("LooksLikeEmail") {
         CHECK_FALSE(LooksLikeEmail(L"a@bcom"));  // no dot at all
         CHECK_FALSE(LooksLikeEmail(L"a@b."));    // dot is the last character
     }
-    TEST_CASE("CHARACTERIZATION (documented as intentionally basic, not full "
-              "RFC validation): a dot immediately after @ is accepted") {
-        // "Very basic sanity check - not full RFC validation, just enough
-        // to catch obvious typos" per the function's own comment. This
-        // isn't a bug to fix, just documenting the actual current
-        // behavior so a future tightening of this check is a deliberate
-        // choice, not a surprise.
-        CHECK(LooksLikeEmail(L"a@.com"));
+    TEST_CASE("Phase 2 / F13 (2026-10-02): no longer accepted - a dot "
+              "immediately after @, or a leading/trailing/doubled dot in "
+              "either the local part or the domain") {
+        // Previously accepted as a documented, intentionally-basic gap;
+        // tightened as part of the mailto/email hardening in this phase.
+        CHECK_FALSE(LooksLikeEmail(L"a@.com"));
+        CHECK_FALSE(LooksLikeEmail(L".a@b.com"));
+        CHECK_FALSE(LooksLikeEmail(L"a.@b.com"));
+        CHECK_FALSE(LooksLikeEmail(L"a..b@c.com"));
+        CHECK_FALSE(LooksLikeEmail(L"a@b..com"));
+        CHECK_FALSE(LooksLikeEmail(L"a@b.com."));
+        CHECK_FALSE(LooksLikeEmail(L"a@.b.com"));
+    }
+    TEST_CASE("Phase 2 / F13: rejects control characters - CR, LF, NUL, tab, "
+              "and other C0 controls") {
+        CHECK_FALSE(LooksLikeEmail(L"a@b.com\r"));
+        CHECK_FALSE(LooksLikeEmail(L"a@b.com\n"));
+        CHECK_FALSE(LooksLikeEmail(std::wstring(L"a@b\0.com", 8)));
+        CHECK_FALSE(LooksLikeEmail(L"a\t@b.com"));
+        CHECK_FALSE(LooksLikeEmail(L"a@b\r\n.com\r\nBcc:evil@evil.com"));
+    }
+    TEST_CASE("Phase 2 / F13: rejects mailto/URI/header-injection characters "
+              "(?, &, #, %, comma, semicolon, angle brackets, etc.)") {
+        CHECK_FALSE(LooksLikeEmail(L"a@b.com?subject=hi"));
+        CHECK_FALSE(LooksLikeEmail(L"a@b.com&cc=evil@evil.com"));
+        CHECK_FALSE(LooksLikeEmail(L"a@b.com#frag"));
+        CHECK_FALSE(LooksLikeEmail(L"a%40b@evil.com"));
+        CHECK_FALSE(LooksLikeEmail(L"a@b.com,evil@evil.com"));
+        CHECK_FALSE(LooksLikeEmail(L"a@b.com;evil@evil.com"));
+        CHECK_FALSE(LooksLikeEmail(L"<a@b.com>"));
+        CHECK_FALSE(LooksLikeEmail(L"\"a\"@b.com"));
+    }
+    TEST_CASE("accepts Unicode (internationalized) local parts/domains that "
+              "otherwise fit the supported shape") {
+        CHECK(LooksLikeEmail(L"café@example.com"));
+    }
+}
+
+TEST_SUITE("BuildMailtoUri") {
+    TEST_CASE("a valid address builds a mailto: URI with the address, "
+              "subject, and body each present and correctly separated") {
+        MailtoBuildResult r = BuildMailtoUri(L"jcasement@example.com", L"Hello There", L"Body text");
+        REQUIRE(r.ok);
+        CHECK(r.uri.find(L"mailto:jcasement@example.com?subject=") == 0);
+        CHECK(r.uri.find(L"&body=") != std::wstring::npos);
+        CHECK(r.uri.find(L"Hello%20There") != std::wstring::npos);
+    }
+    TEST_CASE("an empty address is valid (recipient-less draft) - a "
+              "deliberately supported case, not a validation failure") {
+        MailtoBuildResult r = BuildMailtoUri(L"", L"Subject", L"Body");
+        REQUIRE(r.ok);
+        CHECK(r.uri.find(L"mailto:?subject=") == 0);
+    }
+    TEST_CASE("Phase 2 / F13: an invalid stored address is refused outright - "
+              "ok == false with a user-facing error - rather than launching a "
+              "best-effort-encoded URI built from it") {
+        MailtoBuildResult r = BuildMailtoUri(L"not-an-email", L"Subject", L"Body");
+        CHECK_FALSE(r.ok);
+        CHECK(r.uri.empty());
+        CHECK_FALSE(r.error.empty());
+    }
+    TEST_CASE("Phase 2 / F13: a malicious stored address containing mailto "
+              "query-injection characters is refused, not partially encoded") {
+        MailtoBuildResult r = BuildMailtoUri(L"a@b.com?cc=evil@evil.com", L"Subject", L"Body");
+        CHECK_FALSE(r.ok);
+        MailtoBuildResult r2 = BuildMailtoUri(L"a@b.com&bcc=evil@evil.com", L"Subject", L"Body");
+        CHECK_FALSE(r2.ok);
+    }
+    TEST_CASE("Phase 2 / F13: subject/body content that itself contains "
+              "mailto-meaningful characters can't inject extra query "
+              "parameters into the final URI - each is percent-encoded "
+              "independently") {
+        MailtoBuildResult r = BuildMailtoUri(L"a@b.com", L"Subj&cc=evil@evil.com",
+                                              L"Body?x=1&bcc=evil@evil.com");
+        REQUIRE(r.ok);
+        // Exactly two real query separators: the one before "subject=" and
+        // the one before "body=" - any other '&'/'?' in the URI must have
+        // come from percent-encoded content, not a literal character.
+        CHECK(r.uri.find(L"&cc=") == std::wstring::npos);
+        CHECK(r.uri.find(L"&bcc=") == std::wstring::npos);
+        CHECK(r.uri.find(L"?x=") == std::wstring::npos);
+        CHECK(r.uri.find(L"%26cc%3Devil") != std::wstring::npos); // "&cc=evil" safely encoded instead
+    }
+    TEST_CASE("the '@' separating local part and domain is never itself "
+              "percent-encoded (RFC 6068 requires it literal)") {
+        MailtoBuildResult r = BuildMailtoUri(L"user.name@sub.example.com", L"S", L"B");
+        REQUIRE(r.ok);
+        CHECK(r.uri.find(L"mailto:user.name@sub.example.com?") == 0);
     }
 }
 

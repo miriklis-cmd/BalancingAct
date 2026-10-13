@@ -12,6 +12,211 @@ possible, grouped into logical releases.
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.9.58] - Supplier name always in the email subject
+
+Jack's request after trying v0.9.57: subject is now "Prices - <date> - <supplier>"
+for every supplier email (previously the supplier was added only when the
+supplier had no stored To address). Subject text remains percent-encoded
+independently by BuildMailtoUri, so an odd supplier name cannot inject
+anything. No test referenced the subject text. Manual check only (needs a mail client).
+
+## [0.9.57] - Debtor/Cash total ceiling ($1,000,000)
+
+Jack's manual check of v0.9.55 (screenshot): the Debtor and Cash boxes
+accepted absurd values (40+ digit numbers), producing a $1.3e45-scale Book
+Total/Difference that overflowed and clipped its label. It still correctly
+said OUT OF BALANCE, but it should be refused outright - the Phase 2
+Kgs/Price ceilings never covered these two boxes (my gap).
+- New `kMaxDebtorCashTotalDollars` = $1,000,000 (Jack's choice; a real day
+  was $135,000). `ParseSumExprStrict` now fails (new `tooLarge` flag) when
+  the evaluated total's absolute value exceeds it or is non-finite. Applies
+  to the on-screen reconciliation, the Total Overview tab and the printed/PDF
+  report (single shared parser), and to loaded .fbd files (DEBTOR=/CASH=
+  text is evaluated through the same parser).
+- Message: "Difference: cannot check - Debtor total is over the maximum
+  allowed ($1,000,000.00)" (or Cash).
+- Tests: 6 new cases in test_parsing.cpp (boundary, one cent over, negative,
+  many terms, huge digit string, net-small large term, malformed != tooLarge).
+Not compiled here - needs run_tests.bat / build_msvc.bat on Windows.
+
+## [0.9.56] - Fix tiny header text in printed/PDF report; email subject now "Prices"
+
+Found in Jack's manual Windows checklist on v0.9.55 (all automated tests and
+the MSVC build passed; these were manual-only findings):
+1. REGRESSION from v0.9.53 (my RAII font rewrite): the "Generated ..." line
+   and the "Book Total" / "Entered Total" lines on page 1 were drawn with no
+   font selected, so Windows' default fixed-pixel font was used. That looks
+   fine at the low print-preview resolution but is unreadably small at
+   printer/PDF resolution (confirmed in Jack's Print-to-PDF output: the three
+   lines were microscopic). Now explicitly drawn with the normal 11pt report
+   font (hFontNormal), same as the table body. Print preview text for these
+   lines will also become slightly larger/more consistent with the rest.
+2. Supplier email subject changed from "Delivery Summary - <date>" to
+   "Prices - <date>" at Jack's request (the email is the price list sent to
+   suppliers). Body unchanged. No automated test referenced the old subject.
+Not reproducible by unit test (needs a real GDI/printer DC) - covered by the
+manual print checklist, as agreed in Phase 2.
+
+## [0.9.55] - Test-only fix: two wrong expectations in test_phase2_numeric_and_layout.cpp
+
+Jack's Windows run of v0.9.54: portable suite compiled and ran (212 test
+cases, 633 assertions; 210 / 631 passed, 2 failed); integration suite
+passed (25 / 232); build_msvc.bat succeeded earlier. Both failures were
+mistakes in tests I wrote - production code was correct in both cases:
+1. ComputeDibPageBytes(850, 1100): I expected 2550*1100, but 850*3 = 2550 is
+   not a multiple of 4, so a 24bpp DIB row is padded to 2552 bytes (the
+   function's result, 2,807,200, is right; my arithmetic in the test was
+   wrong). Test now expects 2552*1100.
+2. The out-of-range Kgs message test searched for "10,000.0", but FormatKg
+   has no thousands separator and produces "10000.0". Test now searches for
+   "10000.0".
+No production code changed. Remaining 631 assertions in that suite passed.
+
+## [0.9.54] - Test-only fix: doctest compile error in test_parsing.cpp
+
+Jack's first Windows run of v0.9.53 (VS 2026 Community, v18.10.1): the
+Windows integration suite passed (25 test cases, 232 assertions),
+`build_msvc.bat` succeeded, but the portable suite failed to compile with
+C2338 "Expression Too Complex Please Rewrite As Binary Comparison!" at
+test_parsing.cpp:211 - a `CHECK(a && b && c)` leap-day assertion I added
+in v0.9.53. doctest 2.5.0 does not allow `&&` inside CHECK. Split into three
+separate CHECKs. Test-only change; no production code touched. A search of
+all test files found no other `&&`/`||` inside CHECK/REQUIRE expressions.
+
+## [0.9.53] - Phase 2 security hardening: print/preview resource safety, CSV/email injection, numeric & calendar validation
+
+Phase 2 of the post-audit hardening work (Phase 1 was v0.9.49-v0.9.52).
+Addresses the remaining open findings from the external Codex audit and
+findings register (`AuditFindings_2026-09-30.md`): F10/F11 (print/preview
+resource handling), F12 (CSV formula-injection gap), F13 (email/mailto
+injection), F14 (calendar validation), F15 (no numeric upper bound). Every
+finding was re-verified against the CURRENT source before being touched -
+in particular, F6's old claim that the atomic writer doesn't check its
+writes was re-confirmed DISPROVEN (`WriteFileAtomicUtf8` already checks
+every write/flush/close) and correctly left alone.
+
+**1. Print / Print Preview resource safety (F10/F11)**
+- `RenderReportPages` (`main.cpp`) rewritten: validates page dimensions/DPI
+  up front (`ValidateReportPageDimensions`, `FishBalanceCore.h`) before any
+  GDI object is created; every font/DC/bitmap creation is now checked, with
+  a small set of RAII wrappers (`UniqueFont`/`UniquePen`/`UniqueBitmap`/
+  `UniqueDC`/`ScopedSelect`) so a partially-built page is always cleaned up
+  on a failure path.
+- Real printing now renders and prints ONE page at a time (a callback
+  handed to `RenderReportPages`) instead of rendering every page into
+  memory before printing any of them - at most one full-resolution page
+  bitmap exists in memory for the whole print job, regardless of page
+  count.
+- Print Preview still renders every page up front (for instant Next/
+  Previous), but within an explicit, documented total-memory budget
+  (`kReportMaxPreviewTotalBytes`, 512MiB) derived from the REAL per-page
+  byte size at the resolution being rendered - not a worst-case guess that
+  would wrongly refuse an ordinary report.
+- `StartPage`/`StretchDIBits`/`EndPage`/`StartDocW`/`EndDoc` results are now
+  checked; `AbortDoc` is called on any failure after `StartDocW` succeeded;
+  actionable error messages are shown to the user instead of failing
+  silently.
+- Fixed a related, newly-discovered defect while implementing this: the
+  page-count cap's "pageCapHit" flag was computed but never surfaced to the
+  user - content beyond 200 pages was silently dropped with no indication.
+  Now shown via a warning dialog on both Preview and Print.
+- New pure, GDI-free functions in `FishBalanceCore.h` (`ScaleRound`,
+  `ValidateReportPageDimensions`, `ComputeDibPageBytes`,
+  `PreviewBudgetAllows`) with new automated boundary tests
+  (`tests/test_phase2_numeric_and_layout.cpp`) covering page-count/
+  dimension/DPI limits and per-page/total memory-budget decisions.
+
+**2. CSV/spreadsheet-injection hardening (F12)**
+- `CsvField` (`FishBalanceCore.h`) now strips NUL/CR and other C0 control
+  characters (TAB and LF preserved) before anything else, and the
+  formula-injection guard (`=`/`+`/`-`/`@`) now looks past leading
+  spaces/tabs instead of only the field's literal first character -
+  closes the previously-documented `" =1+1"` bypass gap. RFC4180
+  quoting/escaping is unchanged. Applies uniformly to every field in
+  `ExportToCsv` via the shared `csvRow`/`CsvField` chokepoint.
+- New table-driven tests (`tests/test_csv_export.cpp`): control characters,
+  leading-whitespace formula bypass (now fixed), Unicode, empty values, and
+  a full simulated hostile row exercised end to end.
+
+**3. Email-address and mailto construction hardening (F13)**
+- `LooksLikeEmail` (`FishBalanceCore.h`) tightened: rejects CR/LF/NUL/other
+  control characters, mailto/URI-meaningful characters (`? & # % , ; " ' <
+  > \ / ( ) [ ] :`), more than one `@`, and a leading/trailing/doubled `.`
+  in either the local part or domain. Applied both at entry time (Manage
+  Names) and at `emails.txt` load time (previously only length was checked
+  on load).
+- New `BuildMailtoUri` (`FishBalanceCore.h`) replaces raw string
+  concatenation in `EmailSupplier` (`main.cpp`): percent-encodes the
+  recipient, subject, and body independently (so none can inject another
+  query parameter or recipient into the URI), refuses outright - with a
+  user-facing error - rather than best-effort-encoding a stored address
+  that fails `LooksLikeEmail`.
+- New table-driven tests (`tests/test_email.cpp`) for valid/malicious
+  addresses and the final generated mailto URI.
+
+**4. Numeric and calendar validation (F14/F15)**
+- `ParseISODate` (`FishBalanceCore.h`) now validates real calendar
+  correctness (`IsValidCalendarDate`/`DaysInMonth`/`IsLeapYear`) instead of
+  an independent 1-31 day range check - "2026-02-31" is now rejected;
+  leap years handled correctly.
+- New, explicit maximum Kgs (10,000 kg) and Price ($250/kg) per entry
+  (`kMaxWeightKg`/`kMaxPriceDollars`, `FishBalanceCore.h`) - confirmed
+  directly with Jack (2026-10-02) since no authoritative maximum was
+  documented anywhere in the project; not invented. Enforced identically
+  at interactive entry (`CommitEntryForm`) and file loading
+  (`ParseFbdContent`).
+- New overflow-safe accumulation helpers (`SafeMultiplyFinite`/
+  `SafeAccumulate`) applied to the Entered Total on both the Reconciliation
+  tab (`RecalcTotals`) and the printed report - fails closed (same
+  treatment as an invalid Debtor/Cash entry) rather than ever displaying an
+  inf/-inf/NaN total.
+- Double-to-fixed-point migration deliberately NOT attempted this phase
+  (out of scope per Jack's instruction) - remaining rounding risk is
+  unchanged from before this phase and not newly introduced by it.
+- New boundary tests (`tests/test_parsing.cpp`,
+  `tests/test_fbd_loader.cpp`, `tests/test_phase2_numeric_and_layout.cpp`):
+  zero/max/one-over-max/negative weight and price, NaN/infinity, leap
+  years, impossible dates, overflow detection.
+
+**Documentation**: `BUSINESS_RULES.md` ("Entry limits and validation") and
+`DATA_FORMATS.md` (numeric ceilings in the field-limits table, new "Email
+address validation and mailto construction" section, new "Print / Print
+Preview resource bounds" section, expanded CSV export sanitization policy)
+updated to match.
+
+**Not done in this phase** (explicitly out of scope, per Jack's
+instructions): the broad `main.cpp` decomposition; Phase 3; re-litigating
+F6 (atomic writer), which is already disproven/fixed.
+
+## [0.9.52] - Notes/Debtor/Cash can now actually be typed up to their documented limit
+
+v0.9.51's Windows control-limit test surfaced a real, pre-existing gap in
+the application itself (flagged in ROADMAP.md's v0.9.51 status section as
+a deliberately out-of-scope observation): a single-line Win32 `EDIT`
+control without `ES_AUTOHSCROLL` rejects any further typed character once
+the text no longer fits the control's own visible pixel width - a
+different mechanism entirely from `EM_LIMITTEXT`. The Notes field (~340px
+wide on screen) and the Debtor/Cash fields (~260px wide) were created
+without this style, so typing (not pasting, not loading from a file) could
+silently stop dead at roughly 35-48 characters, nowhere near the
+documented 4,096-character limit those fields actually enforce. Jack
+confirmed this was worth fixing.
+
+- Added `ES_AUTOHSCROLL` to `hEditNotes`, `hEditDebtor`, and `hEditCash`
+  (`main.cpp`'s `WM_CREATE` handler) - these three now scroll horizontally
+  as you type past the visible edge, exactly like a normal Windows text
+  box, instead of refusing further keystrokes. `EM_LIMITTEXT` (4,096 for
+  all three) is unchanged and still the real cap.
+- Scope deliberately limited to these three fields: Kgs/Price (short
+  numeric values) and the Manage Names rename/merge and email fields
+  (short names, and already closer to their own on-screen width vs. their
+  255-character limit) were left untouched - no evidence they have this
+  problem in practice, and changing controls beyond what was actually
+  reported risks an unrelated regression.
+- No other application behavior changed. Pasting a long value, or loading
+  one from a saved `.fbd` file, always worked correctly either way - only
+  character-by-character typing was affected.
+
 ## [0.9.51] - Test-automation refactor: remaining Phase 1 manual tests automated
 
 **Revision note (2026-10-02):** Jack's first real Windows build of this

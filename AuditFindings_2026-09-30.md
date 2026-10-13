@@ -165,6 +165,15 @@ usage (see F13 below), the collision window is close to theoretical.
 recommend it ride along with F13 (multi-instance policy) rather than being
 fixed in isolation.
 
+**Phase 2 status (2026-10-02): re-verified, left alone as instructed.**
+Jack's Phase 2 authorization explicitly said not to revive this finding's
+main claim, since the current atomic writer already checks its relevant
+operations - re-confirmed directly against current source
+(`FishBalanceWin32IO.h`): every `write`/`ferror`/`flush`/`close` result is
+still checked. The one real remaining gap (fixed `.tmp` filename) is still
+deferred alongside F13/multi-instance policy, unchanged from this
+finding's original verdict - not part of Phase 2's authorized scope.
+
 ---
 
 ### F7 — Writable state lives beside the executable, not `%LOCALAPPDATA%`
@@ -242,6 +251,15 @@ Print Preview shares the identical rendering function — it's protected
 only by deliberately capping DPI at 150 (`kPreviewDpiCap`, 2994), not by a
 separate low-memory code path. Real printing has no equivalent safeguard.
 
+**Phase 2 status (2026-10-02): FIXED.** `PrintBreakdownReport` now streams
+pages one at a time via a callback into `RenderReportPages` - prints and
+frees each page before the next is rendered, so at most one full-
+resolution page bitmap exists in memory for the whole print job, instead
+of the entire report. Print Preview's memory use is now bounded by an
+explicit, documented total budget (`kReportMaxPreviewTotalBytes`) derived
+from the real per-page byte size, not just the DPI cap alone. See
+CHANGELOG.md `[0.9.53]` item 1.
+
 ---
 
 ### F11 — GDI/print API calls inconsistently checked; font and DIB bitmap `SelectObject` never restored before deletion; no `AbortDoc` anywhere
@@ -263,6 +281,15 @@ and the pen handling in two of the drawing helpers are already done
 correctly; the gap is specifically fonts, the DIB bitmap, and the other
 listed GDI calls.
 
+**Phase 2 status (2026-10-02): FIXED.** `CreateFontIndirectW`,
+`CreateDIBSection`, `CreateCompatibleDC`, `CreatePen`, `StartPage`,
+`StretchDIBits`, `EndPage`, `EndDoc` are all now checked. New RAII
+wrappers (`UniqueFont`/`UniquePen`/`UniqueBitmap`/`UniqueDC`/
+`ScopedSelect`) ensure every font/pen/bitmap is deselected (where
+meaningful) and deleted exactly once, including on an early-return
+failure path. `AbortDoc` is now called whenever `StartDocW` succeeded but
+printing subsequently fails. See CHANGELOG.md `[0.9.53]` item 1.
+
 ---
 
 ## Phase 4 candidates (input validation / injection)
@@ -275,6 +302,13 @@ listed GDI calls.
 guard entirely and is written unescaped — a real, not theoretical, bypass
 in Excel configurations/imports that tolerate a leading space before a
 formula marker.
+
+**Phase 2 status (2026-10-02): FIXED.** The guard now looks past leading
+spaces/tabs to find the first character that actually matters, closing
+the `" =1+1"` bypass. Also added: NUL/CR and other C0 control-character
+stripping (TAB/LF preserved), applied uniformly via the same `CsvField`
+chokepoint. See CHANGELOG.md `[0.9.53]` item 2 and DATA_FORMATS.md's CSV
+export section for the full documented policy.
 
 ---
 
@@ -295,6 +329,17 @@ one-at-a-time mailto drafts that Jack reviews before sending (per
 ARCHITECTURE.md). Real risk today is low; the gap matters if a `.fbd` is
 ever hand-edited/shared, or a pasted address carries stray characters.
 
+**Phase 2 status (2026-10-02): FIXED.** `LooksLikeEmail` now rejects CR/
+LF/NUL/other control characters and mailto-significant characters (`?`,
+`&`, `#`, `%`, `,`, `;`, and several others), applied at both entry time
+and `emails.txt` load time (previously load time only checked length).
+`EmailSupplier` now builds its URI via the new `BuildMailtoUri`, which
+percent-encodes the recipient/subject/body independently and refuses
+outright (with a user-facing error) rather than launching a malformed URI
+for an invalid stored address. See CHANGELOG.md `[0.9.53]` item 3 and
+DATA_FORMATS.md's new "Email address validation and mailto construction"
+section.
+
 ---
 
 ### F14 — No calendar validation; impossible dates (e.g. `2026-02-31`) accepted
@@ -305,6 +350,12 @@ year/month/day independently (day 1–31 regardless of month). The comment
 directly above it already says this doesn't validate day-of-month and that
 `2026-02-31` currently passes, "preserved here unchanged." Not a surprise
 finding — it's a tracked, not-yet-fixed gap.
+
+**Phase 2 status (2026-10-02): FIXED.** `ParseISODate` now validates real
+calendar correctness via new `IsValidCalendarDate`/`DaysInMonth`/
+`IsLeapYear` helpers - `2026-02-31` and similar impossible dates are now
+rejected; leap years (including the div-100/div-400 edge cases) handled
+correctly. See CHANGELOG.md `[0.9.53]` item 4.
 
 ---
 
@@ -317,6 +368,16 @@ individually overflow a `double`, summing many such entries or multiplying
 `kgs * price` across report aggregation could reach `Infinity` and poison
 downstream totals. Low probability given single trusted manual entry, but
 cheap to bound.
+
+**Phase 2 status (2026-10-02): FIXED.** New explicit ceilings
+`kMaxWeightKg` (10,000 kg) and `kMaxPriceDollars` ($250/kg) - confirmed
+directly with Jack rather than invented, since no authoritative maximum
+was documented anywhere - enforced identically at interactive entry and
+file loading via `ValidateWeightKg`/`ValidatePriceDollars`. New
+`SafeMultiplyFinite`/`SafeAccumulate` overflow guards applied to the
+Entered Total (Reconciliation tab and printed report). See CHANGELOG.md
+`[0.9.53]` item 4 and BUSINESS_RULES.md's "Entry limits and validation"
+section.
 
 ---
 

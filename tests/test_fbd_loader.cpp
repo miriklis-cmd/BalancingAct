@@ -168,6 +168,18 @@ TEST_SUITE("ParseFbdContent - v0.9.1 regression: per-row numeric validation") {
         CHECK_FALSE(ParseFbdContent(L"BEGIN\nA|B|1.0|-2.0\nEND\n").ok);
     }
 
+    TEST_CASE("Phase 2 / F15 (2026-10-02): a row with Kgs or Price over the "
+              "business maximum rejects the whole document, same as NaN/"
+              "infinity/negative - the exact ceilings (confirmed with Jack, "
+              "2026-10-02) are kMaxWeightKg=10,000kg and "
+              "kMaxPriceDollars=$250/kg") {
+        CHECK_FALSE(ParseFbdContent(L"BEGIN\nA|B|10000.01|2.0\nEND\n").ok);
+        CHECK_FALSE(ParseFbdContent(L"BEGIN\nA|B|1.0|250.01\nEND\n").ok);
+        // Exactly at the ceiling is still valid.
+        CHECK(ParseFbdContent(L"BEGIN\nA|B|10000|2.0\nEND\n").ok);
+        CHECK(ParseFbdContent(L"BEGIN\nA|B|1.0|250\nEND\n").ok);
+    }
+
     TEST_CASE("zero Kgs/Price is valid (not the same as negative)") {
         std::wstring content = L"BEGIN\nA|B|0|0\nEND\n";
         auto r = ParseFbdContent(content);
