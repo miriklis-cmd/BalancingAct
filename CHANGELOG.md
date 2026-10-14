@@ -18,6 +18,20 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.10.2] - main.cpp split, stage 2: shared state moved out (no behaviour change)
+
+- The ~107 file-level globals that were `static` at the top of `main.cpp` now live in shared headers, declared
+  `extern` and defined once, so code can move to other files in later stages:
+  - `src/data/AppData.h/.cpp` - document and persistence state (entries, current file, finalized date, dirty flag,
+    backup bookkeeping, undo, recent files, supplier emails, settings, `AppSettings`).
+  - `src/forms/UiState.h/.cpp` - window handles and per-window UI state, `S()` DPI scaling, `RenderedPage`.
+  - `src/forms/ControlIds.h` - the control/menu/timer ID enum.
+  - `src/PlatformWin.h` - the one place that sets Windows version/UNICODE/NOMINMAX macros and includes `<windows.h>`.
+- Values, initial values and meanings are unchanged. `main.cpp` shrank by ~220 lines.
+- Build lists now include `src/data/AppData.cpp` and `src/forms/UiState.cpp` in all four build paths.
+- Expect identical test counts: 236 portable, 25 integration. Likely failure mode if something is wrong:
+  a linker error (unresolved/duplicate symbol) - paste it and it is a one-line fix.
+
 ## [0.10.1] - Test and build output now shows which version/source was built
 
 Jack: "there's no way to tell what version of code it's actually testing."
