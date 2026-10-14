@@ -22,6 +22,7 @@ set(APP_SOURCES
     src/data/Storage.cpp
     src/services/CsvExport.cpp
     src/services/Email.cpp
+    src/services/ReportRender.cpp
     src/forms/UiState.cpp
 )
 

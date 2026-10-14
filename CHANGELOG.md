@@ -18,6 +18,20 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.10.5] - main.cpp split, stage 4b: report rendering moved to services
+
+- `src/services/ReportRender.h/.cpp`: the Breakdown report renderer (`RenderReportPages`), `RenderedPage`,
+  `RenderReportResult`, `FreeRenderedPages` and the RAII GDI wrappers (`UniqueFont`/`UniquePen`/`UniqueDC`/
+  `ScopedSelect`) - moved unchanged, including all the Phase 2 resource-safety logic and the v0.9.56 font fix.
+- One deliberate signature change so the services layer never touches a control: `RenderReportPages` now takes
+  the Debtor and Cash text as parameters (`debtorText`, `cashText`). `main.cpp` reads the boxes with a small
+  helper (`GetDebtorCashText`, same fixed-size buffer as before) and passes them in from both callers
+  (Print Preview and real printing). The parsing and the "cannot check" report wording are unchanged.
+- Still in `main.cpp` (forms layer): `PrintBreakdownReport` (print dialog and its message boxes) and the Print
+  Preview window.
+- Expect identical test counts: 236 portable, 25 integration. Likely failure mode: a linker or include error.
+  Worth a manual look: File > Print Preview and a PDF print (the Debtor/Cash lines on page 1).
+
 ## [0.10.4] - main.cpp split, stage 4a: CSV export and supplier email moved to services
 
 - `src/services/CsvExport.h/.cpp`: `ExportToCsv` (builds and writes the Excel-readable CSV), moved unchanged.
