@@ -18,6 +18,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # build_mingw.bat and tests/win32_integration/run_integration_tests.ps1).
 set(APP_SOURCES
     main.cpp
+    src/data/AppData.cpp
+    src/forms/UiState.cpp
 )
 
 add_executable(FishBalanceManager WIN32 ${APP_SOURCES} app_icon.rc)

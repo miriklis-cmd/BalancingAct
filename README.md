@@ -170,6 +170,7 @@ build_msvc.bat
 | `main.cpp`        | The Win32 application - windows, controls, message handling, file I/O, printing |
 | `src/core/FishBalanceCore.h` | Platform-independent domain logic extracted from `main.cpp` (parsing, aggregation, formatting) so it can be unit-tested without a Win32 dependency - see `tests/` |
 | `src/data/FishBalanceWin32IO.h` | Win32 file I/O (atomic write, load) behind small ports so it can be fault-injection tested - see `tests/win32_integration/` |
+| `src/data/AppData.*`, `src/forms/UiState.*`, `src/forms/ControlIds.h`, `src/PlatformWin.h` | Shared global state, control IDs and Windows include settings split out of `main.cpp` (v0.10.2) - see `src/README.md` |
 | `src/core/FishBalanceControlLimits.h` | Shared control/input limits |
 | `tests/`          | The automated test suites (doctest): portable unit tests for `FishBalanceCore.h`, plus `tests/win32_integration/` for real file I/O and an end-to-end smoke test - see "Note on testing" below |
 | `app.manifest`    | Requests Common Controls v6 (needed for grouped list). Shipped as an external side-by-side manifest (`FishBalanceManager.exe.manifest`) rather than embedded via the resource compiler, to avoid RC/CVTRES toolchain issues. |

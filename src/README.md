@@ -11,8 +11,13 @@
 `MessageBox`; `services` never touches a control. That is what lets the UI layer be replaced (e.g. by
 WinUI 3) without rewriting the rest.
 
-Status: the split is staged (see ROADMAP.md). Right now `core/` and `data/` hold the existing headers and
+Status (v0.10.2): the split is staged (see ROADMAP.md). Right now `core/` and `data/` hold the existing headers and
 `main.cpp` (still at the repo root) holds everything else; code moves into `services/` and `forms/` stage by stage.
+
+`PlatformWin.h` is the single place that sets Windows macros and includes `<windows.h>`; include it (directly or via a
+layer header) rather than `<windows.h>` itself.
+
+Global state: document/persistence state is in `data/AppData`, window handles and UI state are in `forms/UiState`.
 
 New `.cpp` files must be added to the source list in all four build paths: `build_msvc.bat`,
 `build_mingw.bat`, `CMakeLists.txt`, and `tests/win32_integration/run_integration_tests.ps1`.
