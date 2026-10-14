@@ -232,6 +232,10 @@ static bool g_sortAscending = true;
 
 // Single-level undo for the last deleted row.
 static bool g_hasUndo = false;
+// v0.9.63: set when the user answers Yes to the "this entry's date differs
+// from the rest of the sheet" prompt; suppresses further prompts until the
+// sheet changes (File > New, opening/loading a file, Finalize Day's clear).
+static bool g_allowMixedDatesThisSession = false;
 static Entry g_undoEntry;
 static int g_undoIndex = -1;
 static HMENU g_hEditMenu = nullptr;
@@ -717,6 +721,7 @@ bool LoadFromFile(const std::wstring& path, std::wstring* outError = nullptr) {
     g_lastLoadHasSourceFile = result.hasSourceFile;
 
     g_entries = result.entries;
+    g_allowMixedDatesThisSession = false; // a different sheet - ask again if its dates get mixed
     SetWindowTextW(hEditDebtor, result.debtor.c_str());
     SetWindowTextW(hEditCash, result.cash.c_str());
     g_finalizedDate = result.finalizedDate;
@@ -1394,6 +1399,35 @@ void CommitEntryForm() {
     DateTime_GetSystemtime(hDtpDate, &dtpVal);
     std::wstring date = FormatDateISO(dtpVal);
 
+    // v0.9.63 (Jack, 2026-10-14): a sheet is normally one day - Finalize Day
+    // closes it - so an entry dated differently from everything already on
+    // the sheet (e.g. yesterday's entries, then one for today) is confirmed
+    // first. Yes = add it and stop asking until the sheet changes; No =
+    // don't add (the form keeps what was typed, so just fix the date).
+    // Defaults to No so a quick Enter can't wave it through by accident.
+    // Checked before anything is modified, and for edits it ignores the row
+    // being edited (so re-dating the only row on a sheet never prompts).
+    if (!g_allowMixedDatesThisSession) {
+        int dateExcludeIdx = (g_editIndex >= 0 && g_editIndex < (int)g_entries.size()) ? g_editIndex : -1;
+        if (IsNewDateOnSheet(g_entries, date, dateExcludeIdx)) {
+            std::vector<std::wstring> sheetDates = DistinctSheetDates(g_entries, dateExcludeIdx);
+            std::wstring listed;
+            for (size_t i = 0; i < sheetDates.size() && i < 3; i++) {
+                if (i) listed += L", ";
+                listed += sheetDates[i];
+            }
+            if (sheetDates.size() > 3) listed += L" and " + std::to_wstring(sheetDates.size() - 3) + L" more";
+            std::wstring msg = L"The entries already on this sheet are dated " + listed +
+                               L", but this entry is dated " + date + L".\n\n"
+                               L"A sheet is normally one day's entries. Add this entry anyway?\n\n"
+                               L"Yes = add it, and don't ask again for this session.\n"
+                               L"No = don't add it (change the Date and try again).";
+            int r = MessageBoxW(g_hMainWnd, msg.c_str(), L"Different Date", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2);
+            if (r != IDYES) return;
+            g_allowMixedDatesThisSession = true;
+        }
+    }
+
     // Outlier price check (ROADMAP.md item 7) - "is this price a typo?"
     // against this species' OTHER entries on this same date, all
     // suppliers pooled. Excludes the row being edited from its own
@@ -1409,7 +1443,7 @@ void CommitEntryForm() {
     // false-positive flag will often clear itself automatically once more
     // similar-priced entries come in, without the user doing anything.
     int outlierExcludeIdx = (g_editIndex >= 0 && g_editIndex < (int)g_entries.size()) ? g_editIndex : -1;
-    std::vector<double> outlierBaseline = GatherOtherPricesForSpeciesOnDate(g_entries, product, date, outlierExcludeIdx);
+    std::vector<double> outlierBaseline = GatherOtherPricesForSpecies(g_entries, product, outlierExcludeIdx); // v0.9.62: whole sheet, not same date
     OutlierRange outlierRange;
     bool priceFlagged = ComputeOutlierRange(outlierBaseline, outlierRange) &&
                          (price < outlierRange.low || price > outlierRange.high);
@@ -1443,7 +1477,7 @@ void CommitEntryForm() {
     // committed - a new/edited price can change whether an EARLIER entry
     // still looks normal too (see ROADMAP.md item 7's discussion of the
     // "first entry poisons the baseline" gap this closes).
-    ReevaluateOutlierFlagsForSpeciesOnDate(g_entries, product, date);
+    ReevaluateOutlierFlagsForSpecies(g_entries, product); // v0.9.62: whole sheet, not same date
 
     g_dirty = true; // v0.9.30 - an add/update means there's something to lose again
 
@@ -1541,7 +1575,7 @@ bool DeleteEntryAt(int sel) {
     Entry& e = g_entries[sel];
     g_undoEntry = e;
     g_undoIndex = sel;
-    std::wstring undoProduct = e.product, undoDate = e.date; // captured before erase invalidates e
+    std::wstring undoProduct = e.product; // captured before erase invalidates e
     g_hasUndo = true;
     if (g_hEditMenu) EnableMenuItem(g_hEditMenu, ID_EDIT_UNDO_DELETE, MF_BYCOMMAND | MF_ENABLED);
 
@@ -1550,7 +1584,7 @@ bool DeleteEntryAt(int sel) {
     // Removing this entry can change whether its siblings still look like
     // outliers (the baseline they're judged against just shrank) - see
     // ReevaluateOutlierFlagsForSpeciesOnDate / ROADMAP.md item 7.
-    ReevaluateOutlierFlagsForSpeciesOnDate(g_entries, undoProduct, undoDate);
+    ReevaluateOutlierFlagsForSpecies(g_entries, undoProduct); // v0.9.62
     // Deleting shifts every later index down by one, and may remove the
     // row currently loaded in the form - simplest and safest is to just
     // drop out of edit mode rather than try to track the shift.
@@ -1590,7 +1624,7 @@ void UndoDelete() {
     g_dirty = true; // v0.9.30
     // Restoring it can equally change whether siblings still look normal -
     // same reasoning as the delete path above, symmetric in reverse.
-    ReevaluateOutlierFlagsForSpeciesOnDate(g_entries, g_undoEntry.product, g_undoEntry.date);
+    ReevaluateOutlierFlagsForSpecies(g_entries, g_undoEntry.product); // v0.9.62
     g_hasUndo = false;
     if (g_hEditMenu) EnableMenuItem(g_hEditMenu, ID_EDIT_UNDO_DELETE, MF_BYCOMMAND | MF_GRAYED);
     if (g_editIndex != -1) CancelEdit();
@@ -1663,7 +1697,7 @@ void ReviewOrEditEntry(int idx) {
     if (idx < 0 || idx >= (int)g_entries.size()) return;
     Entry& e = g_entries[idx];
     if (e.priceFlagged) {
-        std::vector<double> baseline = GatherOtherPricesForSpeciesOnDate(g_entries, e.product, e.date, idx);
+        std::vector<double> baseline = GatherOtherPricesForSpecies(g_entries, e.product, idx); // v0.9.62
         OutlierRange range;
         bool stillOutlier = ComputeOutlierRange(baseline, range) && (e.price < range.low || e.price > range.high);
         wchar_t msg[512];
@@ -1671,17 +1705,17 @@ void ReviewOrEditEntry(int idx) {
             bool tooHigh = e.price > range.high;
             double limit = tooHigh ? range.high : range.low; // low is guaranteed >0 here - see CommitEntryForm's identical logic
             swprintf(msg, 512,
-                L"This entry is $%.2f/kg for %s on %s.\n"
-                L"The dynamic limit calculated for today is %s $%.2f/kg.\n\n"
+                L"This entry is $%.2f/kg for %s.\n"
+                L"The dynamic limit calculated from the other %s entries on this sheet is %s $%.2f/kg.\n\n"
                 L"Still looks like a typo?\n\n"
                 L"Click Yes to edit it, No to leave it as-is.",
-                e.price, e.product.c_str(), e.date.c_str(), tooHigh ? L"max" : L"min", limit);
+                e.price, e.product.c_str(), e.product.c_str(), tooHigh ? L"max" : L"min", limit);
         } else {
             swprintf(msg, 512,
-                L"This entry's price ($%.2f) was flagged earlier as unusual for %s on %s, but no "
-                L"longer looks unusual against the current entries. Click Yes to edit it anyway, "
+                L"This entry's price ($%.2f) was flagged earlier as unusual for %s, but no "
+                L"longer looks unusual against the other entries on this sheet. Click Yes to edit it anyway, "
                 L"No to clear the flag and leave it as-is.",
-                e.price, e.product.c_str(), e.date.c_str());
+                e.price, e.product.c_str());
         }
         int r = MessageBoxW(g_hMainWnd, msg, L"Flagged Price", MB_YESNO | MB_ICONWARNING);
         if (r == IDNO) {
@@ -1761,6 +1795,7 @@ void DoFileNew() {
     // discard prompt, checked backups\ - nothing there.
     WriteBackupSnapshot();
     g_entries.clear();
+    g_allowMixedDatesThisSession = false; // fresh sheet
     SetWindowTextW(hEditDebtor, L""); // triggers EN_CHANGE, which sets g_dirty - explicitly cleared below
     SetWindowTextW(hEditCash, L"");
     g_currentFile.clear();
@@ -2109,6 +2144,7 @@ LRESULT CALLBACK FinalizeWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
                 // clears the file, but not the unfinalise button." The next
                 // day's entries are a genuinely new, unlocked, unsaved sheet.
                 g_entries.clear();
+                g_allowMixedDatesThisSession = false; // next day's sheet starts fresh
                 SetWindowTextW(hEditDebtor, L"");
                 SetWindowTextW(hEditCash, L"");
                 g_currentFile.clear();
@@ -4888,6 +4924,7 @@ struct TempTestDir {
 // executable, not per-test state doctest can isolate on its own.
 void ResetApplicationStateForTest() {
     g_entries.clear();
+    g_allowMixedDatesThisSession = false;
     g_currentFile.clear();
     g_finalizedDate.clear();
     g_dirty = false;

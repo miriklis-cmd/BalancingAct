@@ -12,6 +12,49 @@ possible, grouped into logical releases.
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.9.63] - Warn before adding an entry with a different date from the rest of the sheet
+
+Jack (2026-10-14): "can we set a dialog box to pop up if dates are different?
+E.g. all my entries yesterday, then I go to add one for today's date? I can
+say OK for this session, or no."
+- Adding (or re-dating) an entry whose date isn't already on a non-empty
+  sheet now asks: "The entries already on this sheet are dated <dates>, but
+  this entry is dated <date>. Add this entry anyway?" Yes = add it and don't
+  ask again for this session; No = don't add (the form keeps what was typed).
+  Defaults to No, so a quick Enter can't wave it through.
+- "This session" re-arms whenever the sheet changes: File > New, opening or
+  loading any file, and after Finalize Day clears the sheet. A sheet that
+  already mixes dates (Saturday + Monday) only prompts for a date not yet on it.
+- Editing ignores the row being edited, so re-dating the only row never prompts.
+- Pure logic in FishBalanceCore.h (DistinctSheetDates, IsNewDateOnSheet) with
+  7 new test cases in test_aggregation.cpp. The dialog itself needs a manual
+  check. Not compiled here.
+
+## [0.9.62] - Unusual-price check now compares across the whole sheet, not the same date
+
+Jack (2026-10-14): a test sheet had Flathead $2.00 and $222.00 (13/10) next to
+six normal $12-$18 Flathead entries (30/09) and neither was flagged, because
+the check only compared entries with an IDENTICAL date and needs at least 4
+other prices. Jack: "one sheet is one balance session - that's why we have
+Finalize Day"; a sheet can legitimately hold several dates (Monday + Tuesday
+balanced as one day; Saturday's entries balanced on the Monday with
+Saturday's date).
+- New GatherOtherPricesForSpecies / ReevaluateOutlierFlagsForSpecies
+  (FishBalanceCore.h): same species, ANY date, any supplier. The app (add/
+  edit, delete, undo-delete, and the flagged-row review dialog) now uses
+  these. Everything else is unchanged: minimum 4 other prices, Tukey fence,
+  20% floor, never blocks an entry, flags re-evaluated after every change.
+- The old date-scoped functions and their tests are kept unchanged but no
+  longer called by the app.
+- Flag review dialog wording updated ("... the other <species> entries on
+  this sheet ..."; no longer mentions a date).
+- Tests (test_aggregation.cpp): Jack's real sheet (Flathead $2.00 and $222.00
+  flagged, the six normal ones not), Rock flat (still not flagged: only 3
+  other prices), a Saturday-dated entry compared against Monday's, other
+  species untouched, a fixed typo un-flags. Expected values hand-checked.
+- Also removed an unused local (undoDate) that would otherwise trip /W4 /WX.
+Not compiled here - needs run_tests.bat / build_msvc.bat on Windows.
+
 ## [0.9.61] - Fix black button icons; list columns now DPI-scaled
 
 Jack's v0.9.60 check (screenshots):
