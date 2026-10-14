@@ -70,6 +70,8 @@
 // src/data/AppData.cpp and src/forms/UiState.cpp).
 #include "src/data/AppData.h"
 #include "src/data/Storage.h"
+#include "src/services/CsvExport.h"
+#include "src/services/Email.h"
 #include "src/forms/ControlIds.h"
 #include "src/forms/UiState.h"
 
@@ -1854,109 +1856,6 @@ void DoFinalizeDay() {
 
 // CsvField() now lives in FishBalanceCore.h (unchanged logic).
 
-bool ExportToCsv(const std::wstring& path, std::wstring* outError = nullptr) {
-    std::string content;
-    unsigned char bom[3] = { 0xEF, 0xBB, 0xBF }; // UTF-8 BOM, so Excel reads accents/symbols correctly
-    content.append(reinterpret_cast<char*>(bom), 3);
-
-    auto writeLine = [&](const std::wstring& line) {
-        content += WToUtf8(line) + "\r\n";
-    };
-    auto csvRow = [&](std::initializer_list<std::wstring> fields) {
-        std::wstring line;
-        bool first = true;
-        for (auto& fld : fields) {
-            if (!first) line += L",";
-            line += CsvField(fld);
-            first = false;
-        }
-        writeLine(line);
-    };
-
-    writeLine(L"Fish Balance Manager Export");
-    SYSTEMTIME st;
-    GetLocalTime(&st);
-    std::wstringstream ss;
-    ss << L"Generated " << std::setfill(L'0')
-       << std::setw(4) << st.wYear << L"-" << std::setw(2) << st.wMonth << L"-" << std::setw(2) << st.wDay
-       << L" " << std::setw(2) << st.wHour << L":" << std::setw(2) << st.wMinute;
-    writeLine(ss.str());
-    writeLine(L"");
-
-    writeLine(L"Entries");
-    csvRow({ L"Date", L"Supplier", L"Species", L"Kgs", L"Price", L"Total", L"Notes" });
-    for (auto& e : g_entries)
-        csvRow({ e.date, e.supplier, e.product, FormatKg(e.kgs), FormatNum(e.price), FormatNum(e.Total()), e.notes });
-    writeLine(L"");
-
-    writeLine(L"Overview by Supplier");
-    csvRow({ L"Supplier", L"Kgs", L"Total" });
-    {
-        std::vector<std::wstring> keys;
-        std::map<std::wstring, double> kgsSum, amtSum;
-        for (auto& e : g_entries) {
-            if (kgsSum.find(e.supplier) == kgsSum.end()) { kgsSum[e.supplier] = 0; amtSum[e.supplier] = 0; keys.push_back(e.supplier); }
-            kgsSum[e.supplier] += e.kgs;
-            amtSum[e.supplier] += e.Total();
-        }
-        std::sort(keys.begin(), keys.end());
-        double gk = 0, ga = 0;
-        for (auto& k : keys) { csvRow({ k, FormatKg(kgsSum[k]), FormatNum(amtSum[k]) }); gk += kgsSum[k]; ga += amtSum[k]; }
-        csvRow({ L"GRAND TOTAL", FormatKg(gk), FormatNum(ga) });
-    }
-    writeLine(L"");
-
-    writeLine(L"By Species (all suppliers)");
-    csvRow({ L"Species", L"Kgs", L"Total", L"Avg Price", L"Highest Price", L"Lowest Price" });
-    {
-        std::vector<std::wstring> keys;
-        std::map<std::wstring, double> kgsSum, amtSum, priceSum, priceMax, priceMin;
-        std::map<std::wstring, int> priceCount;
-        for (auto& e : g_entries) {
-            if (kgsSum.find(e.product) == kgsSum.end()) {
-                kgsSum[e.product] = 0; amtSum[e.product] = 0; priceSum[e.product] = 0; priceCount[e.product] = 0;
-                priceMax[e.product] = e.price; priceMin[e.product] = e.price;
-                keys.push_back(e.product);
-            }
-            kgsSum[e.product] += e.kgs;
-            amtSum[e.product] += e.Total();
-            priceSum[e.product] += e.price;
-            priceCount[e.product]++;
-            if (e.price > priceMax[e.product]) priceMax[e.product] = e.price;
-            if (e.price < priceMin[e.product]) priceMin[e.product] = e.price;
-        }
-        std::sort(keys.begin(), keys.end());
-        double gk = 0, ga = 0;
-        for (auto& k : keys) {
-            double avg = priceCount[k] > 0 ? priceSum[k] / priceCount[k] : 0;
-            csvRow({ k, FormatKg(kgsSum[k]), FormatNum(amtSum[k]), FormatNum(avg), FormatNum(priceMax[k]), FormatNum(priceMin[k]) });
-            gk += kgsSum[k]; ga += amtSum[k];
-        }
-        csvRow({ L"GRAND TOTAL", FormatKg(gk), FormatNum(ga), L"", L"", L"" });
-    }
-    writeLine(L"");
-
-    writeLine(L"Breakdown (Supplier > Species > Price)");
-    csvRow({ L"Supplier", L"Species", L"Price", L"Kgs", L"Total" });
-    {
-        auto data = BuildBreakdownData(g_entries);
-        double grandKgs = 0, grandAmt = 0;
-        for (auto& sg : data) {
-            for (auto& pg : sg.products) {
-                for (auto& pl : pg.prices)
-                    csvRow({ sg.supplier, pg.species, FormatNum(pl.price), FormatKg(pl.kgs), FormatNum(pl.amt) });
-                csvRow({ sg.supplier, pg.species + L" Total", L"", FormatKg(pg.totalKgs), FormatNum(pg.totalAmt) });
-            }
-            csvRow({ sg.supplier, L"SUPPLIER TOTAL", L"", FormatKg(sg.totalKgs), FormatNum(sg.totalAmt) });
-            grandKgs += sg.totalKgs;
-            grandAmt += sg.totalAmt;
-        }
-        csvRow({ L"", L"GRAND TOTAL", L"", FormatKg(grandKgs), FormatNum(grandAmt) });
-    }
-
-    return WriteFileAtomicUtf8(path, content, outError);
-}
-
 void DoExportCsv() {
     wchar_t file[MAX_PATH] = L"";
     OPENFILENAMEW ofn{};
@@ -3212,66 +3111,11 @@ void OpenPrintPreview(HWND owner) {
 // Tools > Manage Supplier / Species Names... (g_supplierEmails).
 // ---------------------------------------------------------------------------
 
-// TodayDateString keeps its original no-argument signature here (nothing
-// else in main.cpp needs to change) but delegates to the portable,
-// date-parameterized version in FishBalanceCore.h for the actual logic,
-// reading the current time via GetLocalTime at this one Win32 boundary.
-// (A no-argument GreetingForNow() used to sit here too, wrapping
-// GreetingForHour() the same way - removed as dead code, v0.9.43: the
-// actual email body is built by BuildSupplierEmailBody() in
-// FishBalanceCore.h, which takes the current hour as an explicit
-// parameter from EmailSupplier() below and calls GreetingForHour()
-// directly, so GreetingForNow() had no remaining caller.)
-std::wstring TodayDateString() {
-    SYSTEMTIME st;
-    GetLocalTime(&st);
-    return FormatLongDate(SimpleDate{ st.wYear, st.wMonth, st.wDay });
-}
-
 // UrlEncodeForMailto, LooksLikeEmail, PadRight, and BuildSupplierEmailBody
 // now all live in FishBalanceCore.h (unchanged logic; BuildSupplierEmailBody
 // there takes the current hour as an explicit parameter instead of reading
 // the clock internally, so it can be unit-tested with any hour value - the
 // call site in EmailSupplier below passes the real current hour in).
-
-// Phase 2 / F13 (2026-10-02): mailto construction now goes through
-// BuildMailtoUri() (FishBalanceCore.h), which percent-encodes the
-// recipient/subject/body independently and refuses outright (rather than
-// best-effort-encoding) a non-empty stored address that fails
-// LooksLikeEmail() - see that function's comment. outError, when non-null,
-// is set to a short, user-facing reason on any failure (an invalid stored
-// address, or ShellExecuteW failing to launch a mail client).
-bool EmailSupplier(const std::wstring& email, const SupplierGroup& sg, std::wstring* outError = nullptr) {
-    SYSTEMTIME st;
-    GetLocalTime(&st);
-    // v0.9.58: supplier name is always in the subject (was only added when
-    // there was no To address). Safe for any supplier text: BuildMailtoUri
-    // percent-encodes the subject independently of the other components.
-    std::wstring subject = L"Prices - " + TodayDateString() + L" - " + sg.supplier;
-    std::wstring body = BuildSupplierEmailBody(sg, st.wHour);
-
-    MailtoBuildResult built = BuildMailtoUri(email, subject, body);
-    if (!built.ok) {
-        if (outError) *outError = built.error;
-        return false;
-    }
-
-    // Windows can prevent a window launched from a background/already-idle
-    // action from stealing focus, so it opens minimized or behind other
-    // windows instead of visibly popping up - explicitly allowing the next
-    // process to set itself as foreground avoids that for this case.
-    AllowSetForegroundWindow(ASFW_ANY);
-
-    HINSTANCE result = ShellExecuteW(nullptr, L"open", built.uri.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-    // Per MSDN, a return value > 32 means success; anything else is an error code.
-    if ((INT_PTR)result <= 32) {
-        if (outError) *outError = L"Windows couldn't open an email draft. This usually means there's no "
-            L"default email app set up on this PC yet. Go to Windows Settings > Apps > Default apps, "
-            L"search for 'Mail' (or MAILTO), and set a default (e.g. Outlook or the Windows Mail app).";
-        return false;
-    }
-    return true;
-}
 
 void DoEmailSuppliers() {
     auto data = BuildBreakdownData(g_entries);

@@ -18,6 +18,16 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.10.4] - main.cpp split, stage 4a: CSV export and supplier email moved to services
+
+- `src/services/CsvExport.h/.cpp`: `ExportToCsv` (builds and writes the Excel-readable CSV), moved unchanged.
+- `src/services/Email.h/.cpp`: `TodayDateString` and `EmailSupplier` (build the mailto: draft and launch the
+  mail client), moved unchanged.
+- The parts that talk to the user stay in `main.cpp` (forms layer): the Save dialog and result messages in
+  `DoExportCsv`, and the confirm/progress dialogs in `DoEmailSuppliers`.
+- Printing and report rendering (stage 4b) is next; it is the biggest piece so it gets its own step.
+- Expect identical test counts: 236 portable, 25 integration. Likely failure mode: a linker or include error.
+
 ## [0.10.3] - main.cpp split, stage 3: file paths and simple storage moved to the data layer
 
 - New `src/data/Storage.h/.cpp` holds, moved unchanged out of `main.cpp`: `GetExeDir` (and the test override),
