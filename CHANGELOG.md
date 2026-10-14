@@ -18,7 +18,18 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
-## [0.10.10] - Experiment: Supplier/Species combo first-paint glitch; no more CRLF warnings on push
+## [0.10.11] - Revert the v0.10.10 combo experiment (it made the combos disappear)
+
+Jack's screenshot after v0.10.10: the Supplier and Species boxes were not drawn at all (before: drawn, with a grey
+strip). The v0.10.10 hypothesis was wrong or incomplete.
+- Removed `WS_CLIPCHILDREN` from the main window and `WS_CLIPSIBLINGS` from the two combos; the drawing code is
+  back to exactly v0.10.9 (combos draw, with the old intermittent grey-strip glitch). Which of the two flags hid
+  the combos was not isolated - don't retry either without a diagnostic first (noted in ARCHITECTURE.md).
+- Kept from v0.10.10: CRLF packaging (no more git line-ending warnings).
+- The first-paint workaround (`FixComboBoxFirstPaint` + 3 timers) stays. The glitch is cosmetic and parked until a
+  diagnostic build is worth the time; it is not blocking the split.
+
+## [0.10.10] - Experiment (FAILED, reverted in 0.10.11): Supplier/Species combo first-paint glitch; no more CRLF warnings on push
 
 Jack (2026-10-15, screenshot after v0.10.9): the Supplier and Species boxes still draw wrongly (white text area stops
 short, a grey strip before the drop-down arrow) and he asked whether to wait for WinUI 3 - no, this is a small fix

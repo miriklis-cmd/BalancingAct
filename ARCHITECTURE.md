@@ -141,6 +141,12 @@ Also always check `ShellExecuteW`'s return value (`> 32` means success) —
 it fails silently otherwise, which looked exactly like "nothing happens"
 in an earlier bug.
 
+### Combo boxes and clip styles (v0.10.10 - tried, made it worse, reverted)
+Adding `WS_CLIPCHILDREN` to the main window and `WS_CLIPSIBLINGS` to the Supplier/Species combos to cure the
+first-paint glitch made both combos vanish entirely on Jack's machine. Don't retry either flag without a
+diagnostic first (e.g. logging what paints over the combo). The combo's window is created S(200) tall (its
+drop-down height) and overlaps controls created after it, which may be why clipping hid it - untested theory.
+
 ### Win32 forward declarations
 Functions are used before they're textually defined in a few places
 (e.g. `CancelEdit` is called by `DeleteSelectedEntry`, which appears
