@@ -1,6 +1,6 @@
 #include "doctest_setup.h"
 #include "doctest.h"
-#include "../FishBalanceCore.h"
+#include "../src/core/FishBalanceCore.h"
 
 // A reminder for anyone adding fixtures here: the real .fbd row format is
 // Supplier|Species|Kgs|Price|Date|Notes|Flagged (7 fields, 6 pipes),

@@ -9,8 +9,24 @@ Versions before 0.9.0 were not tracked at the time — this history has been
 reconstructed from the project's development conversation as accurately as
 possible, grouped into logical releases.
 
+## Version numbering (from v0.10.0)
+
+Decided with Jack 2026-10-14: the `main.cpp` split is **0.10.0**, and every update that is part of the split is
+**0.10.x**. The next new *feature* after the split is **0.11.0**. Move to **1.0.0** only when the app is ready
+for prime time (released).
+
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
+
+## [0.10.0] - main.cpp split, stage 1: folder layout and build plumbing (no behaviour change)
+
+- New layered layout (`src/core`, `src/data`; `services` and `forms` to follow) documented in `src/README.md`.
+  Dependencies only point downward.
+- Moved (not changed): `FishBalanceCore.h` and `FishBalanceControlLimits.h` -> `src/core/`;
+  `FishBalanceWin32IO.h` -> `src/data/`. All `#include` paths updated (main.cpp, tests).
+- Build plumbing: each of the four build paths (build_msvc.bat, build_mingw.bat, CMakeLists.txt,
+  run_integration_tests.ps1) now has one source list to add new `.cpp` files to. Still just `main.cpp`.
+- Expect identical test counts: 236 portable, 25 integration.
 
 ## [0.9.67] - Phase 3a step 4: documentation refresh (audit F25-F29)
 

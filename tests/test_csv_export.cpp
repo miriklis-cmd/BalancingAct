@@ -1,6 +1,6 @@
 #include "doctest_setup.h"
 #include "doctest.h"
-#include "../FishBalanceCore.h"
+#include "../src/core/FishBalanceCore.h"
 
 TEST_SUITE("CsvField") {
     TEST_CASE("plain text passes through unchanged") {

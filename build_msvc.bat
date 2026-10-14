@@ -4,13 +4,17 @@ REM The manifest is shipped as an external side-by-side file (no resource
 REM compiler needed for that part); the app icon needs a small resource
 REM script (app_icon.rc) compiled and linked in.
 
+rem v0.10.0: every .cpp of the app is listed HERE (and in build_mingw.bat, CMakeLists.txt
+rem and tests\win32_integration\run_integration_tests.ps1) - add new source files to all four.
+set SOURCES=main.cpp
+
 rc /nologo app_icon.rc
 if errorlevel 1 goto :error
 
 REM Phase 1 (2026-09-30): /W4 /WX now matches CMakeLists.txt's warning
 REM gate (see AuditFindings_2026-09-30.md, finding F29) - previously this
 REM script passed no warning flags at all.
-cl /nologo /W4 /WX /EHsc /O2 /std:c++17 /DUNICODE /D_UNICODE main.cpp app_icon.res ^
+cl /nologo /W4 /WX /EHsc /O2 /std:c++17 /DUNICODE /D_UNICODE %SOURCES% app_icon.res ^
    user32.lib gdi32.lib comctl32.lib comdlg32.lib shell32.lib winspool.lib /Fe:FishBalanceManager.exe ^
    /link /MANIFEST:NO
 if errorlevel 1 goto :error

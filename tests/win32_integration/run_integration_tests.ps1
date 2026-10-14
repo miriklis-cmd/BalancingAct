@@ -33,8 +33,9 @@ $here = $PSScriptRoot
 $root = Resolve-Path (Join-Path $here "..\..")
 Push-Location $here
 
-$sources = @(
-    (Join-Path $root "main.cpp"),
+# v0.10.0: list every app .cpp here too (same list as build_msvc.bat etc.).
+$appSources = @(@("main.cpp") | ForEach-Object { Join-Path $root $_ })
+$sources = $appSources + @(
     "test_io_integration.cpp",
     "test_save_fault_injection.cpp",
     "test_integration_main.cpp"

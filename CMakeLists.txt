@@ -13,7 +13,14 @@ enable_language(RC)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(FishBalanceManager WIN32 main.cpp app_icon.rc)
+# v0.10.0: the app's .cpp files, listed once and shared with the integration
+# test target below. Add new source files here (and in build_msvc.bat,
+# build_mingw.bat and tests/win32_integration/run_integration_tests.ps1).
+set(APP_SOURCES
+    main.cpp
+)
+
+add_executable(FishBalanceManager WIN32 ${APP_SOURCES} app_icon.rc)
 target_link_libraries(FishBalanceManager PRIVATE comctl32 comdlg32 shell32 winspool)
 
 # Phase 1 (2026-09-30) warning-gate tightening: /W4 /WX for MSVC,
@@ -91,7 +98,7 @@ add_test(NAME FishBalanceCoreTests COMMAND FishBalanceTests)
 # tests/win32_integration/run_integration_tests.ps1 for the everyday way to
 # build+run just this suite with the same /W4 /WX gate.
 add_executable(FishBalanceIntegrationTests
-    main.cpp
+    ${APP_SOURCES}
     tests/win32_integration/test_io_integration.cpp
     tests/win32_integration/test_save_fault_injection.cpp
     tests/win32_integration/test_integration_main.cpp

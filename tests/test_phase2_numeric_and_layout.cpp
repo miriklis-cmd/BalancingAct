@@ -9,7 +9,7 @@
 //     multiplication/accumulation overflow guards.
 #include "doctest_setup.h"
 #include "doctest.h"
-#include "../FishBalanceCore.h"
+#include "../src/core/FishBalanceCore.h"
 #include <limits>
 
 TEST_SUITE("ScaleRound (portable MulDiv equivalent)") {

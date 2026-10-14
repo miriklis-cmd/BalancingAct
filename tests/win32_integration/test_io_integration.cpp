@@ -35,8 +35,8 @@
 #include <string>
 #include <vector>
 
-#include "../../FishBalanceCore.h"
-#include "../../FishBalanceWin32IO.h"
+#include "../../src/core/FishBalanceCore.h"
+#include "../../src/data/FishBalanceWin32IO.h"
 
 namespace {
 
