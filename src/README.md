@@ -23,6 +23,8 @@ Services (`services/`): `CsvExport` (CSV report), `Email` (supplier price email 
 
 Popups (`forms/ManageNamesWindow`, `forms/PrintPreviewWindow`): the Manage Names and Print Preview windows. `forms/MainWindowApi.h` lists what the main window (still in `main.cpp`) provides to them.
 
+Main window lists (`forms/MainWindowLists`, v0.10.8): the entry list, Overview / By Species / Breakdown lists, Supplier/Species combo refresh + autocomplete, and `RecalcTotals` (the balance badge). Layout, control creation and the window procedure are still in `main.cpp` (stage 6b-6d).
+
 `forms/PopupPlacement.h` keeps popup windows inside the monitor work area (`FitPopupToWorkArea`).
 
 Global state: document/persistence state is in `data/AppData`, window handles and UI state are in `forms/UiState`.

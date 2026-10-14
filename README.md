@@ -174,6 +174,7 @@ build_msvc.bat
 | `src/data/Storage.*` | Where the app's files live and how settings / recent files / supplier emails are read and written (v0.10.3) |
 | `src/services/*` | CSV export, supplier-email building and report rendering, split out of `main.cpp` (v0.10.4-0.10.5) |
 | `src/forms/ManageNamesWindow.*`, `src/forms/PrintPreviewWindow.*`, `src/forms/MainWindowApi.h` | The Manage Names and Print Preview popups, split out of `main.cpp` (v0.10.6) |
+| `src/forms/MainWindowLists.*` | The main window's list views, combo refresh/autocomplete and balance totals (v0.10.8) |
 | `src/core/FishBalanceControlLimits.h` | Shared control/input limits |
 | `tests/`          | The automated test suites (doctest): portable unit tests for `FishBalanceCore.h`, plus `tests/win32_integration/` for real file I/O and an end-to-end smoke test - see "Note on testing" below |
 | `app.manifest`    | Requests Common Controls v6 (needed for grouped list). Shipped as an external side-by-side manifest (`FishBalanceManager.exe.manifest`) rather than embedded via the resource compiler, to avoid RC/CVTRES toolchain issues. |

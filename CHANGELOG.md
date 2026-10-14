@@ -18,6 +18,16 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.10.8] - main.cpp split, stage 6a: list views, combos and totals moved to forms
+
+- `src/forms/MainWindowLists.h/.cpp`: `RefreshCombos`, `ComboAutoComplete`, `RefreshEntriesList`, `SortEntriesBy`,
+  `RecalcTotals`, the Overview / By Species / Breakdown list builders - moved unchanged (~370 lines out of `main.cpp`).
+- `RefreshAll` stays in `main.cpp` for now: it autosaves (file work), which stage 7 splits out.
+- New file added to all four build paths (MSVC, MinGW, CMake, integration-test runner).
+- No behaviour change. Expect 241 portable tests, 25 integration; the new file is compiled by the integration runner.
+- Manual check: open a file, look at all four tabs (entry list, filter box, column sort, Overview, Breakdown,
+  By Species), type in Supplier/Species for autocomplete, and confirm Debtor/Cash still show Balanced / Out of balance.
+
 ## [0.10.7] - Fix: Print Preview (and other popups) could open taller than the screen
 
 Jack (2026-10-14, screenshot of Print Preview): "is top of print preview cut off?" - yes. The popup was a fixed
