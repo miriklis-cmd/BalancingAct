@@ -594,3 +594,5 @@ are fixed and folded into that file's permanent record.*
 **Status (2026-10-14, v0.9.65): F6 and F24 FIXED** - temp file named <file>.<pid>.tmp; named-mutex single-instance guard in wWinMain.
 
 **Status (2026-10-14, v0.9.66): F23 FIXED** - GetExeDir grows its buffer until the path fits.
+
+**Status (2026-10-14, v0.9.67): F25-F29 RESOLVED** - F25-F28 text was already fixed in Phase 1; remaining gaps (integration suite, new headers) documented; F29 warning gates consistent across all four build paths.

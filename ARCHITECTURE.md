@@ -165,7 +165,10 @@ compiler-verified automated test suite (`tests/`, doctest-based - see
 README.md's "Note on testing" and Testing.md) that Jack runs on his own
 machine via CTest or `run_tests.bat`/`run_tests.ps1`. That suite is real
 coverage, not a substitute for the steps below - it just covers the
-portable half of the codebase, not the Win32-specific half.
+portable half of the codebase. A second suite (`tests/win32_integration/`,
+also run by `run_tests.bat`) exercises the Win32 file I/O for real, but
+window/printing behavior is still checked by hand. All build paths use the
+same warning gate (MSVC `/W4 /WX`; MinGW `-Wall -Wextra -Wpedantic -Werror`).
 
 For everything in `main.cpp` itself (window creation, message handling,
 printing, file dialogs - code that can't be unit-tested without a Win32

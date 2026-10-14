@@ -169,7 +169,9 @@ build_msvc.bat
 |-------------------|------------------------------------------------------|
 | `main.cpp`        | The Win32 application - windows, controls, message handling, file I/O, printing |
 | `FishBalanceCore.h` | Platform-independent domain logic extracted from `main.cpp` (parsing, aggregation, formatting) so it can be unit-tested without a Win32 dependency - see `tests/` |
-| `tests/`          | The automated test suite (doctest) covering `FishBalanceCore.h` - see "Note on testing" below |
+| `FishBalanceWin32IO.h` | Win32 file I/O (atomic write, load) behind small ports so it can be fault-injection tested - see `tests/win32_integration/` |
+| `FishBalanceControlLimits.h` | Shared control/input limits |
+| `tests/`          | The automated test suites (doctest): portable unit tests for `FishBalanceCore.h`, plus `tests/win32_integration/` for real file I/O and an end-to-end smoke test - see "Note on testing" below |
 | `app.manifest`    | Requests Common Controls v6 (needed for grouped list). Shipped as an external side-by-side manifest (`FishBalanceManager.exe.manifest`) rather than embedded via the resource compiler, to avoid RC/CVTRES toolchain issues. |
 | `app.ico`         | The application icon (multi-resolution: 16–256px), embedded into the exe via `app_icon.rc` |
 | `resource.h`       | Shared resource ID (`IDI_APPICON`) used by both `main.cpp` and `app_icon.rc` |
@@ -204,8 +206,9 @@ There IS an automated test suite (`tests/`, using the doctest framework) -
 it covers `FishBalanceCore.h`, the platform-independent parsing/
 aggregation/formatting logic the app is built on, and runs via CTest
 (`cmake --build build --target RUN_TESTS` or `ctest` from the build
-folder) or directly via `tests/run_tests.ps1` / `run_tests.bat`. Run it
-after any change to `FishBalanceCore.h`.
+folder) or directly via `tests/run_tests.ps1`. `run_tests.bat` runs BOTH the
+portable suite and the Windows integration suite (real files, injected
+save failures, headless startup) - run it after any change.
 
 What it can't cover is the Win32-specific code in `main.cpp` itself
 (window creation, message handling, printing, file dialogs) - that was
