@@ -101,7 +101,7 @@ END
   with no exception** (v0.9.50) - a `DEBTOR=`/`CASH=`-only document with
   neither marker present, which older versions of this app accepted, is
   now rejected. This isn't a historical-compatibility break: every save
-  path (`BuildFbdSaveContent()`) has always written both markers
+  path (`BuildFbdText()` in `FishBalanceCore.h`, v0.10.12; formerly inline in `BuildFbdSaveContent()`) has always written both markers
   unconditionally, even for a completely blank sheet, so no file this
   app itself ever produced is affected. The only supported empty sheet is
   `DEBTOR=` / `CASH=` / `BEGIN` / `END`. A non-empty line that isn't a
