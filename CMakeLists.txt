@@ -19,6 +19,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(APP_SOURCES
     main.cpp
     src/data/AppData.cpp
+    src/data/Storage.cpp
     src/forms/UiState.cpp
 )
 

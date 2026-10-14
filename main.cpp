@@ -69,6 +69,7 @@
 // that used to be declared here now live in these headers (definitions in
 // src/data/AppData.cpp and src/forms/UiState.cpp).
 #include "src/data/AppData.h"
+#include "src/data/Storage.h"
 #include "src/forms/ControlIds.h"
 #include "src/forms/UiState.h"
 
@@ -96,7 +97,6 @@ LRESULT CALLBACK ManageWndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK PreviewWndProc(HWND, UINT, WPARAM, LPARAM);
 void PrintBreakdownReport(HWND owner);
 // Finalize Day (ROADMAP.md item 3)
-std::wstring HistoryDir();
 void ApplyFinalizedLockState();
 void DoFinalizeDay();
 void DoUnfinalizeDay();
@@ -143,43 +143,6 @@ bool ParseISODate(const std::wstring& s, SYSTEMTIME& out) {
 // logic without linking this file. Nothing at any call site here changes -
 // FishBalanceWin32IO.h is included above via the #include block near the
 // top of this file, alongside FishBalanceCore.h.
-
-// Test-automation refactor (v0.9.51): overridable so integration tests can
-// point every path this app builds (autosave.fbd, settings.txt, recent.txt,
-// emails.txt, backups\, history\) at an isolated temporary directory instead
-// of the real folder next to the exe - never touching production data. Empty
-// (the default) means "use the real exe directory," exactly the original
-// behavior; production code never calls SetExeDirOverrideForTests, so this
-// is a pure addition, not a behavior change, for the shipped application.
-static std::wstring g_exeDirOverrideForTests;
-inline void SetExeDirOverrideForTests(const std::wstring& dir) { g_exeDirOverrideForTests = dir; }
-
-std::wstring GetExeDir() {
-    if (!g_exeDirOverrideForTests.empty()) return g_exeDirOverrideForTests;
-    // v0.9.66 (audit F23): the old fixed MAX_PATH buffer silently truncated
-    // long install paths (GetModuleFileNameW returns the buffer size when it
-    // truncated). Grow the buffer until the whole path fits; fall back to "."
-    // (current directory) only if the call fails outright.
-    std::wstring p;
-    for (DWORD cap = MAX_PATH; cap <= 32768; cap *= 2) {
-        std::vector<wchar_t> buf(cap);
-        DWORD n = GetModuleFileNameW(nullptr, buf.data(), cap);
-        if (n == 0) break;                       // failed outright
-        if (n < cap) { p.assign(buf.data(), n); break; } // fit with room for the terminator
-        // n == cap: truncated, retry with a bigger buffer
-    }
-    if (p.empty()) return L".";
-    size_t pos = p.find_last_of(L"\\/");
-    return (pos == std::wstring::npos) ? L"." : p.substr(0, pos);
-}
-
-// Phase 1 / F1 follow-up (2026-09-30, post-review): the single canonical
-// path for autosave.fbd, so BuildFbdSaveContent()/SaveToFile() can tell
-// whether a given save IS the autosave write without duplicating this
-// string construction at every call site.
-std::wstring AutosavePath() {
-    return GetExeDir() + L"\\autosave.fbd";
-}
 
 // WriteFileAtomicUtf8 moved to FishBalanceWin32IO.h in v0.9.51 (see that
 // header for the full comment) - same signature, same default behavior,
@@ -238,80 +201,19 @@ HICON LoadAppIcon(HINSTANCE hInstance, int size) {
 // Window size/position + last-file association (settings.txt)
 // ---------------------------------------------------------------------------
 
-std::wstring SettingsPath() { return GetExeDir() + L"\\settings.txt"; }
-
-void LoadSettings() {
-    std::vector<std::wstring> lines;
-    bool foundFile = ReadAllLines(SettingsPath(), lines);
-    for (auto& line : lines) {
-        size_t eq = line.find(L'=');
-        if (eq == std::wstring::npos) continue;
-        std::wstring key = line.substr(0, eq), val = line.substr(eq + 1);
-        if (key == L"X") g_settings.x = _wtoi(val.c_str());
-        else if (key == L"Y") g_settings.y = _wtoi(val.c_str());
-        else if (key == L"W") g_settings.w = _wtoi(val.c_str());
-        else if (key == L"H") g_settings.h = _wtoi(val.c_str());
-        else if (key == L"MAX") g_settings.maximized = (val == L"1");
-        else if (key == L"LASTFILE") g_settings.lastFile = val;
-    }
-    if (g_settings.w < 640) g_settings.w = 1050;
-    if (g_settings.h < 480) g_settings.h = 720;
-    // First run (no settings.txt yet): scale the default size for the
-    // current display's DPI, since WM_CREATE (where layout is DPI-scaled)
-    // doesn't run until after this size has already been used to create
-    // the window.
-    if (!foundFile) {
-        g_settings.w = S(g_settings.w);
-        g_settings.h = S(g_settings.h);
-    }
-}
-
 void SaveSettings() {
     if (!g_hMainWnd) return;
     WINDOWPLACEMENT wp{};
     wp.length = sizeof(wp);
     GetWindowPlacement(g_hMainWnd, &wp);
     RECT rc = wp.rcNormalPosition;
-
-    std::string content;
-    auto writeLine = [&](const std::wstring& l) {
-        content += WToUtf8(l) + "\n";
-    };
-    writeLine(L"X=" + std::to_wstring(rc.left));
-    writeLine(L"Y=" + std::to_wstring(rc.top));
-    writeLine(L"W=" + std::to_wstring(rc.right - rc.left));
-    writeLine(L"H=" + std::to_wstring(rc.bottom - rc.top));
-    writeLine(std::wstring(L"MAX=") + (wp.showCmd == SW_SHOWMAXIMIZED ? L"1" : L"0"));
-    writeLine(L"LASTFILE=" + g_currentFile);
-
-    // Failure here stays silent (as it always has been) - losing
-    // settings.txt only means window position/last-file aren't remembered
-    // next launch, not any loss of actual business data. Still a genuine
-    // atomic+checked write now, not a truncate-and-hope.
-    WriteFileAtomicUtf8(SettingsPath(), content);
+    SaveSettingsFile(rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
+                     wp.showCmd == SW_SHOWMAXIMIZED, g_currentFile);
 }
 
 // ---------------------------------------------------------------------------
 // Recent Files (recent.txt)
 // ---------------------------------------------------------------------------
-
-std::wstring RecentFilesPath() { return GetExeDir() + L"\\recent.txt"; }
-
-void SaveRecentFiles() {
-    std::string content;
-    for (auto& p : g_recentFiles) content += WToUtf8(p) + "\n";
-    // Failure stays silent, same reasoning as SaveSettings() - losing this
-    // just means the Recent Files menu doesn't remember entries, not any
-    // loss of actual business data.
-    WriteFileAtomicUtf8(RecentFilesPath(), content);
-}
-
-void LoadRecentFiles() {
-    std::vector<std::wstring> lines;
-    ReadAllLines(RecentFilesPath(), lines);
-    g_recentFiles.clear();
-    for (auto& l : lines) if (!l.empty()) g_recentFiles.push_back(l);
-}
 
 void RebuildRecentMenu() {
     if (!g_hRecentMenu) return;
@@ -340,44 +242,6 @@ void RememberRecentFile(const std::wstring& path) {
 // ---------------------------------------------------------------------------
 // Supplier email addresses (emails.txt) - used by Email Suppliers
 // ---------------------------------------------------------------------------
-
-std::wstring EmailsPath() { return GetExeDir() + L"\\emails.txt"; }
-
-void LoadSupplierEmails() {
-    std::vector<std::wstring> lines;
-    ReadAllLines(EmailsPath(), lines);
-    g_supplierEmails.clear();
-    for (auto& l : lines) {
-        size_t pos = l.find(L'|');
-        if (pos == std::wstring::npos) continue;
-        std::wstring sup = l.substr(0, pos);
-        std::wstring email = l.substr(pos + 1);
-        // Phase 1 completeness follow-up (2026-09-30, v0.9.50): companion-
-        // file content sharing the Supplier-name field gets the same bound
-        // applied to that field everywhere else (kMaxSupplierSpeciesLength).
-        // emails.txt has never had transactional/whole-file-reject semantics
-        // like .fbd loading - a line this app itself could never have
-        // written (both fields are UI-limited at entry, see EM_LIMITTEXT
-        // above) is simply skipped, same as the existing empty-field/no-pipe
-        // cases just above, rather than failing the entire load.
-        if (sup.size() > kMaxSupplierSpeciesLength || email.size() > kMaxSupplierSpeciesLength) continue;
-        // Phase 2 / F13 (2026-10-02): emails.txt is untrusted input - a
-        // hand-edited or otherwise-tampered file could otherwise smuggle in
-        // an address containing characters LooksLikeEmail() would have
-        // rejected at entry time (see EmailSupplier/BuildMailtoUri). Skip
-        // (don't load) any address that doesn't pass the same check used at
-        // entry time, same "skip the bad line, don't fail the whole load"
-        // policy as the other checks in this loop.
-        if (!email.empty() && !LooksLikeEmail(email)) continue;
-        if (!sup.empty() && !email.empty()) g_supplierEmails[sup] = email;
-    }
-}
-
-bool SaveSupplierEmails() {
-    std::string content;
-    for (auto& kv : g_supplierEmails) content += WToUtf8(kv.first + L"|" + kv.second) + "\n";
-    return WriteFileAtomicUtf8(EmailsPath(), content);
-}
 
 // ---------------------------------------------------------------------------
 // File persistence (simple pipe-delimited UTF-8 text format, *.fbd)
@@ -983,53 +847,6 @@ void AutosaveNow() {
             L"repeat again until autosave succeeds at least once.",
             L"Autosave Failed", MB_OK | MB_ICONWARNING);
     }
-}
-
-std::wstring BackupDir() { return GetExeDir() + L"\\backups"; }
-
-// Finalize Day (ROADMAP.md item 3) locked-in snapshots, one per business
-// day, named <date>.fbd (e.g. 2026-09-20.fbd). A separate folder from
-// backups\ - these are deliberate, permanent records, not rolling/pruned
-// safety-net copies.
-std::wstring HistoryDir() { return GetExeDir() + L"\\history"; }
-
-// Deletes the oldest backup snapshots once there are more than kMaxBackups
-// of them. Filenames embed a sortable YYYYMMDD_HHMMSS timestamp (see
-// WriteBackupSnapshot), so a plain lexicographic sort is also a
-// chronological sort - oldest names sort first.
-void PruneOldBackups() {
-    std::wstring dir = BackupDir();
-    std::vector<std::wstring> names;
-    WIN32_FIND_DATAW fd{};
-    HANDLE h = FindFirstFileW((dir + L"\\backup_*.fbd").c_str(), &fd);
-    if (h == INVALID_HANDLE_VALUE) return;
-    do {
-        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-            names.push_back(fd.cFileName);
-    } while (FindNextFileW(h, &fd));
-    FindClose(h);
-
-    if ((int)names.size() <= kMaxBackups) return;
-    std::sort(names.begin(), names.end());
-    size_t toDelete = names.size() - (size_t)kMaxBackups;
-    for (size_t i = 0; i < toDelete; i++) {
-        _wremove((dir + L"\\" + names[i]).c_str());
-    }
-}
-
-// Extracts a filesystem-safe label for which file was open when a backup
-// snapshot was taken - just the base filename without path or extension
-// (e.g. "21112" for "...\21112.fbd"), or "unsaved" if no named file is
-// open yet (working from autosave.fbd only). Always safe to use directly
-// in a filename: it comes from a path that was itself already a valid,
-// successfully-opened Windows filename.
-std::wstring CurrentFileLabelForBackup() {
-    if (g_currentFile.empty()) return L"unsaved";
-    size_t slash = g_currentFile.find_last_of(L"\\/");
-    std::wstring name = (slash == std::wstring::npos) ? g_currentFile : g_currentFile.substr(slash + 1);
-    size_t dot = name.find_last_of(L'.');
-    if (dot != std::wstring::npos) name = name.substr(0, dot);
-    return name.empty() ? L"unsaved" : name;
 }
 
 // Writes a timestamped snapshot of `content` to the backups folder,
@@ -4585,7 +4402,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
         if (g_dpi <= 0) g_dpi = 96;
     }
 
-    LoadSettings(); // window size/position + last-file, read before creating the window
+    LoadSettings(g_dpi); // window size/position + last-file, read before creating the window
 
     HWND hwnd = CreateFishBalanceMainWindow(hInstance, nCmdShow);
 
@@ -4866,7 +4683,7 @@ TEST_CASE("add, edit, delete, reconcile, save, reload and finalize via callable 
     // folder - see SetExeDirOverrideForTests's comment at its declaration.
     SetExeDirOverrideForTests(tempDir.path);
     ResetApplicationStateForTest();
-    LoadSettings(); // reads (nonexistent) settings.txt from tempDir - just defaults
+    LoadSettings(g_dpi); // reads (nonexistent) settings.txt from tempDir - just defaults
 
     // Hidden/off-screen: nCmdShow = SW_HIDE, so no window is ever actually
     // shown on screen even though this creates the app's real main window

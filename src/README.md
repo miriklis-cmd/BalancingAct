@@ -17,6 +17,8 @@ Status (v0.10.2): the split is staged (see ROADMAP.md). Right now `core/` and `d
 `PlatformWin.h` is the single place that sets Windows macros and includes `<windows.h>`; include it (directly or via a
 layer header) rather than `<windows.h>` itself.
 
+Storage (`data/Storage`): exe-folder paths, settings, recent-files and supplier-email files, backup pruning.
+
 Global state: document/persistence state is in `data/AppData`, window handles and UI state are in `forms/UiState`.
 
 New `.cpp` files must be added to the source list in all four build paths: `build_msvc.bat`,
