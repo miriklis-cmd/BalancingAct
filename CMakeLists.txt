@@ -24,6 +24,7 @@ set(APP_SOURCES
     src/services/Email.cpp
     src/services/ReportRender.cpp
     src/forms/UiState.cpp
+    src/forms/MainWindowLayout.cpp
     src/forms/MainWindowLists.cpp
     src/forms/ManageNamesWindow.cpp
     src/forms/PrintPreviewWindow.cpp
