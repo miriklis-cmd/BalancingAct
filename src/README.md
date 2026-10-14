@@ -21,6 +21,8 @@ Storage (`data/Storage`): exe-folder paths, settings, recent-files and supplier-
 
 Services (`services/`): `CsvExport` (CSV report), `Email` (supplier price email via mailto:). `ReportRender` (Breakdown report to bitmaps, shared by Print Preview and printing).
 
+Popups (`forms/ManageNamesWindow`, `forms/PrintPreviewWindow`): the Manage Names and Print Preview windows. `forms/MainWindowApi.h` lists what the main window (still in `main.cpp`) provides to them.
+
 Global state: document/persistence state is in `data/AppData`, window handles and UI state are in `forms/UiState`.
 
 New `.cpp` files must be added to the source list in all four build paths: `build_msvc.bat`,

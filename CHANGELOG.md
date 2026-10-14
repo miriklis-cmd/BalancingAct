@@ -18,6 +18,22 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.10.6] - main.cpp split, stage 5: Manage Names and Print Preview popups moved to forms
+
+- `src/forms/ManageNamesWindow.h/.cpp`: the "Manage Supplier / Species Names" popup (list, rename/merge, supplier
+  email editing) - moved unchanged.
+- `src/forms/PrintPreviewWindow.h/.cpp`: the Print Preview popup (page display, prev/next, Print button) - moved
+  unchanged.
+- `src/forms/MainWindowApi.h`: the small set of functions the main window still provides to those popups
+  (`RefreshAll`, `CancelEdit`, `ClearUndoState`, `MakeControl`, `GetDebtorCashText`, `PrintBreakdownReport`). They
+  stay defined in `main.cpp` until the main window is split (stages 6-7). `RefreshAll`'s default argument now lives
+  only in this header (removed from main.cpp's forward declarations to avoid a duplicate default).
+- `GetDebtorCashText` is no longer `static` (the preview popup calls it).
+- The Finalize Day date-prompt popup stays in `main.cpp` for now: it is tangled up with the Finalize/Un-finalize
+  operations, which are split in stage 7.
+- Expect identical test counts: 236 portable, 25 integration. Likely failure mode: a linker or include error.
+  Manual check worth doing: Tools > Manage Names (open, rename, close, supplier email) and File > Print Preview.
+
 ## [0.10.5] - main.cpp split, stage 4b: report rendering moved to services
 
 - `src/services/ReportRender.h/.cpp`: the Breakdown report renderer (`RenderReportPages`), `RenderedPage`,
