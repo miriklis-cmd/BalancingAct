@@ -28,7 +28,7 @@
 #include <windows.h>
 #include <string>
 
-#include "../../FishBalanceWin32IO.h"
+#include "../../src/data/FishBalanceWin32IO.h"
 
 namespace {
 

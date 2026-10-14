@@ -1,6 +1,6 @@
 #include "doctest_setup.h"
 #include "doctest.h"
-#include "../FishBalanceCore.h"
+#include "../src/core/FishBalanceCore.h"
 
 TEST_SUITE("LooksLikeEmail") {
     TEST_CASE("accepts plausible addresses") {

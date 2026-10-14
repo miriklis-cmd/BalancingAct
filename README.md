@@ -168,9 +168,9 @@ build_msvc.bat
 | File              | Purpose                                             |
 |-------------------|------------------------------------------------------|
 | `main.cpp`        | The Win32 application - windows, controls, message handling, file I/O, printing |
-| `FishBalanceCore.h` | Platform-independent domain logic extracted from `main.cpp` (parsing, aggregation, formatting) so it can be unit-tested without a Win32 dependency - see `tests/` |
-| `FishBalanceWin32IO.h` | Win32 file I/O (atomic write, load) behind small ports so it can be fault-injection tested - see `tests/win32_integration/` |
-| `FishBalanceControlLimits.h` | Shared control/input limits |
+| `src/core/FishBalanceCore.h` | Platform-independent domain logic extracted from `main.cpp` (parsing, aggregation, formatting) so it can be unit-tested without a Win32 dependency - see `tests/` |
+| `src/data/FishBalanceWin32IO.h` | Win32 file I/O (atomic write, load) behind small ports so it can be fault-injection tested - see `tests/win32_integration/` |
+| `src/core/FishBalanceControlLimits.h` | Shared control/input limits |
 | `tests/`          | The automated test suites (doctest): portable unit tests for `FishBalanceCore.h`, plus `tests/win32_integration/` for real file I/O and an end-to-end smoke test - see "Note on testing" below |
 | `app.manifest`    | Requests Common Controls v6 (needed for grouped list). Shipped as an external side-by-side manifest (`FishBalanceManager.exe.manifest`) rather than embedded via the resource compiler, to avoid RC/CVTRES toolchain issues. |
 | `app.ico`         | The application icon (multi-resolution: 16–256px), embedded into the exe via `app_icon.rc` |

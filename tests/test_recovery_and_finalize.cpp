@@ -10,7 +10,7 @@
 // this - these are pure C++ decisions).
 #include "doctest_setup.h"
 #include "doctest.h"
-#include "../FishBalanceCore.h"
+#include "../src/core/FishBalanceCore.h"
 
 TEST_SUITE("CaseInsensitiveEqualsW") {
     TEST_CASE("identical strings match") {

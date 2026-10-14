@@ -56,9 +56,9 @@
 
 #include "resource.h"
 #include "version.h"
-#include "FishBalanceCore.h"
-#include "FishBalanceWin32IO.h"
-#include "FishBalanceControlLimits.h"
+#include "src/core/FishBalanceCore.h"
+#include "src/data/FishBalanceWin32IO.h"
+#include "src/core/FishBalanceControlLimits.h"
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "comdlg32.lib")

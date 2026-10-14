@@ -1,6 +1,6 @@
 #include "doctest_setup.h"
 #include "doctest.h"
-#include "../FishBalanceCore.h"
+#include "../src/core/FishBalanceCore.h"
 
 TEST_SUITE("FormatMoney") {
     TEST_CASE("formats with a dollar sign and 2 decimal places") {

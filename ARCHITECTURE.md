@@ -14,6 +14,13 @@ verification (brace/paren balance, forward-declaration order, function
 uniqueness) rather than by compiling. Treat every edit with that level of
 care; there's no compiler safety net catching mistakes before they ship.
 
+## Source layout and layering (v0.10.0)
+
+The source is being split into `src/core`, `src/data`, `src/services` and `src/forms` - see
+`src/README.md` for what each holds and the one rule: dependencies only point downward
+(forms -> services -> data -> core). Do not add a Windows UI call to core/data/services code.
+The split is staged (ROADMAP.md); until a stage moves code, it still lives in `main.cpp`.
+
 ## Windows in the app
 
 There are four top-level windows, each with its own `WndProc`:

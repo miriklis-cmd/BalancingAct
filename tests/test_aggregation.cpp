@@ -1,6 +1,6 @@
 #include "doctest_setup.h"
 #include "doctest.h"
-#include "../FishBalanceCore.h"
+#include "../src/core/FishBalanceCore.h"
 
 namespace {
 // Shared fixture used across several test cases below:
