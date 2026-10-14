@@ -12,6 +12,30 @@ possible, grouped into logical releases.
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.9.66] - Phase 3a step 3: long install paths no longer truncated (audit F23)
+
+- `GetExeDir()` now grows its buffer until the full exe path fits (previously a fixed 260-character
+  buffer could silently cut a long path, sending autosave/settings/backups to the wrong folder).
+  Falls back to the current directory only if Windows reports an outright failure.
+- Windows-only API call, so no new portable test; covered by the existing integration suite
+  (which overrides the exe dir) plus a manual check of normal startup.
+
+## [0.9.65] - Phase 3a step 2: unique temp file + single-instance guard (audit F6, F24)
+
+- Atomic writer's temp file is now `<file>.<processId>.tmp` instead of a fixed `<file>.tmp`
+  (`BuildAtomicTempPath`, tested). The writer's result checking was already correct and is unchanged.
+- Only one copy of the app can run: a second launch brings the running window to the front and exits.
+  (Per Windows login session; uses a named mutex.)
+- Integration tests updated to look for any leftover `<file>.*.tmp`.
+
+## [0.9.64] - Phase 3a step 1: rolling backups can no longer overwrite each other (audit F8)
+
+- Backup snapshot filenames now include milliseconds (`backup_YYYYMMDD_HHMMSS_mmm_<file>.fbd`)
+  and, if a name still exists, a `-N` counter. Before, two snapshots in the same second
+  (e.g. a Save right after a timed snapshot) shared a name and the later replaced the earlier.
+- Name logic is a pure function (`BuildBackupFileName`, FishBalanceCore.h) with 3 new tests.
+  Pruning still works (fixed-width, sorts chronologically; old-format files still match `backup_*.fbd`).
+
 ## [0.9.63] - Warn before adding an entry with a different date from the rest of the sheet
 
 Jack (2026-10-14): "can we set a dialog box to pop up if dates are different?

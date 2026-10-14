@@ -290,7 +290,7 @@ inline bool WriteFileAtomicUtf8(const std::wstring& path, const std::string& utf
         return false;
     };
 
-    std::wstring tempPath = path + L".tmp";
+    std::wstring tempPath = BuildAtomicTempPath(path, GetCurrentProcessId());
     FILE* f = io.open(tempPath);
     if (!f) return fail(L"could not create a temporary file for saving (check the destination folder is writable)");
 

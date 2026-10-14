@@ -588,3 +588,9 @@ stop after Phase 1.
 *This document does not supersede `SecurityHardeningRegister.md` — it is
 the working register for this specific external audit until Phase 1 items
 are fixed and folded into that file's permanent record.*
+
+**Status (2026-10-14, v0.9.64): FIXED** - milliseconds + collision counter in backup names (BuildBackupFileName, tested).
+
+**Status (2026-10-14, v0.9.65): F6 and F24 FIXED** - temp file named <file>.<pid>.tmp; named-mutex single-instance guard in wWinMain.
+
+**Status (2026-10-14, v0.9.66): F23 FIXED** - GetExeDir grows its buffer until the path fits.

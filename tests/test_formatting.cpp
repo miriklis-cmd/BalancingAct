@@ -46,3 +46,33 @@ TEST_SUITE("FormatKg / FormatNum") {
         CHECK(FormatNum(1234.5) == L"1234.50");
     }
 }
+
+TEST_SUITE("BuildBackupFileName") {
+    TEST_CASE("includes milliseconds so same-second snapshots differ") {
+        std::wstring a = BuildBackupFileName(2026, 10, 14, 9, 5, 3, 120, L"day", 0);
+        std::wstring b = BuildBackupFileName(2026, 10, 14, 9, 5, 3, 121, L"day", 0);
+        CHECK(a == L"backup_20261014_090503_120_day.fbd");
+        CHECK(a != b);
+    }
+    TEST_CASE("collision counter yields a distinct name; zero adds no suffix") {
+        std::wstring a = BuildBackupFileName(2026, 10, 14, 9, 5, 3, 120, L"x", 0);
+        std::wstring b = BuildBackupFileName(2026, 10, 14, 9, 5, 3, 120, L"x", 1);
+        CHECK(b == L"backup_20261014_090503_120-1_x.fbd");
+        CHECK(a != b);
+    }
+    TEST_CASE("names sort chronologically (fixed width)") {
+        std::wstring early = BuildBackupFileName(2026, 10, 14, 9, 5, 3, 9, L"x", 0);
+        std::wstring later = BuildBackupFileName(2026, 10, 14, 9, 5, 3, 10, L"x", 0);
+        CHECK(early < later);
+    }
+}
+
+TEST_SUITE("BuildAtomicTempPath") {
+    TEST_CASE("temp path includes the process id and differs between processes") {
+        CHECK(BuildAtomicTempPath(L"C:\\d\\a.fbd", 123) == L"C:\\d\\a.fbd.123.tmp");
+        CHECK(BuildAtomicTempPath(L"a.fbd", 1) != BuildAtomicTempPath(L"a.fbd", 2));
+    }
+    TEST_CASE("temp path never equals the destination") {
+        CHECK(BuildAtomicTempPath(L"a.fbd", 5) != L"a.fbd");
+    }
+}

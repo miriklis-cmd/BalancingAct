@@ -368,9 +368,19 @@ inline void SetExeDirOverrideForTests(const std::wstring& dir) { g_exeDirOverrid
 
 std::wstring GetExeDir() {
     if (!g_exeDirOverrideForTests.empty()) return g_exeDirOverrideForTests;
-    wchar_t path[MAX_PATH];
-    GetModuleFileNameW(nullptr, path, MAX_PATH);
-    std::wstring p(path);
+    // v0.9.66 (audit F23): the old fixed MAX_PATH buffer silently truncated
+    // long install paths (GetModuleFileNameW returns the buffer size when it
+    // truncated). Grow the buffer until the whole path fits; fall back to "."
+    // (current directory) only if the call fails outright.
+    std::wstring p;
+    for (DWORD cap = MAX_PATH; cap <= 32768; cap *= 2) {
+        std::vector<wchar_t> buf(cap);
+        DWORD n = GetModuleFileNameW(nullptr, buf.data(), cap);
+        if (n == 0) break;                       // failed outright
+        if (n < cap) { p.assign(buf.data(), n); break; } // fit with room for the terminator
+        // n == cap: truncated, retry with a bigger buffer
+    }
+    if (p.empty()) return L".";
     size_t pos = p.find_last_of(L"\\/");
     return (pos == std::wstring::npos) ? L"." : p.substr(0, pos);
 }
@@ -1256,16 +1266,21 @@ void WriteBackupSnapshot(const std::string& content) {
 
     SYSTEMTIME st{};
     GetLocalTime(&st);
-    wchar_t stamp[32];
-    swprintf(stamp, 32, L"%04d%02d%02d_%02d%02d%02d",
-             st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
     // Source-file label goes AFTER the timestamp, not before - v0.9.27,
     // Jack: "if I'm opening different files I won't know which one it's
     // snapshotting." The timestamp must stay the leading, fixed-width part
     // of the filename for PruneOldBackups' "sort by name = sort by time"
     // logic to keep working; a label before it would sort backups by
     // source file first, breaking chronological pruning entirely.
-    std::wstring path = dir + L"\\backup_" + stamp + L"_" + CurrentFileLabelForBackup() + L".fbd";
+    // v0.9.64 (audit F8): milliseconds in the name, plus a counter if the
+    // name somehow still exists, so a snapshot never replaces an earlier one.
+    const std::wstring label = CurrentFileLabelForBackup();
+    std::wstring path;
+    for (int counter = 0; counter < 1000; counter++) {
+        path = dir + L"\\" + BuildBackupFileName(st.wYear, st.wMonth, st.wDay, st.wHour,
+                   st.wMinute, st.wSecond, st.wMilliseconds, label, counter);
+        if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) break;
+    }
 
     std::wstring writeError;
     bool ok = WriteFileAtomicUtf8(path, content, &writeError);
@@ -4756,6 +4771,22 @@ HWND CreateFishBalanceMainWindow(HINSTANCE hInstance, int nCmdShow) {
 
 #ifndef FBM_BUILDING_TESTS
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
+    // v0.9.64 (audit F24): single-instance guard. Two copies running at once
+    // would both write the same autosave/settings/backup files. If another
+    // copy already holds the mutex, bring its window to the front and exit.
+    // The handle is deliberately kept open for the life of the process.
+    HANDLE singleInstanceMutex = CreateMutexW(nullptr, FALSE, L"Local\\FishBalanceManager_SingleInstance");
+    if (singleInstanceMutex && GetLastError() == ERROR_ALREADY_EXISTS) {
+        HWND existing = FindWindowW(L"FishBalanceMainWindow", nullptr);
+        if (existing) {
+            if (IsIconic(existing)) ShowWindow(existing, SW_RESTORE);
+            SetForegroundWindow(existing);
+        } else {
+            MessageBoxW(nullptr, L"Fish Balance Manager is already running.", L"Fish Balance Manager", MB_OK | MB_ICONINFORMATION);
+        }
+        return 0;
+    }
+
     INITCOMMONCONTROLSEX icc{ sizeof(icc), ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES | ICC_BAR_CLASSES | ICC_STANDARD_CLASSES | ICC_DATE_CLASSES };
     InitCommonControlsEx(&icc);
 
