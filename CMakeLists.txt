@@ -24,6 +24,8 @@ set(APP_SOURCES
     src/services/Email.cpp
     src/services/ReportRender.cpp
     src/forms/UiState.cpp
+    src/forms/ManageNamesWindow.cpp
+    src/forms/PrintPreviewWindow.cpp
 )
 
 add_executable(FishBalanceManager WIN32 ${APP_SOURCES} app_icon.rc)
