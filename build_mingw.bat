@@ -23,6 +23,8 @@ REM needed for LoadAppIcon()'s file-based fallback.
 
 echo.
 echo Build succeeded: FishBalanceManager.exe
+echo Built from %CD% :
+findstr /C:"#define APP_VERSION" version.h
 goto :eof
 
 :error

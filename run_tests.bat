@@ -25,6 +25,10 @@
 :: portable-suite failure doesn't hide an integration-suite result or vice
 :: versa.
 
+echo.
+echo Fish Balance Manager - testing the source in: %~dp0
+findstr /C:"#define APP_VERSION" "%~dp0version.h"
+
 powershell -NoProfile -Command "Get-ChildItem -Path '%~dp0' -Recurse | Unblock-File"
 if errorlevel 1 (
     echo.
