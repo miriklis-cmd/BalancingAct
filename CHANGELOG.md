@@ -18,6 +18,15 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.10.1] - Test and build output now shows which version/source was built
+
+Jack: "there's no way to tell what version of code it's actually testing."
+- Both test executables print `TEST BUILD - version X` and the source path they were compiled from before the
+  doctest output.
+- `run_tests.bat` prints the folder and version it is testing before it starts; `build_msvc.bat` /
+  `build_mingw.bat` print the folder and version after a successful build.
+- No app behaviour change.
+
 ## [0.10.0] - main.cpp split, stage 1: folder layout and build plumbing (no behaviour change)
 
 - New layered layout (`src/core`, `src/data`; `services` and `forms` to follow) documented in `src/README.md`.
