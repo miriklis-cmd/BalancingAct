@@ -20,6 +20,8 @@ set(APP_SOURCES
     main.cpp
     src/data/AppData.cpp
     src/data/Storage.cpp
+    src/services/CsvExport.cpp
+    src/services/Email.cpp
     src/forms/UiState.cpp
 )
 

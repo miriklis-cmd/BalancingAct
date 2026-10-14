@@ -6,7 +6,7 @@ REM script (app_icon.rc) compiled and linked in.
 
 rem v0.10.0: every .cpp of the app is listed HERE (and in build_mingw.bat, CMakeLists.txt
 rem and tests\win32_integration\run_integration_tests.ps1) - add new source files to all four.
-set SOURCES=main.cpp src\data\AppData.cpp src\data\Storage.cpp src\forms\UiState.cpp
+set SOURCES=main.cpp src\data\AppData.cpp src\data\Storage.cpp src\services\CsvExport.cpp src\services\Email.cpp src\forms\UiState.cpp
 
 rc /nologo app_icon.rc
 if errorlevel 1 goto :error
