@@ -18,6 +18,19 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.10.3] - main.cpp split, stage 3: file paths and simple storage moved to the data layer
+
+- New `src/data/Storage.h/.cpp` holds, moved unchanged out of `main.cpp`: `GetExeDir` (and the test override),
+  `AutosavePath`/`SettingsPath`/`RecentFilesPath`/`EmailsPath`/`BackupDir`/`HistoryDir`, `LoadSettings`,
+  `Save/LoadRecentFiles`, `Load/SaveSupplierEmails`, `PruneOldBackups`, `CurrentFileLabelForBackup`.
+- Two deliberate signature changes so the data layer never calls up into the UI:
+  `LoadSettings()` -> `LoadSettings(int dpi)` (same MulDiv scaling the UI's `S()` does), and the file-writing
+  half of `SaveSettings()` is now `SaveSettingsFile(...)`; `SaveSettings()` in main.cpp still reads the live
+  window placement and calls it.
+- Deliberately NOT moved yet (they mix file work with controls/message boxes - split in stage 7): `BuildFbdSaveContent`,
+  `SaveToFile`, `LoadFromFile`, `WriteBackupSnapshot`, autosave, recent-files menu.
+- Expect identical test counts: 236 portable, 25 integration. Likely failure mode: a linker or include error.
+
 ## [0.10.2] - main.cpp split, stage 2: shared state moved out (no behaviour change)
 
 - The ~107 file-level globals that were `static` at the top of `main.cpp` now live in shared headers, declared
