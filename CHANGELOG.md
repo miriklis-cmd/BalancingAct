@@ -18,6 +18,19 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.10.9] - main.cpp split, stage 6b: layout, tab switching and control helpers moved to forms
+
+- `src/forms/MainWindowLayout.h/.cpp`: `LayoutAll`, `ShowTab`, `FixComboBoxFirstPaint`, `MakeControl`, `AddColumn`,
+  `InitFonts`, the Delete/Edit/Cancel glyph icons and the taller list rows - moved unchanged (~370 lines out of
+  `main.cpp`, now ~2,830). `WM_CREATE` (control creation) stays in `WndProc` for stage 6c.
+- `push_update.ps1` fixed: the commit message and the "Done: vX" line were hard-coded (v0.10.8 was committed with a
+  "v0.10.7" label - the code pushed was right). It now reads the version from `version.h` and the message from the
+  newest `CHANGELOG.md` entry, stops if they disagree, and writes the message without a BOM.
+- New file added to all four build paths. No behaviour change. Expect 241 portable, 25 integration.
+- Manual check: window opens and looks identical at your DPI; resize and maximise (all four tabs re-layout); the
+  Delete/Edit/Cancel buttons still show their icons and the rows are tall; supplier/species combos paint on start.
+  Watch the push: the commit line should now read `v0.10.9: main.cpp split, stage 6b ...`.
+
 ## [0.10.8] - main.cpp split, stage 6a: list views, combos and totals moved to forms
 
 - `src/forms/MainWindowLists.h/.cpp`: `RefreshCombos`, `ComboAutoComplete`, `RefreshEntriesList`, `SortEntriesBy`,
