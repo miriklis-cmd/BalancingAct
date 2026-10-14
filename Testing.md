@@ -1,11 +1,16 @@
 # Testing
 
+<!-- v0.9.67: docs refreshed for the integration suite (audit F25-F29 re-check) -->
+
 There IS an automated test suite now (`tests/`, doctest-based, covering the
 platform-independent logic in `FishBalanceCore.h` - parsing, aggregation,
 CSV export, formatting; see ROADMAP.md item 0 and `run_tests.ps1`/
 `run_tests.bat`). Run it after any change to `FishBalanceCore.h`. It can't
 cover the Win32-specific code in `main.cpp` (window creation, message
-handling, printing, file I/O) - Claude has no compiler and can't run the
+handling, printing, file I/O) in full - a second Windows integration suite
+(`tests/win32_integration/`, also run by `run_tests.bat`) covers real file I/O,
+save-failure injection and headless startup, but not what you see on screen.
+Claude has no compiler and can't run the
 Windows executable, so everything below is still manual, performed by you
 after building. This file exists so "what should I check" doesn't have to
 be re-derived from chat scrollback every time. Update it whenever a new

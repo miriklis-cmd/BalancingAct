@@ -12,6 +12,14 @@ possible, grouped into logical releases.
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.9.67] - Phase 3a step 4: documentation refresh (audit F25-F29)
+
+- Re-checked F25-F29 against current files: the worst drift (F25-F28 claims) had already been fixed in
+  Phase 1; F29's warning gate is real now (all four build paths use /W4 /WX or -Wall -Wextra -Wpedantic -Werror).
+- Remaining drift fixed: README file table now lists `FishBalanceWin32IO.h`, `FishBalanceControlLimits.h`
+  and the integration suite; README/Testing.md/ARCHITECTURE.md mention that `run_tests.bat` runs both suites.
+- Docs only, no code change.
+
 ## [0.9.66] - Phase 3a step 3: long install paths no longer truncated (audit F23)
 
 - `GetExeDir()` now grows its buffer until the full exe path fits (previously a fixed 260-character
