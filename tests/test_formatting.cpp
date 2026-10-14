@@ -76,3 +76,41 @@ TEST_SUITE("BuildAtomicTempPath") {
         CHECK(BuildAtomicTempPath(L"a.fbd", 5) != L"a.fbd");
     }
 }
+
+TEST_SUITE("ClampRectIntoArea") {
+    TEST_CASE("a popup that already fits is left exactly where it is") {
+        int x = 100, y = 50, w = 600, h = 700;
+        ClampRectIntoArea(0, 0, 1920, 1040, x, y, w, h);
+        CHECK(x == 100);
+        CHECK(y == 50);
+        CHECK(w == 600);
+        CHECK(h == 700);
+    }
+    TEST_CASE("Jack's case: popup taller than the work area is shrunk and moved to the top") {
+        // 150% scaling: S(820) = 1230 tall on a 1040-tall work area, centred so y went negative.
+        int x = 300, y = -95, w = 1020, h = 1230;
+        ClampRectIntoArea(0, 0, 1920, 1040, x, y, w, h);
+        CHECK(h == 1040);
+        CHECK(y == 0);
+        CHECK(x == 300);
+        CHECK(w == 1020);
+    }
+    TEST_CASE("a popup hanging off the right/bottom is slid back on-screen") {
+        int x = 1700, y = 900, w = 500, h = 400;
+        ClampRectIntoArea(0, 0, 1920, 1040, x, y, w, h);
+        CHECK(x + w == 1920);
+        CHECK(y + h == 1040);
+    }
+    TEST_CASE("respects a work area that does not start at the origin (second monitor / taskbar at top)") {
+        int x = -50, y = 0, w = 400, h = 300;
+        ClampRectIntoArea(1920, 40, 3840, 1080, x, y, w, h);
+        CHECK(x == 1920);
+        CHECK(y == 40);
+    }
+    TEST_CASE("wider than the area is also shrunk") {
+        int x = 0, y = 0, w = 5000, h = 100;
+        ClampRectIntoArea(0, 0, 1920, 1040, x, y, w, h);
+        CHECK(w == 1920);
+        CHECK(x == 0);
+    }
+}

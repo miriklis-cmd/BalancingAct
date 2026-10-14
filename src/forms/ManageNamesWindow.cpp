@@ -19,6 +19,7 @@
 #include "ControlIds.h"
 #include "UiState.h"
 #include "MainWindowApi.h"
+#include "PopupPlacement.h"
 
 // ---------------------------------------------------------------------------
 // Manage Supplier / Species Names popup window
@@ -399,6 +400,7 @@ void OpenManageNamesWindow() {
     int w = S(460), h = S(540);
     int x = mrc.left + ((mrc.right - mrc.left) - w) / 2;
     int y = mrc.top + ((mrc.bottom - mrc.top) - h) / 2;
+    FitPopupToWorkArea(g_hMainWnd, x, y, w, h); // v0.10.7: never taller/wider than the screen
 
     g_hManageWnd = CreateWindowExW(WS_EX_DLGMODALFRAME, L"ManageNamesWindow", L"Manage Supplier / Species Names",
                                     WS_POPUP | WS_CAPTION | WS_SYSMENU, x, y, w, h,

@@ -1580,6 +1580,22 @@ inline std::wstring BuildAtomicTempPath(const std::wstring& path, unsigned long 
     return path + L"." + std::to_wstring(processId) + L".tmp";
 }
 
+// v0.10.7: pure geometry for keeping a popup window on screen. Clamps the
+// outer rectangle (x,y,w,h) so it is no larger than the area and lies fully
+// inside it (area = a monitor's work area). Used by FitPopupToWorkArea()
+// in forms/PopupPlacement.h - kept here so it can be unit tested.
+inline void ClampRectIntoArea(int areaLeft, int areaTop, int areaRight, int areaBottom,
+                              int& x, int& y, int& w, int& h) {
+    int maxW = areaRight - areaLeft;
+    int maxH = areaBottom - areaTop;
+    if (w > maxW) w = maxW;
+    if (h > maxH) h = maxH;
+    if (x + w > areaRight) x = areaRight - w;
+    if (y + h > areaBottom) y = areaBottom - h;
+    if (x < areaLeft) x = areaLeft;
+    if (y < areaTop) y = areaTop;
+}
+
 inline std::wstring GreetingForHour(int hour) {
     if (hour < 12) return L"Good morning";
     if (hour < 17) return L"Good afternoon";
