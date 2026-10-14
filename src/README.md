@@ -23,6 +23,8 @@ Services (`services/`): `CsvExport` (CSV report), `Email` (supplier price email 
 
 Popups (`forms/ManageNamesWindow`, `forms/PrintPreviewWindow`): the Manage Names and Print Preview windows. `forms/MainWindowApi.h` lists what the main window (still in `main.cpp`) provides to them.
 
+`forms/PopupPlacement.h` keeps popup windows inside the monitor work area (`FitPopupToWorkArea`).
+
 Global state: document/persistence state is in `data/AppData`, window handles and UI state are in `forms/UiState`.
 
 New `.cpp` files must be added to the source list in all four build paths: `build_msvc.bat`,

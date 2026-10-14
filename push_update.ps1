@@ -1,4 +1,4 @@
-# push_update.ps1 - stage, commit, and push the v0.10.6 update
+# push_update.ps1 - stage, commit, and push the v0.10.7 update
 # (Phase 2 security hardening: print/preview resource safety, CSV/email
 # injection, numeric & calendar validation)
 #
@@ -56,7 +56,7 @@ Test-LastExit "git add -A"
 #    -m argument (see the header comment above for exactly why).
 $msgFile = [System.IO.Path]::GetTempFileName()
 @'
-v0.10.6: main.cpp split stage 5 - Manage Names and Print Preview popups moved to forms
+v0.10.7: fix Print Preview popup cut off at top on scaled displays (clamp popups to work area)
 
 v0.9.53 Phase 2 security hardening - print/preview resource safety,
 CSV/email injection, numeric & calendar validation
@@ -110,4 +110,4 @@ Remove-Item $msgFile -ErrorAction SilentlyContinue
 git push
 Test-LastExit "git push"
 
-Write-Host "Done: v0.10.6 committed and pushed." -ForegroundColor Green
+Write-Host "Done: v0.10.7 committed and pushed." -ForegroundColor Green

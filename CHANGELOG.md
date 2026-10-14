@@ -18,6 +18,20 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.10.7] - Fix: Print Preview (and other popups) could open taller than the screen
+
+Jack (2026-10-14, screenshot of Print Preview): "is top of print preview cut off?" - yes. The popup was a fixed
+S(820) tall (S() = DPI scaling) and centred on the main window, so on a scaled display it was taller than the
+screen's usable height and its title bar and the top of the page were pushed off the top. Pre-existing, not caused
+by the v0.10.x split (that code moved unchanged).
+- New `FitPopupToWorkArea()` (`src/forms/PopupPlacement.h`) clamps a popup's size to the monitor's work area (screen
+  minus taskbar) and slides it back on-screen. Used by Print Preview, Manage Names and the Finalize Day date prompt.
+- The geometry is a pure function (`ClampRectIntoArea` in FishBalanceCore.h) with 5 new tests, including Jack's case
+  (popup taller than the work area). Expect 241 portable tests (236 + 5), 25 integration.
+- No change on a screen big enough for the popup. The preview window is still resizable (WS_THICKFRAME).
+- Needs a manual check (no automated test for window placement): open File > Print Preview and confirm the whole
+  window, including its title bar and the top of the page, is on screen.
+
 ## [0.10.6] - main.cpp split, stage 5: Manage Names and Print Preview popups moved to forms
 
 - `src/forms/ManageNamesWindow.h/.cpp`: the "Manage Supplier / Species Names" popup (list, rename/merge, supplier

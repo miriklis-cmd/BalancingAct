@@ -76,6 +76,7 @@
 #include "src/forms/MainWindowApi.h"
 #include "src/forms/ManageNamesWindow.h"
 #include "src/forms/PrintPreviewWindow.h"
+#include "src/forms/PopupPlacement.h"
 #include "src/forms/ControlIds.h"
 #include "src/forms/UiState.h"
 
@@ -1817,6 +1818,7 @@ void OpenFinalizeDatePrompt() {
     int w = S(340), h = S(150);
     int x = mrc.left + ((mrc.right - mrc.left) - w) / 2;
     int y = mrc.top + ((mrc.bottom - mrc.top) - h) / 2;
+    FitPopupToWorkArea(g_hMainWnd, x, y, w, h); // v0.10.7: never taller/wider than the screen
 
     g_hFinalizeWnd = CreateWindowExW(WS_EX_DLGMODALFRAME, L"FinalizeDayWindow", L"Finalize Day",
                                       WS_POPUP | WS_CAPTION | WS_SYSMENU, x, y, w, h,

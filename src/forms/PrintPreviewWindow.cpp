@@ -19,6 +19,7 @@
 #include "ControlIds.h"
 #include "UiState.h"
 #include "MainWindowApi.h"
+#include "PopupPlacement.h"
 
 // ---------------------------------------------------------------------------
 // Print Preview popup window
@@ -244,6 +245,7 @@ void OpenPrintPreview(HWND owner) {
     int w = S(680), h = S(820);
     int x = mrc.left + ((mrc.right - mrc.left) - w) / 2;
     int y = mrc.top + ((mrc.bottom - mrc.top) - h) / 2;
+    FitPopupToWorkArea(g_hMainWnd, x, y, w, h); // v0.10.7: never taller/wider than the screen
 
     g_hPreviewWnd = CreateWindowExW(WS_EX_DLGMODALFRAME, L"PrintPreviewWindow", L"Print Preview - Breakdown Report",
                                      WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME, x, y, w, h,
