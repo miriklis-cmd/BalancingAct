@@ -19,7 +19,7 @@ layer header) rather than `<windows.h>` itself.
 
 Storage (`data/Storage`): exe-folder paths, settings, recent-files and supplier-email files, backup pruning.
 
-Services (`services/`): `CsvExport` (CSV report), `Email` (supplier price email via mailto:). Printing/report rendering joins in stage 4b.
+Services (`services/`): `CsvExport` (CSV report), `Email` (supplier price email via mailto:). `ReportRender` (Breakdown report to bitmaps, shared by Print Preview and printing).
 
 Global state: document/persistence state is in `data/AppData`, window handles and UI state are in `forms/UiState`.
 

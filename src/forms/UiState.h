@@ -2,19 +2,15 @@
 //
 // v0.10.2 (main.cpp split stage 2): these globals used to be `static` in
 // main.cpp; now `extern` here, defined once in UiState.cpp. Meaning and
-// initial values are unchanged. RenderedPage stays here for now and moves
-// to the services layer when printing is split out (stage 4).
+// initial values are unchanged. RenderedPage now lives in services/ReportRender.h
+// (moved there in v0.10.5).
 #pragma once
 
 #include "../PlatformWin.h"
+#include "../services/ReportRender.h" // RenderedPage
 #include <string>
 #include <vector>
 
-struct RenderedPage {
-    HBITMAP bitmap = nullptr;
-    void* bits = nullptr; // owned by the DIB section behind `bitmap`, not separately freed
-    int width = 0, height = 0;
-};
 
 // Scales a 96-dpi pixel size by the current monitor DPI (g_dpi).
 int S(int px);

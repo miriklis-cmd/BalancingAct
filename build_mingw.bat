@@ -6,7 +6,7 @@ REM script (app_icon.rc) compiled and linked in.
 
 REM v0.10.0: every .cpp of the app is listed HERE (and in build_msvc.bat, CMakeLists.txt
 REM and tests\win32_integration\run_integration_tests.ps1) - add new source files to all four.
-set SOURCES=main.cpp src/data/AppData.cpp src/data/Storage.cpp src/services/CsvExport.cpp src/services/Email.cpp src/forms/UiState.cpp
+set SOURCES=main.cpp src/data/AppData.cpp src/data/Storage.cpp src/services/CsvExport.cpp src/services/Email.cpp src/services/ReportRender.cpp src/forms/UiState.cpp
 
 windres app_icon.rc -O coff -o app_icon_res.o
 if errorlevel 1 goto :error
