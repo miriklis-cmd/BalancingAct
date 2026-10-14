@@ -18,6 +18,20 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.10.10] - Experiment: Supplier/Species combo first-paint glitch; no more CRLF warnings on push
+
+Jack (2026-10-15, screenshot after v0.10.9): the Supplier and Species boxes still draw wrongly (white text area stops
+short, a grey strip before the drop-down arrow) and he asked whether to wait for WinUI 3 - no, this is a small fix
+to try now. Four earlier attempts (v0.9.42-v0.9.46) all patched the symptom with redraws/timers; this tries the
+standard structural cause instead: the main window did not clip its children (so its own background erase, which is
+the same grey, can paint over a child that is not invalidated afterwards) and the combos did not clip siblings.
+- Main window gets `WS_CLIPCHILDREN`; the two combos get `WS_CLIPSIBLINGS`. Two one-line style changes in `main.cpp`.
+- `FixComboBoxFirstPaint` and its timers are left in place on purpose. If this fix holds, remove them in a later version.
+- No automated test can see painting. Manual check: start the app (also maximised and after restoring/resizing) and
+  confirm both combos draw fully. If it still glitches, tell me when it happens (first launch only? after resize?).
+- Zips are now packaged with Windows (CRLF) line endings, which silences git's "LF will be replaced by CRLF" warnings
+  on `push_update.ps1`. Repo contents are unchanged (git stores LF either way).
+
 ## [0.10.9] - main.cpp split, stage 6b: layout, tab switching and control helpers moved to forms
 
 - `src/forms/MainWindowLayout.h/.cpp`: `LayoutAll`, `ShowTab`, `FixComboBoxFirstPaint`, `MakeControl`, `AddColumn`,

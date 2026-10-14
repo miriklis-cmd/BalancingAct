@@ -1759,9 +1759,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // other label in the app keeps its original top+S(3) offset
         // unchanged for now, scoped to exactly the row Jack flagged.
         hLblSupplier = MakeControl(L"STATIC", L"Supplier", WS_VISIBLE, 0, hwnd);
-        hCmbSupplier = MakeControl(L"COMBOBOX", L"", WS_VISIBLE | WS_VSCROLL | CBS_DROPDOWN | WS_TABSTOP, ID_CMB_SUPPLIER, hwnd);
+        hCmbSupplier = MakeControl(L"COMBOBOX", L"", WS_VISIBLE | WS_VSCROLL | CBS_DROPDOWN | WS_TABSTOP | WS_CLIPSIBLINGS, ID_CMB_SUPPLIER, hwnd);
         hLblProduct = MakeControl(L"STATIC", L"Species", WS_VISIBLE, 0, hwnd);
-        hCmbProduct = MakeControl(L"COMBOBOX", L"", WS_VISIBLE | WS_VSCROLL | CBS_DROPDOWN | WS_TABSTOP, ID_CMB_PRODUCT, hwnd);
+        hCmbProduct = MakeControl(L"COMBOBOX", L"", WS_VISIBLE | WS_VSCROLL | CBS_DROPDOWN | WS_TABSTOP | WS_CLIPSIBLINGS, ID_CMB_PRODUCT, hwnd);
         hLblKgs = MakeControl(L"STATIC", L"Kgs", WS_VISIBLE, 0, hwnd);
         hEditKgs = MakeControl(L"EDIT", L"", WS_VISIBLE | WS_BORDER | WS_TABSTOP, ID_EDIT_KGS, hwnd);
         hLblPrice = MakeControl(L"STATIC", L"Price / kg", WS_VISIBLE, 0, hwnd);
@@ -2398,7 +2398,7 @@ HWND CreateFishBalanceMainWindow(HINSTANCE hInstance, int nCmdShow) {
     AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hHelpMenu, L"&Help");
 
     HWND hwnd = CreateWindowExW(0, L"FishBalanceMainWindow", L"Fish Balance Manager",
-        WS_OVERLAPPEDWINDOW, g_settings.x, g_settings.y, g_settings.w, g_settings.h,
+        WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, g_settings.x, g_settings.y, g_settings.w, g_settings.h,
         nullptr, hMenu, hInstance, nullptr);
 
     ShowWindow(hwnd, g_settings.maximized ? SW_SHOWMAXIMIZED : nCmdShow);
