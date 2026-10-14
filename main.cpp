@@ -299,13 +299,18 @@ std::string BuildFbdSaveContent(const std::wstring& finalizedDateOverride = L"",
     return WToUtf8(BuildFbdText(state));
 }
 
-bool SaveToFile(const std::wstring& path, std::wstring* outError = nullptr) {
+// finalizedDateOverride: see BuildFbdSaveContent. Finalize Day passes the date it is
+// finalizing so the open named file is written WITH its FINALIZED= marker (v0.10.13 -
+// before that, g_finalizedDate was only set after this save, so the file was re-saved
+// as an unfinalized day).
+bool SaveToFile(const std::wstring& path, std::wstring* outError = nullptr,
+                const std::wstring& finalizedDateOverride = L"") {
     // Only the autosave write includes SOURCE_FILE= - see BuildFbdSaveContent's
     // comment. A case-insensitive compare matches how the startup identity
     // check itself compares paths (_wcsicmp), for the same reason: Windows
     // paths are case-insensitive.
     bool isAutosave = (_wcsicmp(path.c_str(), AutosavePath().c_str()) == 0);
-    return WriteFileAtomicUtf8(path, BuildFbdSaveContent(L"", isAutosave), outError);
+    return WriteFileAtomicUtf8(path, BuildFbdSaveContent(finalizedDateOverride, isAutosave), outError);
 }
 
 // Loads and STRICTLY validates a .fbd file. This function is now just the
@@ -1249,8 +1254,10 @@ FinalizeOutcome ExecuteFinalizeDay(const std::wstring& date) {
         return WriteFileAtomicUtf8(path, content, outError);
     };
     ports.hasNamedFile = !g_currentFile.empty();
-    ports.writeNamedFileSync = [](std::wstring* outError) {
-        return SaveToFile(g_currentFile, outError);
+    ports.writeNamedFileSync = [date](std::wstring* outError) {
+        // v0.10.13: g_finalizedDate is only set AFTER CoordinateFinalizeDay returns, so the
+        // open file must be told the date explicitly or it is saved as an unfinalized day.
+        return SaveToFile(g_currentFile, outError, date);
     };
 
     FinalizeOutcome outcome = CoordinateFinalizeDay(ports, date);
@@ -2799,6 +2806,17 @@ TEST_CASE("add, edit, delete, reconcile, save, reload and finalize via callable 
     DWORD historyAttrs = GetFileAttributesW(historyPath.c_str());
     CHECK(historyAttrs != INVALID_FILE_ATTRIBUTES);
     CHECK(historyPath.find(tempDir.path) == 0);
+
+    // v0.10.13 regression (Jack, 2026-10-15: "when I went back to the saved file it wasn't
+    // finalised"): BOTH files on disk must carry the finalized date - the permanent history
+    // record AND the open named file that was re-saved as part of finalizing.
+    LoadFbdFileResult historyOnDisk = LoadFbdFileContent(historyPath);
+    REQUIRE(historyOnDisk.ok);
+    CHECK(historyOnDisk.parsed.finalizedDate == L"2026-09-30");
+    LoadFbdFileResult namedOnDisk = LoadFbdFileContent(savedPath);
+    REQUIRE(namedOnDisk.ok);
+    CHECK(namedOnDisk.parsed.finalizedDate == L"2026-09-30");
+    CHECK(namedOnDisk.parsed.entries.size() == 1);
 
     DestroyWindow(hwnd);
     g_hMainWnd = nullptr;

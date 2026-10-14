@@ -18,6 +18,26 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.10.13] - Fix: Finalize Day did not mark the open saved file as finalized
+
+Jack (2026-10-15, checking v0.10.12): after Finalize Day, going back to the saved file it was not finalized.
+- Cause (found by reading the code, present since at least v0.9.60 - the F9 "re-save the open file" step of
+  Finalize Day never actually wrote the marker): `ExecuteFinalizeDay` re-saved the open named file *inside*
+  `CoordinateFinalizeDay`, but only set `g_finalizedDate` *afterwards*, so the file was written with no
+  `FINALIZED=` line. The permanent `history\<date>.fbd` copy was always correct (it is built with the date passed
+  in), which is why nothing looked wrong in the running app: on screen the day was locked, only the file on disk
+  was not.
+- Fix: `SaveToFile` takes an optional `finalizedDateOverride` (same idea `BuildFbdSaveContent` already had for the
+  history file) and Finalize Day passes the date it is finalizing. No other save path changes.
+- Why the tests missed it: the end-to-end test saved a named file and finalized, but only checked the history file
+  *existed*. It now loads both files back from disk and checks each carries the finalized date (verified to fail
+  before this fix by reading the code path; Windows run is the real confirmation).
+- Not repaired automatically: a named file you finalized with an older version is still saved as unfinalized. Its
+  `history\<date>.fbd` copy is correct - open that one to see the finalized day.
+- Expect 247 portable, 25 integration (same count; the finalize test has more checks, 235+ assertions).
+- Manual check: save a sheet as a named file, Finalize Day (choose "No" to starting a new sheet), then File > Open
+  the same named file - it should open finalized (locked, status bar says FINALIZED, button reads Un-finalize Day).
+
 ## [0.10.12] - main.cpp split, stage 7a: .fbd file text is now built by pure, tested core code
 
 - New `FbdSaveState` + `BuildFbdText()` in `src/core/FishBalanceCore.h`: everything a save writes, as plain data, and
