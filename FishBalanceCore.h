@@ -680,6 +680,71 @@ inline void ReevaluateOutlierFlagsForSpeciesOnDate(std::vector<Entry>& entries,
 }
 
 
+// ---------------------------------------------------------------------------
+// v0.9.62: sheet-wide outlier baseline (replaces the same-date grouping in
+// the app; the date-scoped functions above are kept, unchanged and tested,
+// but the app no longer calls them).
+//
+// Jack (2026-10-14): "one sheet is one balance session. That's why we have
+// Finalize Day" - a sheet routinely holds more than one entry date (Monday
+// and Tuesday balanced as one day; Saturday's entries balanced on the Monday
+// with Saturday's date), so comparing only entries with an IDENTICAL date
+// left real typos unflagged whenever a species had fewer than 4 other
+// entries on the exact same date. The natural comparison group is the whole
+// current sheet: every other entry for the same species, any date, any
+// supplier. Everything else about the check (minimum of 4 other prices,
+// Tukey fence, 20% floor, never blocks the entry) is unchanged.
+// ---------------------------------------------------------------------------
+inline std::vector<double> GatherOtherPricesForSpecies(
+        const std::vector<Entry>& entries, const std::wstring& product, int excludeIndex) {
+    std::vector<double> prices;
+    for (size_t i = 0; i < entries.size(); i++) {
+        if ((int)i == excludeIndex) continue;
+        if (entries[i].product == product) prices.push_back(entries[i].price);
+    }
+    return prices;
+}
+
+inline void ReevaluateOutlierFlagsForSpecies(std::vector<Entry>& entries, const std::wstring& product) {
+    for (size_t i = 0; i < entries.size(); i++) {
+        if (entries[i].product != product) continue;
+        std::vector<double> baseline = GatherOtherPricesForSpecies(entries, product, (int)i);
+        OutlierRange range;
+        entries[i].priceFlagged = ComputeOutlierRange(baseline, range) &&
+                                   (entries[i].price < range.low || entries[i].price > range.high);
+    }
+}
+
+
+// ---------------------------------------------------------------------------
+// v0.9.63: mixed-date warning support. A sheet is normally one day (Finalize
+// Day closes it), so adding an entry whose date isn't already on the sheet is
+// unusual enough to confirm with the user (main.cpp's CommitEntryForm).
+// `excludeIndex` leaves one row out (the row being edited), -1 excludes none.
+// ---------------------------------------------------------------------------
+
+// The distinct entry dates on the sheet (ISO strings), sorted ascending.
+inline std::vector<std::wstring> DistinctSheetDates(const std::vector<Entry>& entries, int excludeIndex) {
+    std::vector<std::wstring> dates;
+    for (size_t i = 0; i < entries.size(); i++) {
+        if ((int)i == excludeIndex) continue;
+        dates.push_back(entries[i].date);
+    }
+    std::sort(dates.begin(), dates.end());
+    dates.erase(std::unique(dates.begin(), dates.end()), dates.end());
+    return dates;
+}
+
+// True when the sheet (ignoring excludeIndex) already has at least one entry
+// AND none of them carries `date`. An empty sheet never counts - the first
+// entry of a sheet can have any date.
+inline bool IsNewDateOnSheet(const std::vector<Entry>& entries, const std::wstring& date, int excludeIndex) {
+    std::vector<std::wstring> dates = DistinctSheetDates(entries, excludeIndex);
+    if (dates.empty()) return false;
+    return !std::binary_search(dates.begin(), dates.end(), date);
+}
+
+
 //
 // Takes the FULL, ALREADY-DECODED file content as a single wstring (the
 // Win32-specific "open the file, read the bytes, convert from UTF-8" step

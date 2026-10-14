@@ -304,3 +304,135 @@ TEST_SUITE("ReevaluateOutlierFlagsForSpeciesOnDate") {
         CHECK(entries[0].priceFlagged == false);
     }
 }
+
+
+// ---------------------------------------------------------------------------
+// v0.9.62: sheet-wide outlier baseline (one sheet = one balance session; a
+// sheet can hold more than one entry date).
+// ---------------------------------------------------------------------------
+TEST_SUITE("GatherOtherPricesForSpecies (sheet-wide, any date)") {
+    TEST_CASE("includes the same species from every date and supplier, excludes other species") {
+        std::vector<Entry> entries;
+        Entry a; a.supplier = L"S1"; a.product = L"Flathead"; a.date = L"2026-09-30"; a.price = 12; entries.push_back(a);
+        Entry b; b.supplier = L"S2"; b.product = L"Flathead"; b.date = L"2026-10-13"; b.price = 15; entries.push_back(b);
+        Entry c; c.supplier = L"S1"; c.product = L"Rock flat"; c.date = L"2026-10-13"; c.price = 99; entries.push_back(c);
+        auto prices = GatherOtherPricesForSpecies(entries, L"Flathead", -1);
+        REQUIRE(prices.size() == 2);
+        CHECK(prices[0] == doctest::Approx(12.0));
+        CHECK(prices[1] == doctest::Approx(15.0));
+    }
+    TEST_CASE("excludeIndex leaves that entry's own price out") {
+        std::vector<Entry> entries;
+        Entry a; a.product = L"Flathead"; a.date = L"2026-09-30"; a.price = 50; entries.push_back(a);
+        Entry b; b.product = L"Flathead"; b.date = L"2026-10-13"; b.price = 7;  entries.push_back(b);
+        auto prices = GatherOtherPricesForSpecies(entries, L"Flathead", 0);
+        REQUIRE(prices.size() == 1);
+        CHECK(prices[0] == doctest::Approx(7.0));
+    }
+}
+
+TEST_SUITE("ReevaluateOutlierFlagsForSpecies (sheet-wide, any date)") {
+    TEST_CASE("Jack's real sheet (2026-10-14): Flathead $2.00 and $222.00 entered on a different date "
+              "from six normal $12-$18 entries are both flagged; the normal ones are not") {
+        std::vector<Entry> entries;
+        auto add = [&](const wchar_t* sup, const wchar_t* prod, double kgs, double price, const wchar_t* date) {
+            Entry e; e.supplier = sup; e.product = prod; e.kgs = kgs; e.price = price; e.date = date;
+            entries.push_back(e);
+        };
+        add(L"J Casement", L"Flathead", 12, 12, L"2026-09-30");
+        add(L"J Casement", L"Flathead", 12, 12, L"2026-09-30");
+        add(L"J Casement", L"Flathead", 12, 12, L"2026-09-30");
+        add(L"J Casement", L"Flathead", 12, 15, L"2026-09-30");
+        add(L"J Casement", L"Flathead", 12, 15, L"2026-09-30");
+        add(L"J Casement", L"Flathead", 12, 18, L"2026-09-30");
+        add(L"Samantha J", L"Flathead", 12, 2, L"2026-10-13");
+        add(L"Samantha J", L"Flathead", 1000, 222, L"2026-10-13");
+        ReevaluateOutlierFlagsForSpecies(entries, L"Flathead");
+        for (size_t i = 0; i < 6; i++) CHECK_FALSE(entries[i].priceFlagged);
+        CHECK(entries[6].priceFlagged);  // $2.00
+        CHECK(entries[7].priceFlagged);  // $222.00
+    }
+    TEST_CASE("Rock flat from the same sheet: only 4 prices in total (3 others each), "
+              "so below the minimum - nothing flagged") {
+        std::vector<Entry> entries;
+        for (double p : {10.0, 10.0, 250.0, 12.0}) {
+            Entry e; e.product = L"Rock flat"; e.date = L"2026-09-30"; e.price = p; entries.push_back(e);
+        }
+        ReevaluateOutlierFlagsForSpecies(entries, L"Rock flat");
+        for (auto& e : entries) CHECK_FALSE(e.priceFlagged);
+    }
+    TEST_CASE("a Saturday-dated entry balanced alongside Monday's is compared against them") {
+        std::vector<Entry> entries;
+        for (double p : {11.0, 11.0, 11.0, 12.0}) {
+            Entry e; e.product = L"Bonito"; e.date = L"2026-10-12"; e.price = p; entries.push_back(e); // Monday
+        }
+        Entry sat; sat.product = L"Bonito"; sat.date = L"2026-10-10"; sat.price = 111.0; entries.push_back(sat);
+        ReevaluateOutlierFlagsForSpecies(entries, L"Bonito");
+        CHECK(entries[4].priceFlagged);
+        for (size_t i = 0; i < 4; i++) CHECK_FALSE(entries[i].priceFlagged);
+    }
+    TEST_CASE("other species are left untouched, and a fixed typo un-flags") {
+        std::vector<Entry> entries;
+        for (double p : {1111.0, 11.0, 11.0, 11.0, 111.0}) {
+            Entry e; e.product = L"bonito"; e.date = L"2026-09-22"; e.price = p; entries.push_back(e);
+        }
+        Entry other; other.product = L"garfish"; other.date = L"2026-09-22"; other.price = 1111; other.priceFlagged = true;
+        entries.push_back(other);
+        ReevaluateOutlierFlagsForSpecies(entries, L"bonito");
+        CHECK(entries[0].priceFlagged);
+        CHECK(entries[5].priceFlagged); // garfish keeps whatever flag it had
+        entries[0].price = 11.0;
+        ReevaluateOutlierFlagsForSpecies(entries, L"bonito");
+        CHECK_FALSE(entries[0].priceFlagged);
+    }
+}
+
+
+// ---------------------------------------------------------------------------
+// v0.9.63: mixed-date warning (CommitEntryForm asks before adding an entry
+// whose date isn't already on the sheet).
+// ---------------------------------------------------------------------------
+namespace {
+std::vector<Entry> SheetWithDates(std::initializer_list<const wchar_t*> dates) {
+    std::vector<Entry> v;
+    for (const wchar_t* d : dates) { Entry e; e.date = d; v.push_back(e); }
+    return v;
+}
+}
+
+TEST_SUITE("DistinctSheetDates / IsNewDateOnSheet") {
+    TEST_CASE("distinct dates are unique and sorted") {
+        auto sheet = SheetWithDates({L"2026-10-13", L"2026-09-30", L"2026-10-13", L"2026-09-30"});
+        auto dates = DistinctSheetDates(sheet, -1);
+        REQUIRE(dates.size() == 2);
+        CHECK(dates[0] == L"2026-09-30");
+        CHECK(dates[1] == L"2026-10-13");
+    }
+    TEST_CASE("an empty sheet never counts as a new date") {
+        std::vector<Entry> empty;
+        CHECK_FALSE(IsNewDateOnSheet(empty, L"2026-10-14", -1));
+    }
+    TEST_CASE("a date already on the sheet is not new") {
+        auto sheet = SheetWithDates({L"2026-10-13", L"2026-10-13"});
+        CHECK_FALSE(IsNewDateOnSheet(sheet, L"2026-10-13", -1));
+    }
+    TEST_CASE("yesterday's sheet + today's date is new") {
+        auto sheet = SheetWithDates({L"2026-10-13", L"2026-10-13"});
+        CHECK(IsNewDateOnSheet(sheet, L"2026-10-14", -1));
+    }
+    TEST_CASE("a sheet that already mixes dates (Saturday + Monday): either existing date is fine, a third is new") {
+        auto sheet = SheetWithDates({L"2026-10-10", L"2026-10-12"});
+        CHECK_FALSE(IsNewDateOnSheet(sheet, L"2026-10-10", -1));
+        CHECK_FALSE(IsNewDateOnSheet(sheet, L"2026-10-12", -1));
+        CHECK(IsNewDateOnSheet(sheet, L"2026-10-13", -1));
+    }
+    TEST_CASE("editing: the row being edited is ignored, so re-dating the only row never prompts") {
+        auto sheet = SheetWithDates({L"2026-10-13"});
+        CHECK_FALSE(IsNewDateOnSheet(sheet, L"2026-10-14", 0));
+    }
+    TEST_CASE("editing: other rows still count") {
+        auto sheet = SheetWithDates({L"2026-10-13", L"2026-10-13"});
+        CHECK(IsNewDateOnSheet(sheet, L"2026-10-14", 0));
+        CHECK_FALSE(IsNewDateOnSheet(sheet, L"2026-10-13", 0));
+    }
+}

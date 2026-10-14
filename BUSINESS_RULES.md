@@ -171,6 +171,26 @@ understood:
   Entered Total both on-screen (Reconciliation tab) and on the printed
   report.
 
+## Unusual-price flag (v0.9.62)
+
+- **One sheet is one balance session** (Jack, 2026-10-14) - that is what
+  Finalize Day closes. A sheet can hold more than one entry date (Monday and
+  Tuesday balanced as one day; Saturday's entries balanced on the Monday with
+  Saturday's date).
+- The unusual-price check therefore compares each price against every OTHER
+  entry for the same species on the current sheet - any date, any supplier -
+  not just entries with an identical date. It needs at least 4 other prices,
+  uses Tukey's fence with a 20% floor on the spread, only ever MARKS an entry
+  (never blocks it), and re-checks after every add/edit/delete/undo. It does
+  not look at previous days' sheets (a possible later feature).
+
+## Mixed-date warning (v0.9.63)
+
+- A sheet is normally one day's entries. Adding an entry whose date is not
+  already on a non-empty sheet asks first (Yes = add it and stop asking for
+  this session; No = don't add). Re-arms on File > New, opening a file, and
+  after Finalize Day. Never blocks outright - it is a confirmation, not a rule.
+
 ## Price statistics (By Species tab)
 
 - **Average/Highest/Lowest price** on the By Species tab are computed over
