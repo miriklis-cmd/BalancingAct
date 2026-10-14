@@ -2,7 +2,7 @@
 
 | Folder | Holds | May depend on |
 |---|---|---|
-| `core/` | Pure logic, no Windows calls: parsing, aggregation, formatting, business rules, control limits | nothing |
+| `core/` | Pure logic, no Windows calls: parsing, aggregation, formatting, business rules, control limits, the `.fbd` file format in both directions (`ParseFbdContent` / `BuildFbdText`, v0.10.12) | nothing |
 | `data/` | Anything that touches disk: file I/O, `.fbd` save/load, settings, recent files, supplier emails, autosave, backups, history | core |
 | `services/` | Work done with the data: report rendering/printing, CSV export, email building, Finalize Day, entry operations | core, data |
 | `forms/` | All windows and controls: main window + tabs, layout, refresh, popups, window procedures, entry point | everything below |

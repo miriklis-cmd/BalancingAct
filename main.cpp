@@ -244,81 +244,59 @@ void RememberRecentFile(const std::wstring& path) {
 // File persistence (simple pipe-delimited UTF-8 text format, *.fbd)
 // ---------------------------------------------------------------------------
 
-// Builds the full .fbd content string (Debtor/Cash, in-progress draft
-// entry-form fields, then BEGIN/entries/END) from the current on-screen
-// and in-memory state. Factored out of SaveToFile so the rolling-backup
-// snapshot writer (WriteBackupSnapshot, see ROADMAP.md item 4) can build
-// the exact same content without duplicating this logic - identical
-// output to what SaveToFile has always written, just named and reused.
-// finalizedDateOverride: used only by DoFinalizeDay() when writing the new
-// history\<date>.fbd snapshot at the moment of finalizing, so that file is
-// born already carrying FINALIZED= without a separate write-then-rewrite
-// step. Every other caller passes nothing and gets g_finalizedDate (empty
-// for an ordinary working file, or the locked-in date once loaded from one).
+// Builds the full .fbd content (as UTF-8) from the current on-screen and in-memory
+// state. Shared by SaveToFile and the rolling-backup snapshot writer
+// (WriteBackupSnapshot, ROADMAP.md item 4) so both write identical content.
+// v0.10.12 (split stage 7a): this function now only GATHERS the state from the
+// controls into an FbdSaveState; the file text itself is built by BuildFbdText()
+// in FishBalanceCore.h (pure, unit-tested, round-trips through ParseFbdContent).
+// Same output as before, byte for byte.
 std::string BuildFbdSaveContent(const std::wstring& finalizedDateOverride = L"", bool includeSourceFile = false) {
-    std::string content;
-    auto writeLine = [&](const std::wstring& line) {
-        content += WToUtf8(line) + "\n";
-    };
+    FbdSaveState state;
     // Phase 1 completeness follow-up (2026-09-30, v0.9.50): sized to the
     // largest of the field limits this shared buffer is reused for below
-    // (kMaxNotesLength/kMaxDebtorCashExprLength, both 4096) - the previous
-    // 512-wchar buffer would have silently truncated a legitimately long
-    // (but now UI-permitted) Debtor/Cash expression or Notes value right
-    // before writing it to disk.
+    // (kMaxNotesLength/kMaxDebtorCashExprLength, both 4096) - a smaller
+    // buffer would silently truncate a legitimately long Debtor/Cash
+    // expression or Notes value right before writing it to disk.
     wchar_t buf[kMaxNotesLength + 1];
-    GetWindowTextW(hEditDebtor, buf, (int)(kMaxNotesLength + 1));
-    writeLine(std::wstring(L"DEBTOR=") + buf);
-    GetWindowTextW(hEditCash, buf, (int)(kMaxNotesLength + 1));
-    writeLine(std::wstring(L"CASH=") + buf);
+    auto textOf = [&](HWND h) -> std::wstring {
+        GetWindowTextW(h, buf, (int)(kMaxNotesLength + 1));
+        return std::wstring(buf);
+    };
+    state.debtor = textOf(hEditDebtor);
+    state.cash = textOf(hEditCash);
 
     // Phase 1 / F1 audit remediation, narrowed post-review (2026-09-30): the
     // SOURCE_FILE= identity marker is only ever READ back by wWinMain's
     // startup logic, and only from autosave.fbd specifically - so it's only
-    // written here (includeSourceFile=true, passed by SaveToFile only for
-    // the autosave path). Writing g_currentFile's absolute path into every
-    // .fbd save (named files, history\ snapshots, backups\) was the original
-    // Phase 1 implementation, but on reflection that embeds the original
-    // machine's Windows username/folder path into files that routinely
-    // leave the machine - emailed, backed up, or opened on another computer
-    // - for no benefit, since nothing ever reads this marker out of a named/
-    // history/backup file. Scoping it to autosave.fbd alone keeps the exact
-    // same safety property (see FbdLoadResult::sourceFile/hasSourceFile in
-    // FishBalanceCore.h) without that exposure.
-    if (includeSourceFile) writeLine(L"SOURCE_FILE=" + g_currentFile);
+    // written for the autosave path (see SaveToFile). Writing g_currentFile's
+    // absolute path into every .fbd save would embed the original machine's
+    // Windows username/folder path into files that routinely leave the
+    // machine (emailed, backed up, opened elsewhere) for no benefit.
+    state.includeSourceFile = includeSourceFile;
+    state.sourceFile = g_currentFile;
 
-    const std::wstring& finalizedDate = finalizedDateOverride.empty() ? g_finalizedDate : finalizedDateOverride;
-    if (!finalizedDate.empty()) writeLine(L"FINALIZED=" + finalizedDate);
+    // finalizedDateOverride: used only by DoFinalizeDay() when writing the new
+    // history\<date>.fbd snapshot, so that file is born already carrying
+    // FINALIZED= without a separate write-then-rewrite step. Every other
+    // caller passes nothing and gets g_finalizedDate.
+    state.finalizedDate = finalizedDateOverride.empty() ? g_finalizedDate : finalizedDateOverride;
 
     // In-progress "Add Entry" form state, so it survives a crash or power
-    // loss and not just a graceful close - whatever's currently sitting in
-    // these fields (even if nothing/blank) is written on every save, the
-    // same way Debtor/Cash already are.
-    GetWindowTextW(hCmbSupplier, buf, (int)(kMaxNotesLength + 1));
-    writeLine(std::wstring(L"DRAFT_SUPPLIER=") + buf);
-    GetWindowTextW(hCmbProduct, buf, (int)(kMaxNotesLength + 1));
-    writeLine(std::wstring(L"DRAFT_SPECIES=") + buf);
-    GetWindowTextW(hEditKgs, buf, (int)(kMaxNotesLength + 1));
-    writeLine(std::wstring(L"DRAFT_KGS=") + buf);
-    GetWindowTextW(hEditPrice, buf, (int)(kMaxNotesLength + 1));
-    writeLine(std::wstring(L"DRAFT_PRICE=") + buf);
-    GetWindowTextW(hEditNotes, buf, (int)(kMaxNotesLength + 1));
-    writeLine(std::wstring(L"DRAFT_NOTES=") + buf);
+    // loss and not just a graceful close.
+    state.draftSupplier = textOf(hCmbSupplier);
+    state.draftSpecies = textOf(hCmbProduct);
+    state.draftKgs = textOf(hEditKgs);
+    state.draftPrice = textOf(hEditPrice);
+    state.draftNotes = textOf(hEditNotes);
     if (hDtpDate) {
         SYSTEMTIME st{};
         DateTime_GetSystemtime(hDtpDate, &st);
-        writeLine(L"DRAFT_DATE=" + FormatDateISO(st));
+        state.hasDraftDate = true;
+        state.draftDate = FormatDateISO(st);
     }
-
-    writeLine(L"BEGIN");
-    for (auto& e : g_entries) {
-        std::wstring line = e.supplier + L"|" + e.product + L"|" +
-                             ToFixed(e.kgs, 4) + L"|" + ToFixed(e.price, 4) + L"|" +
-                             e.date + L"|" + e.notes + L"|" + (e.priceFlagged ? L"1" : L"0");
-        writeLine(line);
-    }
-    writeLine(L"END");
-    return content;
+    state.entries = g_entries;
+    return WToUtf8(BuildFbdText(state));
 }
 
 bool SaveToFile(const std::wstring& path, std::wstring* outError = nullptr) {

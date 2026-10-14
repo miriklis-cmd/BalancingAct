@@ -826,7 +826,7 @@ struct FbdLoadResult {
     // the full path of whichever named file (g_currentFile) was open in
     // main.cpp at the moment this content was written - empty if no named
     // file was open (an unsaved sheet). In practice only ever written into
-    // autosave.fbd (see BuildFbdSaveContent/SaveToFile in main.cpp) -
+    // autosave.fbd (see BuildFbdText here and SaveToFile in main.cpp) -
     // deliberately NOT written into named-file saves, history\ snapshots, or
     // backups\, since those routinely leave the machine (emailed, backed
     // up, opened elsewhere) and nothing ever reads this marker back out of
@@ -1120,7 +1120,7 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
     // shape (4/6/7-field rows, handled above), never about omitting the
     // structural section entirely - nothing in this app's own history ever
     // wrote a file with DEBTOR=/CASH= but no BEGIN/END at all, since every
-    // save path (BuildFbdSaveContent in main.cpp) has always written both,
+    // save path (BuildFbdText, formerly BuildFbdSaveContent in main.cpp) has always written both,
     // even for a blank sheet. sawRecognizedMarker is checked first so a
     // totally unrelated text file gets the more accurate "not a Fish
     // Balance file" reason rather than "missing BEGIN".
@@ -1143,6 +1143,53 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
     result.hasSourceFile = hasSourceFile;
     result.skippedLines = skippedLines;
     return result;
+}
+
+// ---------------------------------------------------------------------------
+// Building .fbd content (v0.10.12, main.cpp split stage 7a)
+//
+// The mirror image of ParseFbdContent: everything a save writes, as plain data,
+// and a pure function that turns it into the file text. Until v0.10.12 this was
+// BuildFbdSaveContent() in main.cpp, which read the text boxes directly while
+// building the string - so the file format could only be tested by running the
+// GUI. main.cpp now only GATHERS this struct from the controls; the text itself
+// is built (and unit-tested, including a round trip through ParseFbdContent) here.
+// Output is byte-for-byte what the old inline code produced.
+// ---------------------------------------------------------------------------
+struct FbdSaveState {
+    std::wstring debtor, cash;            // the raw text typed into the Debtor/Cash boxes
+    bool includeSourceFile = false;       // true only for the autosave.fbd write
+    std::wstring sourceFile;              // g_currentFile (written only when includeSourceFile)
+    std::wstring finalizedDate;           // empty for an ordinary working file
+    std::wstring draftSupplier, draftSpecies, draftKgs, draftPrice, draftNotes; // Add Entry form
+    bool hasDraftDate = false;            // false only if the date picker doesn't exist
+    std::wstring draftDate;               // ISO date from the date picker (when hasDraftDate)
+    std::vector<Entry> entries;
+};
+
+// Returns the .fbd document as UTF-16 text with "\n" line endings; the caller
+// converts to UTF-8 for the file (WToUtf8 in the Win32 data layer).
+inline std::wstring BuildFbdText(const FbdSaveState& s) {
+    std::wstring out;
+    auto writeLine = [&](const std::wstring& line) { out += line; out += L"\n"; };
+    writeLine(L"DEBTOR=" + s.debtor);
+    writeLine(L"CASH=" + s.cash);
+    if (s.includeSourceFile) writeLine(L"SOURCE_FILE=" + s.sourceFile);
+    if (!s.finalizedDate.empty()) writeLine(L"FINALIZED=" + s.finalizedDate);
+    writeLine(L"DRAFT_SUPPLIER=" + s.draftSupplier);
+    writeLine(L"DRAFT_SPECIES=" + s.draftSpecies);
+    writeLine(L"DRAFT_KGS=" + s.draftKgs);
+    writeLine(L"DRAFT_PRICE=" + s.draftPrice);
+    writeLine(L"DRAFT_NOTES=" + s.draftNotes);
+    if (s.hasDraftDate) writeLine(L"DRAFT_DATE=" + s.draftDate);
+    writeLine(L"BEGIN");
+    for (const auto& e : s.entries) {
+        writeLine(e.supplier + L"|" + e.product + L"|" +
+                  ToFixed(e.kgs, 4) + L"|" + ToFixed(e.price, 4) + L"|" +
+                  e.date + L"|" + e.notes + L"|" + (e.priceFlagged ? L"1" : L"0"));
+    }
+    writeLine(L"END");
+    return out;
 }
 
 // ---------------------------------------------------------------------------

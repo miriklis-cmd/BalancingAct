@@ -682,3 +682,107 @@ TEST_SUITE("ParseFbdContent - Phase 1 / F1: SOURCE_FILE identity marker") {
         CHECK(r.sourceFile == L"C:\\Data\\March.fbd");
     }
 }
+
+// v0.10.12 (main.cpp split stage 7a): BuildFbdText() is the pure builder behind every
+// save (main.cpp only gathers the state from the controls). These pin the exact file
+// format and prove the builder and ParseFbdContent agree on it.
+TEST_SUITE("BuildFbdText - building .fbd content") {
+    static FbdSaveState SampleState() {
+        FbdSaveState s;
+        s.debtor = L"1000+250.5";
+        s.cash = L"75";
+        s.draftSupplier = L"Jenkins";
+        s.draftSpecies = L"Flathead";
+        s.draftKgs = L"12";
+        s.draftPrice = L"9.5";
+        s.draftNotes = L"half done";
+        s.hasDraftDate = true;
+        s.draftDate = L"2026-10-14";
+        Entry a; a.supplier = L"Samantha J"; a.product = L"Rock flat"; a.kgs = 1011.0; a.price = 20.0;
+        a.date = L"2026-10-13"; a.notes = L"big one"; a.priceFlagged = true;
+        Entry b; b.supplier = L"Jenkins"; b.product = L"Flathead"; b.kgs = 12.5; b.price = 3.25;
+        b.date = L"2026-10-14";
+        s.entries = { a, b };
+        return s;
+    }
+
+    TEST_CASE("exact output for a typical working file (no SOURCE_FILE, not finalized)") {
+        CHECK(BuildFbdText(SampleState()) ==
+            L"DEBTOR=1000+250.5\n"
+            L"CASH=75\n"
+            L"DRAFT_SUPPLIER=Jenkins\n"
+            L"DRAFT_SPECIES=Flathead\n"
+            L"DRAFT_KGS=12\n"
+            L"DRAFT_PRICE=9.5\n"
+            L"DRAFT_NOTES=half done\n"
+            L"DRAFT_DATE=2026-10-14\n"
+            L"BEGIN\n"
+            L"Samantha J|Rock flat|1011.0000|20.0000|2026-10-13|big one|1\n"
+            L"Jenkins|Flathead|12.5000|3.2500|2026-10-14||0\n"
+            L"END\n");
+    }
+
+    TEST_CASE("SOURCE_FILE= is written only when includeSourceFile is set, right after CASH=") {
+        FbdSaveState s = SampleState();
+        s.sourceFile = L"C:\\Data\\Day.fbd";
+        CHECK(BuildFbdText(s).find(L"SOURCE_FILE=") == std::wstring::npos);
+        s.includeSourceFile = true;
+        std::wstring text = BuildFbdText(s);
+        CHECK(text.find(L"CASH=75\nSOURCE_FILE=C:\\Data\\Day.fbd\nDRAFT_SUPPLIER=") != std::wstring::npos);
+        s.sourceFile = L"";   // an unsaved sheet: marker present but empty
+        CHECK(BuildFbdText(s).find(L"SOURCE_FILE=\n") != std::wstring::npos);
+    }
+
+    TEST_CASE("FINALIZED= is written only for a finalized day, after SOURCE_FILE=/CASH=") {
+        FbdSaveState s = SampleState();
+        CHECK(BuildFbdText(s).find(L"FINALIZED=") == std::wstring::npos);
+        s.finalizedDate = L"2026-10-14";
+        CHECK(BuildFbdText(s).find(L"CASH=75\nFINALIZED=2026-10-14\nDRAFT_SUPPLIER=") != std::wstring::npos);
+    }
+
+    TEST_CASE("no DRAFT_DATE= line when there is no date picker") {
+        FbdSaveState s = SampleState();
+        s.hasDraftDate = false;
+        CHECK(BuildFbdText(s).find(L"DRAFT_DATE=") == std::wstring::npos);
+    }
+
+    TEST_CASE("an empty sheet still writes DEBTOR/CASH/DRAFT/BEGIN/END and loads back") {
+        FbdSaveState s;
+        std::wstring text = BuildFbdText(s);
+        CHECK(text ==
+            L"DEBTOR=\nCASH=\nDRAFT_SUPPLIER=\nDRAFT_SPECIES=\nDRAFT_KGS=\nDRAFT_PRICE=\nDRAFT_NOTES=\nBEGIN\nEND\n");
+        auto r = ParseFbdContent(text);
+        REQUIRE(r.ok);
+        CHECK(r.entries.empty());
+    }
+
+    TEST_CASE("round trip: everything BuildFbdText writes, ParseFbdContent reads back") {
+        FbdSaveState s = SampleState();
+        s.includeSourceFile = true;
+        s.sourceFile = L"C:\\Data\\Day.fbd";
+        s.finalizedDate = L"2026-10-14";
+        auto r = ParseFbdContent(BuildFbdText(s));
+        REQUIRE(r.ok);
+        CHECK(r.debtor == s.debtor);
+        CHECK(r.cash == s.cash);
+        CHECK(r.hasSourceFile);
+        CHECK(r.sourceFile == s.sourceFile);
+        CHECK(r.finalizedDate == s.finalizedDate);
+        CHECK(r.draftSupplier == s.draftSupplier);
+        CHECK(r.draftSpecies == s.draftSpecies);
+        CHECK(r.draftKgs == s.draftKgs);
+        CHECK(r.draftPrice == s.draftPrice);
+        CHECK(r.draftNotes == s.draftNotes);
+        CHECK(r.draftDate == s.draftDate);
+        REQUIRE(r.entries.size() == 2);
+        for (size_t i = 0; i < 2; i++) {
+            CHECK(r.entries[i].supplier == s.entries[i].supplier);
+            CHECK(r.entries[i].product == s.entries[i].product);
+            CHECK(r.entries[i].kgs == doctest::Approx(s.entries[i].kgs));
+            CHECK(r.entries[i].price == doctest::Approx(s.entries[i].price));
+            CHECK(r.entries[i].date == s.entries[i].date);
+            CHECK(r.entries[i].notes == s.entries[i].notes);
+            CHECK(r.entries[i].priceFlagged == s.entries[i].priceFlagged);
+        }
+    }
+}

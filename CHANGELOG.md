@@ -18,6 +18,20 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.10.12] - main.cpp split, stage 7a: .fbd file text is now built by pure, tested core code
+
+- New `FbdSaveState` + `BuildFbdText()` in `src/core/FishBalanceCore.h`: everything a save writes, as plain data, and
+  the function that turns it into the file text. It is the mirror of `ParseFbdContent` - same file, same rules.
+- `BuildFbdSaveContent()` in `main.cpp` now only GATHERS the state from the controls (Debtor, Cash, the Add Entry
+  draft, the date picker) and converts the result to UTF-8. Same signature, same output, byte for byte. Its callers
+  (Save, autosave, rolling backups, Finalize) are untouched.
+- 6 new portable tests: exact file text for a typical sheet, SOURCE_FILE= only for autosave, FINALIZED= only for a
+  finalized day, no DRAFT_DATE= without a date picker, an empty sheet, and a full round trip (build -> ParseFbdContent
+  -> same data). The file format used to be testable only by running the GUI.
+- Expect 247 portable tests (241 + 6), 25 integration. Manual check: make an entry, File > Save, close and reopen the
+  file (data, Debtor/Cash and a half-typed Add Entry draft all come back); finalize a day and confirm the history
+  file still opens as finalized.
+
 ## [0.10.11] - Revert the v0.10.10 combo experiment (it made the combos disappear)
 
 Jack's screenshot after v0.10.10: the Supplier and Species boxes were not drawn at all (before: drawn, with a grey
