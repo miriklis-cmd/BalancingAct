@@ -4,7 +4,7 @@ This file is the single source of truth for "what's built, what's being
 tested, and what's next." Check here first if you've lost track of where
 things stand — that's exactly what this file is for.
 
-## Status: v0.9.63 (mixed-date warning; builds on v0.9.62) — earlier: v0.9.62 — Phase 2 verified on Windows (v0.9.57/58); v0.9.59-61 Data Entry mockup rework, v0.9.62 sheet-wide unusual-price check (awaiting Windows build/tests). Phase 3 (F8/F6/F24/doc drift) proposed, NOT started; WinUI 3 discussion planned alongside the main.cpp split. Known: intermittent first-paint glitch on Supplier/Species combos (parked until WinUI 3 decision). Possible later feature: price-history comparison from finalized days.
+## Status: v0.9.66 (Phase 3a step 3: F23 GetExeDir long-path fix, awaiting Windows build/tests; v0.9.64 F8 and v0.9.65 F6/F24 verified) — earlier: v0.9.62 — Phase 2 verified on Windows (v0.9.57/58); v0.9.59-61 Data Entry mockup rework, v0.9.62 sheet-wide unusual-price check (awaiting Windows build/tests). Phase 3a in progress: F8 done (v0.9.64); F6+F24 done (v0.9.65); F23 done (v0.9.66); next docs F25-F29, then F25-F29 docs; WinUI 3 discussion planned alongside the main.cpp split. Known: intermittent first-paint glitch on Supplier/Species combos (parked until WinUI 3 decision). Possible later feature: price-history comparison from finalized days.
 
 Phase 2 (authorized after Jack confirmed Phase 1's `run_tests.bat` +
 `build_msvc.bat` both passed on his Windows machine, and Reconciliation was

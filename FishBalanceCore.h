@@ -1553,6 +1553,33 @@ inline MailtoBuildResult BuildMailtoUri(const std::wstring& email, const std::ws
     return result;
 }
 
+// v0.9.64 (audit F8): rolling-backup filename. Previously second resolution
+// only, so two snapshots of the same file label inside one second (e.g. a
+// deliberate Save immediately after an autosave-triggered snapshot) got the
+// same name and the later one silently replaced the earlier. Now adds
+// milliseconds (fixed width, so name order is still chronological order for
+// PruneOldBackups), plus an optional collision counter the caller bumps if
+// the name already exists. counter 0 adds no suffix.
+inline std::wstring BuildBackupFileName(int year, int month, int day, int hour,
+                                        int minute, int second, int millis,
+                                        const std::wstring& label, int counter) {
+    wchar_t stamp[48];
+    swprintf(stamp, 48, L"%04d%02d%02d_%02d%02d%02d_%03d",
+             year, month, day, hour, minute, second, millis);
+    std::wstring name = L"backup_" + std::wstring(stamp);
+    if (counter > 0) name += L"-" + std::to_wstring(counter);
+    return name + L"_" + label + L".fbd";
+}
+
+// v0.9.64 (audit F6): temp file name used by the atomic writer. Previously a
+// fixed path + ".tmp", so two writers targeting the same file could trample
+// each other's temp file. Now includes the process id, so concurrent
+// processes never share one (the app is single-instance as of v0.9.64
+// anyway; this is belt and braces).
+inline std::wstring BuildAtomicTempPath(const std::wstring& path, unsigned long processId) {
+    return path + L"." + std::to_wstring(processId) + L".tmp";
+}
+
 inline std::wstring GreetingForHour(int hour) {
     if (hour < 12) return L"Good morning";
     if (hour < 17) return L"Good afternoon";

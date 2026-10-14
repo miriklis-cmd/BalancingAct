@@ -65,6 +65,15 @@ bool ReadWholeFile(const std::wstring& path, std::string& out) {
     return ReadAllBytes(path, out) == ReadBytesError::Ok;
 }
 
+// v0.9.64: temp files are now named <path>.<pid>.tmp, so look for any.
+bool TempFileLeftBehind(const std::wstring& path) {
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW((path + L".*.tmp").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    FindClose(h);
+    return true;
+}
+
 bool FileExists(const std::wstring& path) {
     return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
@@ -90,7 +99,7 @@ TEST_CASE("a pre-existing destination is untouched when the temp file can't be o
     std::string stillThere;
     REQUIRE(ReadWholeFile(path, stillThere));
     CHECK(stillThere == "ORIGINAL CONTENT");
-    CHECK_FALSE(FileExists(path + L".tmp"));
+    CHECK_FALSE(TempFileLeftBehind(path));
 }
 
 TEST_CASE("no destination is created at all when the temp file can't be opened, for a brand-new file") {
@@ -105,7 +114,7 @@ TEST_CASE("no destination is created at all when the temp file can't be opened, 
     bool ok = WriteFileAtomicUtf8(path, "SOMETHING", &err, &ops);
     CHECK_FALSE(ok);
     CHECK_FALSE(FileExists(path));
-    CHECK_FALSE(FileExists(path + L".tmp"));
+    CHECK_FALSE(TempFileLeftBehind(path));
 }
 
 TEST_CASE("a short/failed write leaves the destination untouched and cleans up the temp file") {
@@ -127,7 +136,7 @@ TEST_CASE("a short/failed write leaves the destination untouched and cleans up t
     std::string stillThere;
     REQUIRE(ReadWholeFile(path, stillThere));
     CHECK(stillThere == "ORIGINAL CONTENT");
-    CHECK_FALSE(FileExists(path + L".tmp"));
+    CHECK_FALSE(TempFileLeftBehind(path));
 }
 
 TEST_CASE("a reported write error (ferror) fails the save even if the byte count matched") {
@@ -145,7 +154,7 @@ TEST_CASE("a reported write error (ferror) fails the save even if the byte count
     std::string stillThere;
     REQUIRE(ReadWholeFile(path, stillThere));
     CHECK(stillThere == "ORIGINAL CONTENT");
-    CHECK_FALSE(FileExists(path + L".tmp"));
+    CHECK_FALSE(TempFileLeftBehind(path));
 }
 
 TEST_CASE("a flush failure fails the save and cleans up the temp file") {
@@ -163,7 +172,7 @@ TEST_CASE("a flush failure fails the save and cleans up the temp file") {
     std::string stillThere;
     REQUIRE(ReadWholeFile(path, stillThere));
     CHECK(stillThere == "ORIGINAL CONTENT");
-    CHECK_FALSE(FileExists(path + L".tmp"));
+    CHECK_FALSE(TempFileLeftBehind(path));
 }
 
 TEST_CASE("a replace (rename) failure leaves both the destination and the temp file exactly as they were") {
@@ -184,7 +193,7 @@ TEST_CASE("a replace (rename) failure leaves both the destination and the temp f
     std::string stillThere;
     REQUIRE(ReadWholeFile(path, stillThere));
     CHECK(stillThere == "ORIGINAL CONTENT");
-    CHECK_FALSE(FileExists(path + L".tmp")); // cleaned up even though the replace itself failed
+    CHECK_FALSE(TempFileLeftBehind(path)); // cleaned up even though the replace itself failed
 }
 
 TEST_CASE("every injected step succeeding (the control case) actually writes the new content") {
@@ -201,7 +210,7 @@ TEST_CASE("every injected step succeeding (the control case) actually writes the
     std::string content;
     REQUIRE(ReadWholeFile(path, content));
     CHECK(content == "REPLACED CONTENT");
-    CHECK_FALSE(FileExists(path + L".tmp"));
+    CHECK_FALSE(TempFileLeftBehind(path));
 }
 
 } // TEST_SUITE
