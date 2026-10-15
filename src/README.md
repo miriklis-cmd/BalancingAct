@@ -23,6 +23,8 @@ Services (`services/`): `CsvExport` (CSV report), `Email` (supplier price email 
 
 Popups (`forms/ManageNamesWindow`, `forms/PrintPreviewWindow`): the Manage Names and Print Preview windows. `forms/MainWindowApi.h` lists what the main window (still in `main.cpp`) provides to them.
 
+Backups (`data/Backups`, v0.10.14): writing a timestamped rolling-backup snapshot to `backups\` - no UI; the failure popup stays in `main.cpp`.
+
 Main window lists (`forms/MainWindowLists`, v0.10.8): the entry list, Overview / By Species / Breakdown lists, Supplier/Species combo refresh + autocomplete, and `RecalcTotals` (the balance badge). 
 
 Main window layout (`forms/MainWindowLayout`, v0.10.9): `LayoutAll` (all control positions, DPI-scaled via `S()`), `ShowTab`, the button glyph icons, list row height, `FixComboBoxFirstPaint`, and the `MakeControl` / `AddColumn` / `InitFonts` helpers. Control creation (`WM_CREATE`), the window procedure and the entry point are still in `main.cpp` (stage 6c-6d).

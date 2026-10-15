@@ -1618,6 +1618,26 @@ inline std::wstring BuildBackupFileName(int year, int month, int day, int hour,
     return name + L"_" + label + L".fbd";
 }
 
+// v0.10.14 (main.cpp split stage 7b): the two small decisions behind autosave and the rolling
+// backups, as pure functions so they can be unit-tested (they used to be inline in main.cpp
+// between the file writes and the warning popups).
+//
+// Warn-once-per-problem: call after every save attempt. Returns true exactly when the caller
+// should show its warning now - i.e. the save failed, nothing has been warned about since the
+// last success, and a window exists to show it on. A success re-arms the warning.
+inline bool NoteSaveOutcome(bool saveOk, bool& alreadyWarned, bool canShowWarning) {
+    if (saveOk) { alreadyWarned = false; return false; }
+    if (!alreadyWarned && canShowWarning) { alreadyWarned = true; return true; }
+    return false;
+}
+
+// True when a rolling backup is due: none taken yet (lastTickMs == 0) or at least intervalMs
+// has passed since the last one. (Tick counts are GetTickCount64 milliseconds.)
+inline bool BackupIntervalElapsed(unsigned long long lastTickMs, unsigned long long nowMs,
+                                  unsigned long long intervalMs) {
+    return lastTickMs == 0 || (nowMs - lastTickMs) >= intervalMs;
+}
+
 // v0.9.64 (audit F6): temp file name used by the atomic writer. Previously a
 // fixed path + ".tmp", so two writers targeting the same file could trample
 // each other's temp file. Now includes the process id, so concurrent

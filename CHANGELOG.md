@@ -18,6 +18,21 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.10.14] - main.cpp split, stage 7b: autosave and rolling backups
+
+- `src/data/Backups.h/.cpp` (new): `WriteBackupSnapshotFile()` - the disk half of the old `WriteBackupSnapshot()`
+  (pick the timestamped name, write it atomically, prune old snapshots). No UI. On failure it leaves the "last
+  backup" bookkeeping untouched so the next autosave retries immediately (the v0.9.31 behaviour, kept).
+- `src/core/FishBalanceCore.h`: two small decisions as pure, tested functions - `NoteSaveOutcome()` (warn once per
+  problem, re-arm after a success, don't mark as warned when there is no window to show it on) and
+  `BackupIntervalElapsed()` (is a rolling backup due).
+- `main.cpp`: `AutosaveNow()`, `WriteBackupSnapshot()` and `MaybeBackupOnTimer()` are now thin - they use the pieces
+  above and only show the two warning popups (texts unchanged). Same behaviour; same function names and callers.
+- 5 new portable tests. Expect 252 portable (247 + 5), 25 integration. New file added to all four build paths.
+- Manual check: use the app normally for a few minutes (entries, Save); `backups\` should keep getting snapshots
+  about every 3 minutes while data changes, and `autosave.fbd` updates as you type. If you can: make the backups
+  folder read-only or full to see the "Backup Snapshot Failed" warning appear once, not repeatedly.
+
 ## [0.10.13] - Fix: Finalize Day did not mark the open saved file as finalized
 
 Jack (2026-10-15, checking v0.10.12): after Finalize Day, going back to the saved file it was not finalized.
