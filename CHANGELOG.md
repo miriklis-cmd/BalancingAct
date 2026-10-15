@@ -18,6 +18,20 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.10.15] - Fix: Restore from Backup failing silently when the file picker can't open
+
+Jack (2026-10-15, after v0.10.14): "Restore from backup does nothing". `DoRestoreFromBackup` is byte-for-byte
+unchanged since v0.9.67, so the split did not cause it - but reading it found one real silent failure: if
+`GetOpenFileNameW` returned FALSE it just `return`ed, with no way to tell a cancelled dialog from a dialog that
+failed to open.
+- Now checks `CommDlgExtendedError()`: 0 = user cancelled (silent, as before); anything else retries once with the
+  folder no longer pre-filled into the file name box (a bare folder there is the likeliest thing to be rejected),
+  and if that also fails shows the error code and the backups folder path instead of doing nothing.
+- No unit test (file dialogs need a real window). Expect 252 portable, 25 integration.
+- Manual check: File > Restore from Backup. Expected: the picker opens in `backups\`; choose a snapshot; confirm
+  (if asked); "Backup Loaded". If you get the new "file picker could not be opened" message instead, send me its
+  error code - that is exactly the evidence needed.
+
 ## [0.10.14] - main.cpp split, stage 7b: autosave and rolling backups
 
 - `src/data/Backups.h/.cpp` (new): `WriteBackupSnapshotFile()` - the disk half of the old `WriteBackupSnapshot()`

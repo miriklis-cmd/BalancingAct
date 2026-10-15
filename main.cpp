@@ -1051,7 +1051,27 @@ void DoRestoreFromBackup() {
     ofn.lpstrInitialDir = dir.c_str(); // kept as a fallback for the true first-ever call
     ofn.lpstrDefExt = L"fbd";
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
-    if (!GetOpenFileNameW(&ofn)) return;
+    if (!GetOpenFileNameW(&ofn)) {
+        // v0.10.15: this used to just `return`, which made a picker that FAILED to open
+        // (as opposed to one the user cancelled) look like "Restore from Backup does
+        // nothing" (Jack, 2026-10-15). CommDlgExtendedError() is 0 for a plain cancel.
+        DWORD pickerErr = CommDlgExtendedError();
+        if (pickerErr == 0) return; // user cancelled
+        // Retry once without the folder pre-filled into the file name box - some systems
+        // reject a bare folder there; the dialog then falls back to lpstrInitialDir.
+        file[0] = L'\0';
+        if (!GetOpenFileNameW(&ofn)) {
+            pickerErr = CommDlgExtendedError();
+            if (pickerErr == 0) return; // cancelled the retry
+            wchar_t codeText[96];
+            swprintf(codeText, 96, L"The file picker could not be opened (error code 0x%04X).", (unsigned)pickerErr);
+            MessageBoxW(g_hMainWnd, (std::wstring(codeText) +
+                L"\n\nThe backups are in:\n" + dir +
+                L"\n\nYou can also use File > Open on one of those files.").c_str(),
+                L"Restore from Backup", MB_OK | MB_ICONWARNING);
+            return;
+        }
+    }
 
     if (!ConfirmDiscardCurrentData(L"load this backup (nothing on disk is touched unless you Save afterwards)")) return;
 
