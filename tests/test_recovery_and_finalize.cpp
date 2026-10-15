@@ -238,3 +238,43 @@ TEST_SUITE("CoordinateSaveAs - Save As failure handling (Phase 1 / F1)") {
         CHECK(seenPath == L"C:\\New.fbd");
     }
 }
+
+// v0.10.14 (main.cpp split stage 7b): the two small decisions behind autosave and the rolling
+// backups, extracted from main.cpp so they can be tested without a window.
+TEST_SUITE("autosave / backup decisions") {
+    TEST_CASE("NoteSaveOutcome: a failure warns once, repeated failures stay quiet") {
+        bool warned = false;
+        CHECK(NoteSaveOutcome(false, warned, true));    // first failure -> show the warning
+        CHECK(warned);
+        CHECK_FALSE(NoteSaveOutcome(false, warned, true)); // same problem still there -> don't nag
+        CHECK_FALSE(NoteSaveOutcome(false, warned, true));
+        CHECK(warned);
+    }
+
+    TEST_CASE("NoteSaveOutcome: a success re-arms the warning for the next failure") {
+        bool warned = true;
+        CHECK_FALSE(NoteSaveOutcome(true, warned, true));  // success: nothing to show
+        CHECK_FALSE(warned);                               // ...and the warning is re-armed
+        CHECK(NoteSaveOutcome(false, warned, true));       // a later failure warns again
+    }
+
+    TEST_CASE("NoteSaveOutcome: with no window to show it on, nothing is shown and nothing is marked warned") {
+        bool warned = false;
+        CHECK_FALSE(NoteSaveOutcome(false, warned, false));
+        CHECK_FALSE(warned); // so it can still warn once a window exists
+        CHECK(NoteSaveOutcome(false, warned, true));
+    }
+
+    TEST_CASE("BackupIntervalElapsed: the first backup is always due") {
+        CHECK(BackupIntervalElapsed(0, 5, 180000));
+        CHECK(BackupIntervalElapsed(0, 0, 180000));
+    }
+
+    TEST_CASE("BackupIntervalElapsed: due exactly when the interval has passed") {
+        const unsigned long long interval = 180000; // 3 minutes
+        CHECK_FALSE(BackupIntervalElapsed(1000, 1000, interval));
+        CHECK_FALSE(BackupIntervalElapsed(1000, 1000 + interval - 1, interval));
+        CHECK(BackupIntervalElapsed(1000, 1000 + interval, interval));
+        CHECK(BackupIntervalElapsed(1000, 1000 + interval + 5000, interval));
+    }
+}

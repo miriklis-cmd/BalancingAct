@@ -34,7 +34,7 @@ $root = Resolve-Path (Join-Path $here "..\..")
 Push-Location $here
 
 # v0.10.0: list every app .cpp here too (same list as build_msvc.bat etc.).
-$appSources = @(@("main.cpp", "src\data\AppData.cpp", "src\data\Storage.cpp", "src\services\CsvExport.cpp", "src\services\Email.cpp", "src\services\ReportRender.cpp", "src\forms\UiState.cpp", "src\forms\MainWindowLayout.cpp", "src\forms\MainWindowLists.cpp", "src\forms\ManageNamesWindow.cpp", "src\forms\PrintPreviewWindow.cpp") | ForEach-Object { Join-Path $root $_ })
+$appSources = @(@("main.cpp", "src\data\AppData.cpp", "src\data\Storage.cpp", "src\data\Backups.cpp", "src\services\CsvExport.cpp", "src\services\Email.cpp", "src\services\ReportRender.cpp", "src\forms\UiState.cpp", "src\forms\MainWindowLayout.cpp", "src\forms\MainWindowLists.cpp", "src\forms\ManageNamesWindow.cpp", "src\forms\PrintPreviewWindow.cpp") | ForEach-Object { Join-Path $root $_ })
 $sources = $appSources + @(
     "test_io_integration.cpp",
     "test_save_fault_injection.cpp",

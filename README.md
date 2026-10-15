@@ -171,6 +171,7 @@ build_msvc.bat
 | `src/core/FishBalanceCore.h` | Platform-independent domain logic extracted from `main.cpp` (parsing, aggregation, formatting) so it can be unit-tested without a Win32 dependency - see `tests/` |
 | `src/data/FishBalanceWin32IO.h` | Win32 file I/O (atomic write, load) behind small ports so it can be fault-injection tested - see `tests/win32_integration/` |
 | `src/data/AppData.*`, `src/forms/UiState.*`, `src/forms/ControlIds.h`, `src/PlatformWin.h` | Shared global state, control IDs and Windows include settings split out of `main.cpp` (v0.10.2) - see `src/README.md` |
+| `src/data/Backups.*` | Writing a timestamped rolling-backup snapshot to `backups\` (v0.10.14) |
 | `src/data/Storage.*` | Where the app's files live and how settings / recent files / supplier emails are read and written (v0.10.3) |
 | `src/services/*` | CSV export, supplier-email building and report rendering, split out of `main.cpp` (v0.10.4-0.10.5) |
 | `src/forms/ManageNamesWindow.*`, `src/forms/PrintPreviewWindow.*`, `src/forms/MainWindowApi.h` | The Manage Names and Print Preview popups, split out of `main.cpp` (v0.10.6) |

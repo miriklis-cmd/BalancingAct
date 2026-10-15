@@ -70,6 +70,7 @@
 // src/data/AppData.cpp and src/forms/UiState.cpp).
 #include "src/data/AppData.h"
 #include "src/data/Storage.h"
+#include "src/data/Backups.h"
 #include "src/services/CsvExport.h"
 #include "src/services/Email.h"
 #include "src/services/ReportRender.h"
@@ -407,21 +408,19 @@ bool LoadFromFile(const std::wstring& path, std::wstring* outError = nullptr) {
 }
 
 // ---------------------------------------------------------------------------
-// Autosave / backup / refresh-all (stage 7 will split the file-writing parts out)
+// Autosave / backup / refresh-all
 // ---------------------------------------------------------------------------
 
 // Attempts the autosave write and warns (once, not repeated while the same
 // problem persists) if it fails - shared by RefreshAll() and by the
 // Debtor/Cash immediate-autosave path below, so both get the same
 // warn-once/reset-on-recovery behavior from one place instead of two
-// copies that could drift apart.
+// copies that could drift apart. The warn-once rule itself is NoteSaveOutcome()
+// in FishBalanceCore.h (unit-tested); this function only shows the popup.
 void AutosaveNow() {
     bool ok = SaveToFile(AutosavePath());
-    if (ok) {
-        g_autosaveFailWarned = false; // problem (if any) has cleared - a future failure should warn again
-        MaybeBackupOnTimer();
-    } else if (!g_autosaveFailWarned && g_hMainWnd) {
-        g_autosaveFailWarned = true;
+    if (ok) MaybeBackupOnTimer();
+    if (NoteSaveOutcome(ok, g_autosaveFailWarned, g_hMainWnd != nullptr)) {
         MessageBoxW(g_hMainWnd,
             L"Warning: the automatic backup (autosave.fbd) could not be saved just now - "
             L"the disk may be full, or the file is locked by another program (e.g. antivirus).\n\n"
@@ -435,50 +434,18 @@ void AutosaveNow() {
 // Writes a timestamped snapshot of `content` to the backups folder,
 // independent of wherever autosave/Save is writing to.
 //
-// v0.9.31: this used to be "best-effort and silent on failure" - the
-// WriteFileAtomicUtf8 return value was discarded outright, so a failed
-// write (disk full, backups\ folder unwritable, antivirus lock, etc.) was
-// completely invisible: no warning shown, and g_lastBackupContent/
-// g_lastBackupTick were still updated as if the snapshot had succeeded,
-// which also suppressed the near-term retry that MaybeBackupOnTimer's
-// no-change skip would otherwise have allowed. Jack reported "every 3
-// minute save not working" after several real Add Entry commits and
-// couldn't explain it purely by the missing WM_TIMER (fixed in v0.9.29) -
-// this silent failure is the other real candidate: unlike autosave.fbd
-// (which does warn - see AutosaveNow), a failing rolling backup gave no
-// sign anything was wrong. Now checked and warned once, same pattern as
-// g_autosaveFailWarned, reset the next time a snapshot actually succeeds.
+// v0.9.31: this used to be "best-effort and silent on failure" - a failed
+// write (disk full, backups\ unwritable, antivirus lock, etc.) was completely
+// invisible. Now checked and warned once, same pattern as g_autosaveFailWarned,
+// reset the next time a snapshot actually succeeds.
+// v0.10.14 (split stage 7b): the disk write moved to WriteBackupSnapshotFile()
+// in src/data/Backups.cpp (it deliberately leaves the "last backup" bookkeeping
+// untouched on failure, so the next autosave retries immediately); this function
+// only shows the warning popup.
 void WriteBackupSnapshot(const std::string& content) {
-    std::wstring dir = BackupDir();
-    CreateDirectoryW(dir.c_str(), nullptr); // no-op (fails harmlessly) if it already exists
-
-    SYSTEMTIME st{};
-    GetLocalTime(&st);
-    // Source-file label goes AFTER the timestamp, not before - v0.9.27,
-    // Jack: "if I'm opening different files I won't know which one it's
-    // snapshotting." The timestamp must stay the leading, fixed-width part
-    // of the filename for PruneOldBackups' "sort by name = sort by time"
-    // logic to keep working; a label before it would sort backups by
-    // source file first, breaking chronological pruning entirely.
-    // v0.9.64 (audit F8): milliseconds in the name, plus a counter if the
-    // name somehow still exists, so a snapshot never replaces an earlier one.
-    const std::wstring label = CurrentFileLabelForBackup();
-    std::wstring path;
-    for (int counter = 0; counter < 1000; counter++) {
-        path = dir + L"\\" + BuildBackupFileName(st.wYear, st.wMonth, st.wDay, st.wHour,
-                   st.wMinute, st.wSecond, st.wMilliseconds, label, counter);
-        if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) break;
-    }
-
     std::wstring writeError;
-    bool ok = WriteFileAtomicUtf8(path, content, &writeError);
-    if (ok) {
-        g_backupFailWarned = false; // problem (if any) has cleared - a future failure should warn again
-        g_lastBackupContent = content;
-        g_lastBackupTick = GetTickCount64();
-        PruneOldBackups();
-    } else if (!g_backupFailWarned && g_hMainWnd) {
-        g_backupFailWarned = true;
+    bool ok = WriteBackupSnapshotFile(content, &writeError);
+    if (NoteSaveOutcome(ok, g_backupFailWarned, g_hMainWnd != nullptr)) {
         std::wstring msg =
             L"Warning: a rolling backup snapshot could not be saved just now (" + writeError + L").\n\n"
             L"Your current data is still safe in memory, and autosave.fbd is a separate file "
@@ -486,12 +453,6 @@ void WriteBackupSnapshot(const std::string& content) {
             L"now to make sure nothing is lost. This warning won't repeat again until a backup "
             L"snapshot succeeds.";
         MessageBoxW(g_hMainWnd, msg.c_str(), L"Backup Snapshot Failed", MB_OK | MB_ICONWARNING);
-        // Deliberately NOT updating g_lastBackupContent/g_lastBackupTick on
-        // failure - previously they were updated unconditionally, which made
-        // MaybeBackupOnTimer think this snapshot had already been taken and
-        // wait out the full interval again before trying once more. Leaving
-        // them untouched means the very next AutosaveNow (e.g. on the next
-        // field's focus loss) retries immediately instead of waiting.
     }
 }
 
@@ -509,7 +470,7 @@ void WriteBackupSnapshot() { WriteBackupSnapshot(BuildFbdSaveContent()); }
 // idle or the user was only browsing/sorting without editing anything.
 void MaybeBackupOnTimer() {
     ULONGLONG now = GetTickCount64();
-    if (g_lastBackupTick != 0 && (now - g_lastBackupTick) < kBackupIntervalMs) return;
+    if (!BackupIntervalElapsed(g_lastBackupTick, now, kBackupIntervalMs)) return;
 
     std::string content = BuildFbdSaveContent();
     if (content == g_lastBackupContent) {
