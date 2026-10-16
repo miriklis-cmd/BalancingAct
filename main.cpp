@@ -974,6 +974,36 @@ void DoFileNew() {
     RefreshAll();
 }
 
+// v0.10.17 (split stage 7c): File > Open and File > Recent Files were two near-identical
+// copies of "confirm discard, snapshot what is about to be lost, load, reset the form, remember
+// the file" - now one shared function so they cannot drift apart again.
+// discardPhrase completes "Discard the current data and ...?"; errLead starts the failure message.
+static void OpenNamedFile(const std::wstring& path, const wchar_t* discardPhrase, const wchar_t* errLead) {
+    if (!ConfirmDiscardCurrentData(discardPhrase)) return;
+    // v0.9.28: take an unconditional backup snapshot of whatever is about
+    // to be discarded, before LoadFromFile overwrites g_entries in memory.
+    // This closes the exposure window the v0.9.24 data-loss incident
+    // found - confirming "discard and open" isn't itself a backup, only
+    // an acknowledgement, so the data being discarded still needs its own
+    // snapshot the same way an explicit Save already gets one.
+    WriteBackupSnapshot();
+    std::wstring loadErr;
+    if (LoadFromFile(path, &loadErr)) {
+        g_currentFile = path;
+        CancelEdit();
+        ClearUndoState();
+        g_dirty = false; // v0.9.30 - freshly loaded, matches disk
+        UpdateTitle();
+        RefreshAll();
+        RememberRecentFile(path); // move to front
+    } else {
+        // Phase 1 completeness follow-up (2026-09-30, v0.9.50): loadErr carries a specific reason.
+        MessageBoxW(g_hMainWnd,
+            (std::wstring(errLead) + loadErr + L".\n\nNothing has been changed.").c_str(),
+            L"Error", MB_OK | MB_ICONERROR);
+    }
+}
+
 void DoFileOpen() {
     wchar_t file[MAX_PATH] = L"";
     OPENFILENAMEW ofn{};
@@ -984,34 +1014,8 @@ void DoFileOpen() {
     ofn.nMaxFile = MAX_PATH;
     ofn.lpstrDefExt = L"fbd";
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
-    if (GetOpenFileNameW(&ofn)) {
-        if (!ConfirmDiscardCurrentData(L"open the selected file")) return;
-        // v0.9.28: take an unconditional backup snapshot of whatever is about
-        // to be discarded, before LoadFromFile overwrites g_entries in memory.
-        // This closes the exposure window the v0.9.24 data-loss incident
-        // found - confirming "discard and open" isn't itself a backup, only
-        // an acknowledgement, so the data being discarded still needs its own
-        // snapshot the same way an explicit Save already gets one.
-        WriteBackupSnapshot();
-        std::wstring loadErr;
-        if (LoadFromFile(file, &loadErr)) {
-            g_currentFile = file;
-            CancelEdit();
-            ClearUndoState();
-            g_dirty = false; // v0.9.30 - freshly loaded, matches disk
-            UpdateTitle();
-            RefreshAll();
-            RememberRecentFile(file);
-        } else {
-            // Phase 1 completeness follow-up (2026-09-30, v0.9.50): loadErr
-            // carries a specific reason (see LoadFromFile) - appended to the
-            // existing plain-language summary rather than replacing it.
-            MessageBoxW(g_hMainWnd,
-                (L"Could not open the selected file: " + loadErr +
-                 L".\n\nNothing has been changed.").c_str(),
-                L"Error", MB_OK | MB_ICONERROR);
-        }
-    }
+    if (GetOpenFileNameW(&ofn))
+        OpenNamedFile(file, L"open the selected file", L"Could not open the selected file: ");
 }
 
 // v0.10.16: modern folder-forcing picker for Restore from Backup. The classic
@@ -2201,25 +2205,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             size_t idx = (size_t)(id - ID_RECENT_BASE);
             if (idx < g_recentFiles.size()) {
                 std::wstring path = g_recentFiles[idx];
-                if (!ConfirmDiscardCurrentData(L"open that file")) return 0;
-                // v0.9.28: same reasoning as DoFileOpen - snapshot what's
-                // about to be discarded before Recent Files overwrites it.
-                WriteBackupSnapshot();
-                std::wstring loadErr;
-                if (LoadFromFile(path, &loadErr)) {
-                    g_currentFile = path;
-                    CancelEdit();
-                    ClearUndoState();
-                    g_dirty = false; // v0.9.30 - freshly loaded, matches disk
-                    UpdateTitle();
-                    RefreshAll();
-                    RememberRecentFile(path); // move to front
-                } else {
-                    MessageBoxW(g_hMainWnd,
-                        (L"Could not open that file: " + loadErr +
-                         L".\n\nNothing has been changed.").c_str(),
-                        L"Error", MB_OK | MB_ICONERROR);
-                }
+                OpenNamedFile(path, L"open that file", L"Could not open that file: ");
             }
             return 0;
         }

@@ -18,6 +18,18 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.10.17] - Split stage 7c: one shared "open a named file" routine
+
+Behaviour unchanged. File > Open and File > Recent Files each carried their own copy of "confirm discard, snapshot
+what is about to be lost, load, reset the form, remember the file"; they now both call `OpenNamedFile` in `main.cpp`.
+- Reviewed the rest of the file operations: Save As already runs through the tested core `CoordinateSaveAs`, New and
+  Restore are mostly dialogs/controls, and the discard check is one `g_dirty` test, so nothing else is worth moving.
+  Stage 7c is complete with this.
+- `.gitignore` now ignores `*.fbd`: the v0.10.16 push committed a saved sheet (`15-10-26.fbd`) because Save As was used inside the project folder. One-off cleanup: `git rm --cached 15-10-26.fbd`.
+- No new tests (no logic moved). Expect 252 portable, 25 integration.
+- Manual check: File > Open a file (with unsaved changes: Yes/No prompt works); File > Recent Files entry opens;
+  open a file that no longer exists (error message, nothing changed).
+
 ## [0.10.16] - Fix: Restore from Backup opens in the last-used folder instead of backups
 
 Jack (2026-10-15, v0.10.15): the first Restore opened in `backups\`, but after saving a file into another folder

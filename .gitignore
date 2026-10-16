@@ -26,6 +26,9 @@ backups/
 # so without this, `git add -A` in push_update.ps1 would have committed
 # finalized day-files straight into version control.
 history/
+# v0.10.17: any saved sheet (File > Save As into the project folder, e.g. 15-10-26.fbd, was committed
+# by v0.10.16's push) is real business data too - never version-control .fbd files.
+*.fbd
 
 # Editor/IDE
 .vs/
