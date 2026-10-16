@@ -18,6 +18,35 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.10.19] - Docs only: stages 7d/7e closed by review, Finalize Day checks recorded
+
+No code change. Reviewed Finalize persistence (7d) and entry operations (7e) for anything worth moving: nothing is. The Finalize
+coordination is already the tested core `CoordinateFinalizeDay`; `ExecuteFinalizeDay` is glue over lock state/title/lists; the entry
+validation rules are already pure core functions and the rest drives controls directly. ROADMAP.md says so and recommends calling the
+split finished.
+- Jack confirmed the Finalize Day checks on 2026-10-17 (blocked while out of balance, date prompt and `history\` file, locking, status
+  bar, new-sheet prompt, Un-finalize, reopen locked, overwrite warning); Testing.md ticks them. Only the read-only-file case is unchecked.
+- Fixed a mistake in v0.10.18: Testing.md's new "v0.10.x checks" and "Carried-over checks" sections had landed in the file's introduction
+  instead of before "Full regression pass" (the heading text also appears in the intro). Moved to the right place.
+- Expect 252 portable, 25 integration (unchanged).
+
+## [0.10.18] - Docs only: full audit of the .md files
+
+No code change. Every .md file was checked against the code (Jack's standing request); v0.10.17 manual checks passed first.
+- **ROADMAP.md rewritten (1,436 -> ~290 lines):** where we are, next steps, what is not built, known problems, decisions on record,
+  and the specs for unbuilt features. The old file is frozen unchanged as `ROADMAP_ARCHIVE.md` (two boxes ticked there: Restore
+  opens in `backups\`, MSVC clean build). The stale "Phase 2 after Bucket C" and "A, then C, then B" sequencing is replaced by what is
+  actually happening (split first).
+- **ARCHITECTURE.md:** no longer "single-file"; popups located in `src/forms/`; forward-declaration, shared-declaration and
+  "add a file to four build paths" notes; file-dialog remembered-folder note; autosave/backup/file-text locations.
+- **DevelopmentWorkflow.md:** folder layout now shows `src/`; Developer PowerShell requirement; per-version routine; CRLF zips; never save `.fbd` in the project folder.
+- **README.md:** `main.cpp` row corrected; MinGW marked "not yet run by Jack"; roadmap files listed. **src/README.md:** status line and stage notes current.
+- **Testing.md:** new "v0.10.x checks" and "Carried-over checks" (the unconfirmed old roadmap items, including Finalize Day's full pass).
+- **AuditFindings_2026-09-30.md:** header status corrected; table of the still-open findings (F7, F16-F22).
+- **SecurityHardeningRegister.md:** items 17-21 added (backup collision, temp-file/single-instance, GetExeDir, Finalize named file, Restore/git data).
+- Checked and found current: DATA_FORMATS.md, BUSINESS_RULES.md, NETWORK_ARCHITECTURE.md (skimmed, not line-by-line).
+- Expect 252 portable, 25 integration (unchanged).
+
 ## [0.10.17] - Split stage 7c: one shared "open a named file" routine
 
 Behaviour unchanged. File > Open and File > Recent Files each carried their own copy of "confirm discard, snapshot

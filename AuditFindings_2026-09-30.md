@@ -10,7 +10,9 @@ this document is a code change. No production code has been modified as
 part of this pass, per the audit's own Phase 0 gate and this project's
 existing "verify before implementing" practice.
 
-**Status: awaiting Jack's authorization to begin Phase 1.**
+**Status (2026-10-17, v0.10.18): historical record.** Phases 1-3a are done (F1-F6, F8-F15, F23-F29 fixed - see the
+per-finding status lines and CHANGELOG.md). **Still open: F7 and F16-F22** (see the table at the end). Line numbers
+quoted in the findings below are from v0.9.47's single-file `main.cpp` and no longer match the code.
 
 ## How to read this
 
@@ -596,3 +598,18 @@ are fixed and folded into that file's permanent record.*
 **Status (2026-10-14, v0.9.66): F23 FIXED** - GetExeDir grows its buffer until the path fits.
 
 **Status (2026-10-14, v0.9.67): F25-F29 RESOLVED** - F25-F28 text was already fixed in Phase 1; remaining gaps (integration suite, new headers) documented; F29 warning gates consistent across all four build paths.
+
+## Open items at v0.10.18 (2026-10-17)
+
+| Finding | What | State |
+|---|---|---|
+| F7 | Writable state lives beside the exe, not `%LOCALAPPDATA%` | open; plan: move data out of the exe folder (see ROADMAP.md) |
+| F16 | popups: `EnableWindow(main, FALSE)` with no NULL check on the popup HWND | open |
+| F17 | `RegisterClassExW` result unchecked | open |
+| F18 | main `CreateWindowExW` result unchecked | open |
+| F19 | `InitCommonControlsEx` result unchecked | open |
+| F20 | `GetMessageW` returning -1 treated as true | open |
+| F21 | restored main-window position not clamped to the monitors (popups are, since v0.10.7) | open |
+| F22 | no `WM_DPICHANGED` handler | open |
+
+F16-F22 are Win32 plumbing a WinUI 3 front end would replace; skip them if that goes ahead, otherwise do them as one small stage.

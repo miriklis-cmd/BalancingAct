@@ -145,23 +145,26 @@ targeted fix.
       unlocked, unsaved blank sheet — not still locked to the finalized
       file (v0.9.41 fix) - confirmed working 2026-09-30
 
-- [ ] Finalize Day is blocked with a clear message while Debtor+Cash
+- [x] Finalize Day is blocked with a clear message while Debtor+Cash
       doesn't balance against the entered total; no date prompt appears
-- [ ] Once balanced, Finalize Day prompts for a date (defaulting to today
+- [x] Once balanced, Finalize Day prompts for a date (defaulting to today
       or the current file's own date if its name parses as one), and
       confirming writes `history\<date>.fbd` next to the exe
-- [ ] After finalizing, the entry form, Add/Edit/Delete/Duplicate, and
+- [x] After finalizing, the entry form, Add/Edit/Delete/Duplicate, and
       Debtor/Cash are all disabled; the button relabels to Un-finalize Day
-- [ ] Status bar shows the finalized date while locked
-- [ ] "Start a new entry sheet now?" appears after finalizing; Yes clears
+- [x] Status bar shows the finalized date while locked
+- [x] "Start a new entry sheet now?" appears after finalizing; Yes clears
       the list/Debtor/Cash without touching the just-finalized file or its
       lock, No leaves the locked screen as-is
-- [ ] Un-finalize Day asks only for a Yes/No confirmation, then re-enables
+- [x] Un-finalize Day asks only for a Yes/No confirmation, then re-enables
       everything
-- [ ] Closing and reopening a finalized file restores the locked state
+- [x] Closing and reopening a finalized file restores the locked state
       correctly
-- [ ] Finalizing again onto a date that already has a `history\<date>.fbd`
+- [x] Finalizing again onto a date that already has a `history\<date>.fbd`
       file warns before overwriting it
+
+(Items above confirmed by Jack 2026-10-17, v0.10.17. Only the read-only-file case below is still unchecked.)
+
 - [ ] **(v0.9.48 / F9)** Hard-to-trigger, but worth a sanity pass: finalize
       a day while the currently-open named file is on a read-only or
       otherwise write-protected path (e.g. mark the file read-only in
@@ -216,6 +219,29 @@ targeted fix.
       especially at non-100% display scaling (125%/150%) if you have a
       way to test that
 - [ ] Resizing the main window keeps everything laid out sensibly
+
+## v0.10.x checks (added v0.10.18)
+
+Tick as you do them. Items marked (done) were confirmed by Jack in chat on the date shown.
+
+- [x] (done 2026-10-16, v0.10.16) Save As into a different folder, then File > Restore from Backup: the picker opens in `backups\`; pick a snapshot, confirm, "Backup Loaded".
+- [x] (done 2026-10-17, v0.10.17) File > Open with unsaved changes: the "Discard the current data?" prompt appears; File > Recent Files entry opens; a missing file gives an error and changes nothing.
+- [x] (done, v0.10.13) Finalize Day marks the open saved file as finalized: finalize, answer Yes to a new sheet, reopen the saved file - it is locked.
+- [ ] Autosave: add an entry, click away, check `autosave.fbd` is updated; kill the app and reopen - the entry is back.
+- [ ] Rolling backup: edit, wait over 3 minutes, a new `backup_...fbd` appears in `backups\`; wait again without editing - no new file.
+- [ ] After any File > New / Open / Restore, the next edit marks the sheet unsaved again.
+
+## Carried-over checks (never recorded as confirmed)
+
+These were on the old roadmap's unticked list. Several were probably checked casually; none were written down. Tick or strike each once you have looked.
+
+- [x] Finalize Day full pass - confirmed 2026-10-17 (see the "Finalize Day" section above). Only the read-only-file case (F9) remains unchecked.
+- [ ] Labels (Supplier / Species / Kgs / Price, and Cash) line up with their boxes at your usual display scaling.
+- [ ] Supplier/Species combos: several fresh launches in a row - the grey-strip glitch is a **known open bug** (ROADMAP.md "Known problems"); note whether it happened.
+- [ ] A forced backup failure (make `backups\` read-only): one "Backup Snapshot Failed" warning, not repeated, autosave still works.
+- [ ] A half-typed Add Entry draft survives a crash: type, Tab away, kill from Task Manager, reopen.
+- [ ] Renaming a supplier in Manage Names (no conflict) keeps its email address.
+- [ ] A build with CMake and with MinGW (`build_mingw.bat`) has zero warnings - neither has ever been run.
 
 ## Full regression pass
 

@@ -167,7 +167,7 @@ build_msvc.bat
 
 | File              | Purpose                                             |
 |-------------------|------------------------------------------------------|
-| `main.cpp`        | The Win32 application - windows, controls, message handling, file I/O, printing |
+| `main.cpp`        | The Win32 application's main window, startup, entry-form actions, file operations and the Finalize Day popup (the rest has moved to `src/` - see below) |
 | `src/core/FishBalanceCore.h` | Platform-independent domain logic extracted from `main.cpp` (parsing, aggregation, formatting) so it can be unit-tested without a Win32 dependency - see `tests/` |
 | `src/data/FishBalanceWin32IO.h` | Win32 file I/O (atomic write, load) behind small ports so it can be fault-injection tested - see `tests/win32_integration/` |
 | `src/data/AppData.*`, `src/forms/UiState.*`, `src/forms/ControlIds.h`, `src/PlatformWin.h` | Shared global state, control IDs and Windows include settings split out of `main.cpp` (v0.10.2) - see `src/README.md` |
@@ -184,8 +184,9 @@ build_msvc.bat
 | `resource.h`       | Shared resource ID (`IDI_APPICON`) used by both `main.cpp` and `app_icon.rc` |
 | `app_icon.rc`     | Minimal resource script that embeds only the icon — kept separate from the manifest so it can't cause the duplicate-resource conflict a combined script hit earlier |
 | `CMakeLists.txt`  | Cross-toolchain build definition; copies the manifest and icon next to the exe automatically, and builds the test suite as a CTest target |
-| `build_mingw.bat` | Quick build with MinGW-w64                           |
-| `build_msvc.bat`  | Quick build with MSVC                                |
+| `build_mingw.bat` | Quick build with MinGW-w64 (kept up to date but not yet run by Jack) |
+| `build_msvc.bat`  | Quick build with MSVC (the one in regular use)       |
+| `ROADMAP.md`, `ROADMAP_ARCHIVE.md` | The current plan; and the frozen history of the old roadmap (v0.10.18) |
 
 **Important:** `FishBalanceManager.exe` and `FishBalanceManager.exe.manifest`
 must stay together in the same folder — if you copy the exe elsewhere, copy

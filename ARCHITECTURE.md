@@ -6,8 +6,10 @@ rediscover the same mistakes that have already been made and fixed once.
 
 ## Big picture
 
-Single-file Win32 C++ application, no external UI framework (no MFC, no
-WTL, no Qt) — plain `CreateWindowExW` + a manual `WndProc` message loop.
+Win32 C++ application, no external UI framework (no MFC, no WTL, no Qt) — plain
+`CreateWindowExW` + a manual `WndProc` message loop. `main.cpp` (~2,860 lines) still holds the main window's
+`WndProc`, startup, the entry-form actions, file operations and the Finalize Day popup; everything else has been split
+into `src/` (see below).
 No compiler is available in the environment this was originally built in,
 so every change has to be checked by careful reading and structural
 verification (brace/paren balance, forward-declaration order, function
@@ -19,19 +21,20 @@ care; there's no compiler safety net catching mistakes before they ship.
 The source is being split into `src/core`, `src/data`, `src/services` and `src/forms` - see
 `src/README.md` for what each holds and the one rule: dependencies only point downward
 (forms -> services -> data -> core). Do not add a Windows UI call to core/data/services code.
-The split is staged (ROADMAP.md); until a stage moves code, it still lives in `main.cpp`.
+The split is staged (ROADMAP.md "Where we are"); code not yet moved still lives in `main.cpp`.
 
 ## Windows in the app
 
-There are four top-level windows, each with its own `WndProc`:
+There are four top-level windows, each with its own `WndProc`. The main window and the Finalize popup are in
+`main.cpp`; Manage Names and Print Preview moved to `src/forms/` in v0.10.6:
 
 1. **Main window** (`WndProc`) — the tabbed interface (Data Entry, Total
    Overview, Breakdown, By Species). Controls for all four tabs are
    created once at startup and shown/hidden via `ShowTab()` rather than
    being created/destroyed per tab switch.
-2. **Manage Names popup** (`ManageWndProc`) — a plain owned window (not a
+2. **Manage Names popup** (`ManageWndProc`, `src/forms/ManageNamesWindow.cpp`) — a plain owned window (not a
    real Win32 dialog resource), disables the main window while open.
-3. **Print Preview popup** (`PreviewWndProc`) — same pattern as Manage
+3. **Print Preview popup** (`PreviewWndProc`, `src/forms/PrintPreviewWindow.cpp`) — same pattern as Manage
    Names.
 4. **Finalize Day date-prompt popup** (`FinalizeWndProc`, added v0.9.40,
    ROADMAP.md item 3) — same pattern again, opened by the "Finalize Day"
@@ -147,12 +150,26 @@ first-paint glitch made both combos vanish entirely on Jack's machine. Don't ret
 diagnostic first (e.g. logging what paints over the combo). The combo's window is created S(200) tall (its
 drop-down height) and overlaps controls created after it, which may be why clipping hid it - untested theory.
 
-### Win32 forward declarations
-Functions are used before they're textually defined in a few places
-(e.g. `CancelEdit` is called by `DeleteSelectedEntry`, which appears
-earlier in the file). Forward declarations live in one block near the top
-of `main.cpp`. If you add a function that's called from code above its
-definition, add it there rather than reordering large chunks of the file.
+### Forward declarations and shared declarations
+Functions are used before they're textually defined in a few places. `main.cpp` has a "Forward declarations"
+block near the top for functions that stay in `main.cpp`. Functions the split-out forms call back into
+(`RefreshAll`, `CancelEdit`, `MakeControl`, ...) are declared once, in `src/forms/MainWindowApi.h`; default
+arguments (e.g. `RefreshAll(bool doAutosave = true)`) must be written in that one place only. Shared globals are
+`extern` in `src/data/AppData.h` / `src/forms/UiState.h`. If you add a function called from code above its
+definition, declare it in the right one of these rather than reordering large chunks of the file.
+
+### Adding a source file
+A new `.cpp` must be added to all four build paths: `build_msvc.bat` (`SOURCES`), `build_mingw.bat`
+(`SOURCES`), `CMakeLists.txt` (`APP_SOURCES`) and `tests/win32_integration/run_integration_tests.ps1`
+(`$appSources`). Forgetting one breaks only that path, which may not be noticed for a while (the MinGW and CMake
+builds are not run regularly).
+
+### File dialogs remember the last folder
+The classic `GetOpenFileNameW` ignores `lpstrInitialDir` after the first use in a process, and on some systems the
+"pre-fill the file name with the folder" workaround does not hold either. Restore from Backup uses
+`IFileOpenDialog` + `SetFolder` (v0.10.16) which always opens where told; fall back to the classic dialog only if
+the modern one cannot be created. File > Open and Save As still use the classic dialog on purpose (opening in the
+last-used folder is the wanted behaviour there).
 
 ## Data flow
 
@@ -160,9 +177,10 @@ definition, add it there rather than reordering large chunks of the file.
   current sheet's data. Every tab/report is derived from it on demand via
   `RefreshAll()` → `RefreshEntriesList()`, `RefreshOverviewList()`,
   `RefreshBySpeciesList()`, `RefreshBreakdownList()`.
-- `RefreshAll()` also silently autosaves to `autosave.fbd` — this runs on
-  every single data change, so it should stay cheap. Don't add expensive
-  work to the refresh path without considering this.
+- `RefreshAll()` (now in `src/forms/MainWindowLists.cpp`) also autosaves to `autosave.fbd` — this runs on
+  every data change, so it should stay cheap. Don't add expensive work to the refresh path without considering this.
+- The text of a saved `.fbd` file is built by `BuildFbdText()` in `src/core/FishBalanceCore.h` (tested); the
+  disk write is `WriteFileAtomicUtf8` (`src/data/FishBalanceWin32IO.h`); rolling backups are `src/data/Backups.*`.
 - `BuildBreakdownData()` groups `g_entries` into
   `Supplier → Species → Price` and is reused by the Breakdown tab, the
   printed report, and the CSV export's Breakdown section — keep it as the
