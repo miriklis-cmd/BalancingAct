@@ -14,7 +14,7 @@ if errorlevel 1 goto :error
 REM Phase 1 (2026-09-30): -Wall -Wextra -Wpedantic -Werror now matches
 REM CMakeLists.txt's warning gate (see AuditFindings_2026-09-30.md,
 REM finding F29) - previously this script passed no warning flags at all.
-g++ -O2 -municode -mwindows -std=c++17 -Wall -Wextra -Wpedantic -Werror -o FishBalanceManager.exe %SOURCES% app_icon_res.o -lcomctl32 -lcomdlg32 -lshell32 -lwinspool
+g++ -O2 -municode -mwindows -std=c++17 -Wall -Wextra -Wpedantic -Werror -o FishBalanceManager.exe %SOURCES% app_icon_res.o -lcomctl32 -lcomdlg32 -lshell32 -lole32 -luuid -lwinspool
 if errorlevel 1 goto :error
 
 copy /Y app.manifest FishBalanceManager.exe.manifest >nul

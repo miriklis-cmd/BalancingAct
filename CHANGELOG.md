@@ -18,6 +18,20 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.10.16] - Fix: Restore from Backup opens in the last-used folder instead of backups
+
+Jack (2026-10-15, v0.10.15): the first Restore opened in `backups\`, but after saving a file into another folder
+it opened there instead. The classic `GetOpenFileNameW` dialog remembers the last folder used and, on some systems,
+ignores both `lpstrInitialDir` and the pre-filled-folder workaround from v0.9.33.
+- Restore from Backup now uses the modern `IFileOpenDialog` with `SetFolder(backups)`, which always opens in the
+  folder given. Same filters (*.fbd / all files). If the modern dialog can't be created, falls back to the classic
+  one (with the v0.10.15 error reporting). Cancel is silent.
+- `main.cpp` includes `<shobjidl.h>`; `ole32` (and `uuid` for MinGW/CMake) added to build_msvc.bat, build_mingw.bat,
+  CMakeLists.txt and run_integration_tests.ps1.
+- No unit test (file dialogs need a real window). Expect 252 portable, 25 integration.
+- Manual check: File > Save As into a different folder (e.g. Desktop), then File > Restore from Backup. Expected:
+  the picker opens in `backups\`. Pick a snapshot, confirm, "Backup Loaded".
+
 ## [0.10.15] - Fix: Restore from Backup failing silently when the file picker can't open
 
 Jack (2026-10-15, after v0.10.14): "Restore from backup does nothing". `DoRestoreFromBackup` is byte-for-byte

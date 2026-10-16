@@ -40,6 +40,7 @@
 #include <commctrl.h>
 #include <commdlg.h>
 #include <shellapi.h>
+#include <shobjidl.h> // v0.10.16: IFileOpenDialog (Restore from Backup folder picker)
 #include <winspool.h>
 #include <string>
 #include <vector>
@@ -63,6 +64,7 @@
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "comdlg32.lib")
 #pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "winspool.lib")
 
 // v0.10.2 (split stage 2): the data model/globals, control IDs and window handles
@@ -1012,6 +1014,55 @@ void DoFileOpen() {
     }
 }
 
+// v0.10.16: modern folder-forcing picker for Restore from Backup. The classic
+// GetOpenFileNameW remembers the last folder used anywhere in the app and ignores both
+// lpstrInitialDir and the pre-filled-folder trick on some systems (Jack, 2026-10-15:
+// after saving a file elsewhere, Restore opened there instead of in backups). IFileOpenDialog
+// with SetFolder ALWAYS opens in the folder given. Returns 1 = picked (outPath set),
+// 0 = cancelled, -1 = could not be used (caller falls back to the classic dialog).
+static int PickFileInFolderModern(HWND owner, const std::wstring& folder, std::wstring& outPath) {
+    HRESULT hrInit = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    bool uninit = SUCCEEDED(hrInit); // RPC_E_CHANGED_MODE: already initialised another way; just use it
+    int result = -1;
+    IFileOpenDialog* dlg = nullptr;
+    if (SUCCEEDED(CoCreateInstance(__uuidof(FileOpenDialog), nullptr, CLSCTX_INPROC_SERVER,
+                                   IID_PPV_ARGS(&dlg))) && dlg) {
+        COMDLG_FILTERSPEC filters[] = {
+            { L"Fish Balance Backups (*.fbd)", L"*.fbd" },
+            { L"All Files (*.*)", L"*.*" },
+        };
+        DWORD opts = 0;
+        dlg->GetOptions(&opts);
+        dlg->SetOptions(opts | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_FILEMUSTEXIST);
+        dlg->SetFileTypes(2, filters);
+        dlg->SetFileTypeIndex(1);
+        dlg->SetDefaultExtension(L"fbd");
+        IShellItem* folderItem = nullptr;
+        if (SUCCEEDED(SHCreateItemFromParsingName(folder.c_str(), nullptr, IID_PPV_ARGS(&folderItem))) && folderItem) {
+            dlg->SetFolder(folderItem);
+            folderItem->Release();
+        }
+        HRESULT hr = dlg->Show(owner);
+        if (hr == HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
+            result = 0;
+        } else if (SUCCEEDED(hr)) {
+            IShellItem* item = nullptr;
+            if (SUCCEEDED(dlg->GetResult(&item)) && item) {
+                PWSTR path = nullptr;
+                if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)) && path) {
+                    outPath = path;
+                    CoTaskMemFree(path);
+                    result = 1;
+                }
+                item->Release();
+            }
+        }
+        dlg->Release();
+    }
+    if (uninit) CoUninitialize();
+    return result;
+}
+
 // Lets the user browse the rolling backups folder (see WriteBackupSnapshot)
 // and load one to recover from a mistake. Deliberately does NOT set
 // g_currentFile to the backup's path - a restored backup should be
@@ -1030,47 +1081,61 @@ void DoRestoreFromBackup() {
     }
 
     wchar_t file[MAX_PATH] = L"";
-    // v0.9.33: lpstrInitialDir alone isn't enough - GetOpenFileNameW only
-    // honors it the very first time this process ever shows the dialog.
-    // After that (e.g. an earlier File > Open into some other folder),
-    // Windows reuses whatever folder was last navigated to, regardless of
-    // lpstrInitialDir. Jack: "if i click restore from backup - shouldnt it
-    // take me to backup folder? it didnt... last folder i used in open was
-    // desktop and went there instead." The documented workaround is to
-    // pre-fill lpstrFile itself with the target folder (trailing backslash,
-    // no filename) - a path in lpstrFile takes priority over the
-    // remembered folder, unlike lpstrInitialDir.
-    std::wstring initialFile = dir + L"\\";
-    wcsncpy_s(file, MAX_PATH, initialFile.c_str(), _TRUNCATE);
-    OPENFILENAMEW ofn{};
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = g_hMainWnd;
-    ofn.lpstrFilter = L"Fish Balance Backups (*.fbd)\0*.fbd\0All Files (*.*)\0*.*\0";
-    ofn.lpstrFile = file;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrInitialDir = dir.c_str(); // kept as a fallback for the true first-ever call
-    ofn.lpstrDefExt = L"fbd";
-    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
-    if (!GetOpenFileNameW(&ofn)) {
-        // v0.10.15: this used to just `return`, which made a picker that FAILED to open
-        // (as opposed to one the user cancelled) look like "Restore from Backup does
-        // nothing" (Jack, 2026-10-15). CommDlgExtendedError() is 0 for a plain cancel.
-        DWORD pickerErr = CommDlgExtendedError();
-        if (pickerErr == 0) return; // user cancelled
-        // Retry once without the folder pre-filled into the file name box - some systems
-        // reject a bare folder there; the dialog then falls back to lpstrInitialDir.
-        file[0] = L'\0';
-        if (!GetOpenFileNameW(&ofn)) {
-            pickerErr = CommDlgExtendedError();
-            if (pickerErr == 0) return; // cancelled the retry
-            wchar_t codeText[96];
-            swprintf(codeText, 96, L"The file picker could not be opened (error code 0x%04X).", (unsigned)pickerErr);
-            MessageBoxW(g_hMainWnd, (std::wstring(codeText) +
-                L"\n\nThe backups are in:\n" + dir +
-                L"\n\nYou can also use File > Open on one of those files.").c_str(),
-                L"Restore from Backup", MB_OK | MB_ICONWARNING);
-            return;
+    bool havePick = false;
+    {
+        std::wstring picked;
+        int r = PickFileInFolderModern(g_hMainWnd, dir, picked);
+        if (r == 0) return; // cancelled
+        if (r == 1 && picked.size() < MAX_PATH) {
+            wcsncpy_s(file, MAX_PATH, picked.c_str(), _TRUNCATE);
+            havePick = true;
         }
+        // r == -1 (modern dialog unavailable) or path too long: classic dialog below.
+    }
+    if (!havePick) {
+        // v0.9.33: lpstrInitialDir alone isn't enough - GetOpenFileNameW only
+        // honors it the very first time this process ever shows the dialog.
+        // After that (e.g. an earlier File > Open into some other folder),
+        // Windows reuses whatever folder was last navigated to, regardless of
+        // lpstrInitialDir. Jack: "if i click restore from backup - shouldnt it
+        // take me to backup folder? it didnt... last folder i used in open was
+        // desktop and went there instead." The documented workaround is to
+        // pre-fill lpstrFile itself with the target folder (trailing backslash,
+        // no filename) - a path in lpstrFile takes priority over the
+        // remembered folder, unlike lpstrInitialDir.
+        std::wstring initialFile = dir + L"\\";
+        wcsncpy_s(file, MAX_PATH, initialFile.c_str(), _TRUNCATE);
+        OPENFILENAMEW ofn{};
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner = g_hMainWnd;
+        ofn.lpstrFilter = L"Fish Balance Backups (*.fbd)\0*.fbd\0All Files (*.*)\0*.*\0";
+        ofn.lpstrFile = file;
+        ofn.nMaxFile = MAX_PATH;
+        ofn.lpstrInitialDir = dir.c_str(); // kept as a fallback for the true first-ever call
+        ofn.lpstrDefExt = L"fbd";
+        ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+        if (!GetOpenFileNameW(&ofn)) {
+            // v0.10.15: this used to just `return`, which made a picker that FAILED to open
+            // (as opposed to one the user cancelled) look like "Restore from Backup does
+            // nothing" (Jack, 2026-10-15). CommDlgExtendedError() is 0 for a plain cancel.
+            DWORD pickerErr = CommDlgExtendedError();
+            if (pickerErr == 0) return; // user cancelled
+            // Retry once without the folder pre-filled into the file name box - some systems
+            // reject a bare folder there; the dialog then falls back to lpstrInitialDir.
+            file[0] = L'\0';
+            if (!GetOpenFileNameW(&ofn)) {
+                pickerErr = CommDlgExtendedError();
+                if (pickerErr == 0) return; // cancelled the retry
+                wchar_t codeText[96];
+                swprintf(codeText, 96, L"The file picker could not be opened (error code 0x%04X).", (unsigned)pickerErr);
+                MessageBoxW(g_hMainWnd, (std::wstring(codeText) +
+                    L"\n\nThe backups are in:\n" + dir +
+                    L"\n\nYou can also use File > Open on one of those files.").c_str(),
+                    L"Restore from Backup", MB_OK | MB_ICONWARNING);
+                return;
+            }
+        }
+
     }
 
     if (!ConfirmDiscardCurrentData(L"load this backup (nothing on disk is touched unless you Save afterwards)")) return;

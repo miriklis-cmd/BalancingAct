@@ -52,7 +52,7 @@ Write-Host "Compiling FishBalanceIntegrationTests.exe..." -ForegroundColor Cyan
 & cl /nologo /W4 /WX /EHsc /std:c++17 /DUNICODE /D_UNICODE /DFBM_BUILDING_TESTS `
     /I "$root" `
     $sources `
-    user32.lib gdi32.lib comctl32.lib comdlg32.lib shell32.lib winspool.lib `
+    user32.lib gdi32.lib comctl32.lib comdlg32.lib shell32.lib ole32.lib winspool.lib `
     /Fe:FishBalanceIntegrationTests.exe
 $buildExitCode = $LASTEXITCODE
 

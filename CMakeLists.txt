@@ -32,7 +32,7 @@ set(APP_SOURCES
 )
 
 add_executable(FishBalanceManager WIN32 ${APP_SOURCES} app_icon.rc)
-target_link_libraries(FishBalanceManager PRIVATE comctl32 comdlg32 shell32 winspool)
+target_link_libraries(FishBalanceManager PRIVATE comctl32 comdlg32 shell32 ole32 uuid winspool)
 
 # Phase 1 (2026-09-30) warning-gate tightening: /W4 /WX for MSVC,
 # -Wall -Wextra -Wpedantic -Werror for MinGW/GCC, applied to BOTH the app
@@ -115,7 +115,7 @@ add_executable(FishBalanceIntegrationTests
     tests/win32_integration/test_integration_main.cpp
 )
 target_compile_definitions(FishBalanceIntegrationTests PRIVATE FBM_BUILDING_TESTS)
-target_link_libraries(FishBalanceIntegrationTests PRIVATE comctl32 comdlg32 shell32 winspool)
+target_link_libraries(FishBalanceIntegrationTests PRIVATE comctl32 comdlg32 shell32 ole32 uuid winspool)
 if (MSVC)
     target_compile_options(FishBalanceIntegrationTests PRIVATE /W4 /WX /EHsc)
     target_link_options(FishBalanceIntegrationTests PRIVATE /MANIFEST:NO)
