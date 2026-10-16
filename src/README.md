@@ -11,8 +11,9 @@
 `MessageBox`; `services` never touches a control. That is what lets the UI layer be replaced (e.g. by
 WinUI 3) without rewriting the rest.
 
-Status (v0.10.2): the split is staged (see ROADMAP.md). Right now `core/` and `data/` hold the existing headers and
-`main.cpp` (still at the repo root) holds everything else; code moves into `services/` and `forms/` stage by stage.
+Status (v0.10.18): the split is staged (see ROADMAP.md "Where we are"). `main.cpp` (still at the repo root) keeps the main window's
+creation code, window procedure, entry point, entry-form actions, file operations and the Finalize Day popup; Finalize persistence
+(stage 7d) and entry operations (7e) are the remaining planned moves into `services/`.
 
 `PlatformWin.h` is the single place that sets Windows macros and includes `<windows.h>`; include it (directly or via a
 layer header) rather than `<windows.h>` itself.
@@ -27,7 +28,7 @@ Backups (`data/Backups`, v0.10.14): writing a timestamped rolling-backup snapsho
 
 Main window lists (`forms/MainWindowLists`, v0.10.8): the entry list, Overview / By Species / Breakdown lists, Supplier/Species combo refresh + autocomplete, and `RecalcTotals` (the balance badge). 
 
-Main window layout (`forms/MainWindowLayout`, v0.10.9): `LayoutAll` (all control positions, DPI-scaled via `S()`), `ShowTab`, the button glyph icons, list row height, `FixComboBoxFirstPaint`, and the `MakeControl` / `AddColumn` / `InitFonts` helpers. Control creation (`WM_CREATE`), the window procedure and the entry point are still in `main.cpp` (stage 6c-6d).
+Main window layout (`forms/MainWindowLayout`, v0.10.9): `LayoutAll` (all control positions, DPI-scaled via `S()`), `ShowTab`, the button glyph icons, list row height, `FixComboBoxFirstPaint`, and the `MakeControl` / `AddColumn` / `InitFonts` helpers. Control creation (`WM_CREATE`), the window procedure and the entry point stay in `main.cpp`: stages 6c-6d were skipped on purpose because a WinUI 3 front end would replace them.
 
 `forms/PopupPlacement.h` keeps popup windows inside the monitor work area (`FitPopupToWorkArea`).
 

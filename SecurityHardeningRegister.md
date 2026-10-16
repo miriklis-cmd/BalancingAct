@@ -365,6 +365,30 @@ confirming the specific `FbdErrorCode` fired in each case - all fixtures
 built programmatically (loops constructing long strings/many rows) rather
 than as large in-source literals.
 
+### 17. Backup snapshots could overwrite each other (v0.9.64, audit F8)
+**What**: backup file names had one-second resolution, so two snapshots in the same second silently replaced one another.
+**Fix**: names now carry milliseconds plus a collision counter (`BuildBackupFileName`, tested).
+
+### 18. Fixed temp-file name and no single-instance guard (v0.9.65, audit F6 / F24)
+**What**: the atomic writer used one fixed `.tmp` name, and two copies of the app on one machine could write the same
+autosave / settings / backup files with no coordination.
+**Fix**: temp file is `<file>.<pid>.tmp`; a named mutex stops a second instance from starting.
+
+### 19. Exe-folder path truncated on long paths (v0.9.66, audit F23)
+**What**: `GetExeDir` used a fixed `MAX_PATH` buffer without checking for truncation, and every data path is built from it.
+**Fix**: the buffer grows until the path fits.
+
+### 20. Finalize Day did not mark the open saved file as finalized (v0.10.13)
+**What**: Finalize wrote `history\<date>.fbd` correctly, but the file you had open (and then replaced with a new
+sheet) was re-saved without the `FINALIZED=` line, so reopening it showed it unlocked. Present since about v0.9.60.
+**Fix**: the named file is re-saved with the finalized date (`CoordinateFinalizeDay`, tested), and the test was strengthened.
+
+### 21. Restore from Backup failed silently; saved sheets could be committed to git (v0.10.15 - v0.10.17)
+**What**: a file-picker failure looked like "nothing happens" (0.10.15), the picker could open in the wrong folder
+(0.10.16), and a sheet saved inside the project folder was committed to the repository (0.10.17).
+**Fix**: picker errors are reported; Restore uses `IFileOpenDialog` + `SetFolder`; `*.fbd` is git-ignored. If the
+repository is ever public, remove `15-10-26.fbd` from its history.
+
 ## Deliberately accepted risk (not fixed, by design)
 
 - **No exception/crash telemetry.** If the app crashes, there's no

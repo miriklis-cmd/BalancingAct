@@ -123,21 +123,32 @@ as "from the internet," which blocks scripts even under a correctly-set
 run this instead of `run_tests.ps1` directly after extracting a new
 zip. It bypasses execution policy for just that one run rather than
 requiring you to change it, so there's nothing to set up front or
-remember afterward. Needs `cl.exe` on PATH (a "Developer Command
-Prompt/PowerShell for VS" window), same as `run_tests.ps1` itself.
+remember afterward. Needs `cl.exe` on PATH: run it, `build_msvc.bat` and
+`push_update.ps1` from **"Developer PowerShell for VS"** (a plain PowerShell fails with "cl not recognized").
+`push_update.ps1` is not unblocked by `run_tests.bat` if a zip is extracted *after* the tests ran - re-run
+`run_tests.bat` after extracting, or `Unblock-File .\push_update.ps1`.
+
+**Per-version routine (Jack):** extract the zip over the project folder, then `.\run_tests.bat`,
+`.\build_msvc.bat`, the manual checks listed with the version, then `.\push_update.ps1`. Zips are packaged
+with Windows (CRLF) line endings so git reports no line-ending warnings. Never save sheets (`.fbd`) inside the
+project folder - `*.fbd` is git-ignored since 0.10.17 because a saved sheet was once committed.
 
 ## Project folder layout — what goes where in the zip
 
 ```
 <project root>/
-  main.cpp, FishBalanceCore.h, version.h, resource.h, CMakeLists.txt, ...
-  app.manifest, app.ico, app_icon.rc      <- added to project 2026-09-21
+  main.cpp, version.h, resource.h, CMakeLists.txt, build_msvc.bat, build_mingw.bat, ...
+  app.manifest, app.ico, app_icon.rc
+  src/
+    core/FishBalanceCore.h, FishBalanceControlLimits.h   <- pure logic (was in the root before v0.10.0)
+    data/  services/  forms/  PlatformWin.h              <- see src/README.md
   tests/
     run_tests.ps1, doctest.h, doctest_setup.h, test_*.cpp
+    win32_integration/...
 ```
 
 `CMakeLists.txt` lists its test sources as `tests/test_main.cpp` etc.,
-and the test `.cpp` files themselves `#include "../FishBalanceCore.h"` -
+and the test `.cpp` files themselves `#include "../src/core/FishBalanceCore.h"` -
 both require the whole test suite (`run_tests.ps1`, `doctest.h`,
 `doctest_setup.h`, all `test_*.cpp`) to live inside a `tests\` subfolder
 one level below the project root, never flat alongside `main.cpp`.
@@ -147,7 +158,7 @@ files carries no folder information, so every zip up to that point
 flattened the whole test suite to the project root. You'd been merging
 zips into your existing correctly-structured local folder, so it mostly
 went unnoticed until a stray root-level `run_tests.ps1` got run directly
-and failed to find `../FishBalanceCore.h`. Fixed by explicitly nesting
+and failed to find the core header. Fixed by explicitly nesting
 `tests/` in the zip - Claude has the real content of every test-suite
 file, this was purely a packaging-path mistake, not missing content.
 
