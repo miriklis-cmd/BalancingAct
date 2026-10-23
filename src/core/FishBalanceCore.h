@@ -52,6 +52,10 @@ struct Entry {
     // committed (edited) and its price no longer looks unusual against
     // that day's other entries - see CommitEntryForm in main.cpp.
     bool priceFlagged = false;
+    // v0.11.0: when Kgs was typed as a sum (e.g. "24+24+24"), the text as typed is kept here so
+    // editing the entry can show how the total was reached. `kgs` always holds the evaluated total
+    // - every report, total and the Kgs column use that, never this text. Empty for a plain number.
+    std::wstring kgsExpr;
     double Total() const { return kgs * price; }
 };
 
@@ -420,6 +424,29 @@ inline SumParseResult ParseSumExprStrict(const std::wstring& sIn) {
     result.ok = true;
     result.value = sum;
     return result;
+}
+
+// ---------------------------------------------------------------------------
+// v0.11.0: Kgs can be typed as a sum ("24+24+24"). The entry stores the evaluated total in
+// Entry::kgs (what every report uses) plus the text as typed in Entry::kgsExpr so editing can show it.
+// ---------------------------------------------------------------------------
+static const size_t kMaxKgsExprLength = 200;
+
+// The text to keep in Entry::kgsExpr for what the user typed in the Kgs box: the trimmed text when it
+// is a real sum or difference (an operator after the first character), otherwise empty - a plain
+// number (or one with only a leading sign) has no expression worth remembering.
+inline std::wstring KgsExprToStore(const std::wstring& typed) {
+    std::wstring t = TrimW(typed);
+    if (t.size() > kMaxKgsExprLength) return L"";
+    for (size_t i = 1; i < t.size(); i++)
+        if (t[i] == L'+' || t[i] == L'-') return t;
+    return L"";
+}
+
+// What the Kgs box should contain when an entry is loaded for editing/duplicating.
+// FormatKg is declared further down, so this takes the already-formatted total.
+inline std::wstring KgsBoxText(const Entry& e, const std::wstring& formattedKgs) {
+    return e.kgsExpr.empty() ? formattedKgs : e.kgsExpr;
 }
 
 // ---------------------------------------------------------------------------
@@ -1027,7 +1054,7 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
             // but a bad number" (InvalidNumericField) as distinct, correctly
             // attributed diagnostics instead of a fixed size>=4 heuristic
             // that could misclassify a wrong-count-and-bad-number row.
-            if (parts.size() != 4 && parts.size() != 6 && parts.size() != 7) {
+            if (parts.size() != 4 && parts.size() != 6 && parts.size() != 7 && parts.size() != 8) {
                 // Wrong field count (e.g. an embedded '|' from before that
                 // character was blocked at entry time) - can't be safely
                 // reconstructed, and (Phase 1 / F3+F2) is no longer silently
@@ -1057,12 +1084,20 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
             e.product = TrimW(parts[1]);
             e.kgs = kgs;
             e.price = price;
-            if (parts.size() == 6 || parts.size() == 7) {
+            if (parts.size() >= 6) {
                 e.date = parts[4];
                 e.notes = parts[5];
             }
-            if (parts.size() == 7) {
+            if (parts.size() >= 7) {
                 e.priceFlagged = (parts[6] == L"1");
+            }
+            if (parts.size() == 8) {
+                // v0.11.0: the Kgs text as typed (e.g. "24+24+24"). Only trusted when it still
+                // evaluates to the stored total; anything else (hand-edited, damaged, too long) is
+                // dropped and the entry just keeps its numeric Kgs - never a reason to refuse the file.
+                SumParseResult sr = ParseSumExprStrict(parts[7]);
+                if (parts[7].size() <= kMaxKgsExprLength && sr.ok && std::abs(sr.value - kgs) < 0.0005)
+                    e.kgsExpr = KgsExprToStore(parts[7]);
             }
             // parts.size() == 4 means a file saved before dates/notes
             // existed; parts.size() == 6 means a file saved before the
@@ -1186,7 +1221,8 @@ inline std::wstring BuildFbdText(const FbdSaveState& s) {
     for (const auto& e : s.entries) {
         writeLine(e.supplier + L"|" + e.product + L"|" +
                   ToFixed(e.kgs, 4) + L"|" + ToFixed(e.price, 4) + L"|" +
-                  e.date + L"|" + e.notes + L"|" + (e.priceFlagged ? L"1" : L"0"));
+                  e.date + L"|" + e.notes + L"|" + (e.priceFlagged ? L"1" : L"0") +
+                  (e.kgsExpr.empty() ? L"" : L"|" + e.kgsExpr)); // 8th field only when Kgs was a sum - plain files stay 7 fields
     }
     writeLine(L"END");
     return out;

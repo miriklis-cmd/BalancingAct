@@ -18,6 +18,22 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.11.0] - Kgs can be typed as a sum, and the sum is remembered
+
+First feature after the `main.cpp` split. Asked for by Jack (2026-10-22/23) while testing the WinUI 3 prototype; built in both.
+- **Kgs accepts `+`/`-` sums** (e.g. `24+24+24`), using the same strict parser as Debtor/Cash. The entry stores the total in `kgs`;
+  the list, totals, reports and CSV all show/use the total. An empty Kgs box is still invalid (it is not 0). A bad term shows
+  `"x" isn't a number`.
+- **The sum is kept** in a new `Entry::kgsExpr` and saved as an optional 8th `.fbd` field, written only when Kgs was a sum, so files
+  without sums are byte-for-byte the old 7-field format. Edit Selected / double-click / Duplicate Last Entry put `24+24+24` back in
+  the Kgs box. On load the expression is trusted only if it parses, is at most 200 characters and still adds up to the stored Kgs;
+  otherwise it is dropped and the file loads normally.
+- **Compatibility:** older builds reject a row with the 8th field (they only know 4/6/7). Use this version on every machine before
+  saving sums.
+- `.gitignore` now ignores `.xdp-*` (temp files from an interrupted atomic save, which a push had picked up).
+- New core helpers `KgsExprToStore`, `KgsBoxText`, constant `kMaxKgsExprLength`. 7 new portable tests (259 total; integration
+  unchanged at 25). `main.cpp` change not built here - Jack to build and test.
+
 ## [0.10.19] - Docs only: stages 7d/7e closed by review, Finalize Day checks recorded
 
 No code change. Reviewed Finalize persistence (7d) and entry operations (7e) for anything worth moving: nothing is. The Finalize

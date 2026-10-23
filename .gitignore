@@ -29,6 +29,9 @@ history/
 # v0.10.17: any saved sheet (File > Save As into the project folder, e.g. 15-10-26.fbd, was committed
 # by v0.10.16's push) is real business data too - never version-control .fbd files.
 *.fbd
+# v0.11.0: temp files the atomic save leaves behind (e.g. .xdp-autosave.fbd.232.tmp-rdp7ae) if the app is
+# closed or killed mid-write - the v0.11.0 push picked two up before this line existed.
+.xdp-*
 
 # Editor/IDE
 .vs/

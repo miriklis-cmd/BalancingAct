@@ -20,7 +20,9 @@ Current version: see `version.h`, or Help > About in the app.
   Debtor and Cash figures from your books (you can type `+`-separated sums,
   e.g. `250.7+1826+2552+286`, just like the original spreadsheet cells) and
   the app checks Debtor + Cash against the sum of what you've entered,
-  flagging any mismatch in red.
+  flagging any mismatch in red. The Kgs box takes sums the same way (e.g.
+  `24+24+24`); the entry stores the total and shows the sum again when you
+  edit it.
   **Batch entry**: press Tab to move Supplier → Species → Kgs → Price →
   Notes, then press Enter to add the row — focus jumps straight back to
   Supplier so you can keep entering the next line without touching the
