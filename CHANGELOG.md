@@ -18,6 +18,37 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.12.0] - Books (Win32 + core)
+
+Jack's Excel sheet marks where each Debtor/Cash book starts (Cash1, Book1, Book2 in the F column) so a book's rows can be selected
+and checked against that book's total. This is the same check in the app. (WinUI prototype not done yet.)
+- **Book on every entry (optional).** New `Entry::book` + `bookType` (Debtor/Cash), saved as optional 9th/10th `.fbd` fields
+  (`...|Flagged|KgsExpr|Book|D`; the KgsExpr field is empty when Kgs wasn't a sum). Files without books are byte-for-byte as before.
+  A new `DRAFT_BOOK=Name|D` header line remembers the current book even before any entry is in it.
+- **Data Entry:** a read-only "Book" box shows which book new entries go into, and a **Start Book...** button opens a small menu:
+  start the next Debtor book (Book1, Book2, ...), the next Cash book (Cash1, ...), go back to an earlier book, or "No book". Names
+  are automatic (no typing). Editing an existing row never changes its book.
+- **Book column** in the grid (sortable). The first row of each book is bold on a light blue tint so the boundary shows.
+- **Select several rows** in the grid (Ctrl/Shift-click): the status bar shows `Selected: 3 rows | 120.0 kg | $955.00` - the old "select
+  them in Excel and read the sum". Delete / Edit still need exactly one row selected (they say so).
+- **Total Overview:** a new Books table beside the supplier table: rows, kgs, entered total, "From the book" and difference. The n-th
+  Debtor book is compared with the n-th amount typed in the Debtor box (`18633.8+120+12159.3`), the n-th Cash book with the Cash box.
+  Differences other than $0.00 show red; subtotal lines for Debtor books and Cash books; a "Not in a book" line for loose rows.
+- **Denser Data Entry:** grid rows 22px (was 28), tighter spacing and a much shorter reconciliation box (same layout: Debtor/Cash at
+  left, Book/Entered totals, status and difference, Finalize Day at right), so about 16 rows show at 1280x720.
+- Core: `CleanBookName`, `CleanBookType`, `ComputeBookSummaries`, `IsBookStart`, `ComputeSelectionTotals`, `SplitBookAmounts`,
+  `ComputeBookChecks`; 8 new tests (267 total, 856 assertions). The older 9-field-row rejection test still holds; a 10-field row is now valid.
+- Not in this version: book names typed by hand / renaming, Book column in CSV and print, books in the WinUI prototype.
+
+## [0.11.1] - Denser Breakdown print / PDF / preview
+
+Jack compared with his Excel pivot print (2026-10-23): the Excel Breakdown fits in 3 pages, the app needed 6-7.
+- Breakdown report (print, PDF and Print Preview share one renderer) now uses 9pt text on 15px rows (was 11pt on 22px), a 14pt
+  title (was 18pt), 0.4" top/bottom margins (was 0.5") and less blank space after the heading and summary lines. Roughly 65 rows
+  per A4 page instead of about 43, so the same report should take about 3-4 pages.
+- Layout only; no change to what is printed. GDI drawing is not covered by the portable tests - Jack to compare page count and
+  readability against the old print (Testing.md).
+
 ## [0.11.0] - Kgs can be typed as a sum, and the sum is remembered
 
 First feature after the `main.cpp` split. Asked for by Jack (2026-10-22/23) while testing the WinUI 3 prototype; built in both.

@@ -8,6 +8,8 @@
 #include <string>
 
 void RefreshAll(bool doAutosave = true);
+void UpdateSelectionStatus(); // v0.12.0: selected-rows total in the status bar
+void SetCurrentBook(const std::wstring& name, wchar_t type); // v0.12.0
 void CancelEdit();
 void ClearUndoState();
 HWND MakeControl(LPCWSTR cls, LPCWSTR text, DWORD style, int id, HWND parent);

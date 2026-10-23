@@ -14,6 +14,8 @@ The single record type the whole app is built around (defined in
 | `product`  | `std::wstring`| The species; cannot contain `\|`                    |
 | `kgs`      | `double`      | Displayed to 1 decimal place everywhere. Always the evaluated total, even when Kgs was typed as a sum |
 | `kgsExpr`  | `std::wstring`| v0.11.0: the Kgs text as typed when it was a sum such as `24+24+24`; empty for a plain number. Only used to show the sum again when the entry is edited - totals and reports never read it |
+| `book`     | `std::wstring`| v0.12.0: optional book label such as `Cash1` / `Book2` (1-30 chars, no `\|`); empty = not in a book. Never affects any total |
+| `bookType` | `wchar_t`     | v0.12.0: `D` (Debtor book), `C` (Cash book) or none                                  |
 | `price`    | `double`      | Price per kg; displayed to 2 decimal places        |
 | `date`     | `std::wstring`| ISO `YYYY-MM-DD`; empty if not set (older files)   |
 | `notes`    | `std::wstring`| Optional free text; cannot contain `\|`             |
@@ -116,6 +118,10 @@ END
   `Supplier|Species|Kgs|Price|Date|Notes|Flagged` and, **only when Kgs was typed as a sum** (v0.11.0), an 8th field `|KgsExpr`
   (e.g. `A|Mussels|72.0000|4.4000|2026-10-15||0|24+24+24`). Plain-number rows stay 7 fields, so a file with no sums is
   still readable by older builds; an older build rejects a row that has the 8th field.
+  **v0.12.0 books:** a row in a book has 10 fields: `...|Flagged|KgsExpr|Book|D` (the KgsExpr field is empty when Kgs was a plain number,
+  e.g. `A|Mussels|72.0000|4.4000|2026-10-15||0||Book1|D`). Rows not in a book are unchanged (7 or 8 fields). 9 fields is still rejected.
+  A book name that is not usable (empty, over 30 characters, contains `|`) is dropped on load and the row stays unassigned - the file still loads.
+  The header may also contain `DRAFT_BOOK=<name>|<D or C>` (the book new entries go into); a malformed one is ignored.
   - Kgs/Price are written with 4 decimal places of precision internally
     (display rounding to 1dp/2dp happens only when rendering, never on
     the stored value).

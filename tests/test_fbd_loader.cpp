@@ -856,3 +856,128 @@ TEST_SUITE("Kgs expression (v0.11.0)") {
         CHECK_FALSE(r.ok);
     }
 }
+
+TEST_SUITE("Books (v0.12.0)") {
+    static Entry MakeBookEntry(const wchar_t* sup, const wchar_t* sp, double kgs, double price, const wchar_t* book, wchar_t type) {
+        Entry e; e.supplier = sup; e.product = sp; e.kgs = kgs; e.price = price; e.date = L"2026-10-15";
+        e.book = book; e.bookType = type; return e;
+    }
+
+    TEST_CASE("CleanBookName / CleanBookType") {
+        CHECK(CleanBookName(L"  Book1 ") == L"Book1");
+        CHECK(CleanBookName(L"") == L"");
+        CHECK(CleanBookName(L"a|b") == L"");
+        CHECK(CleanBookName(std::wstring(kMaxBookNameLength, L'x')).size() == kMaxBookNameLength);
+        CHECK(CleanBookName(std::wstring(kMaxBookNameLength + 1, L'x')) == L"");
+        CHECK(CleanBookType(L'D') == L'D');
+        CHECK(CleanBookType(L'C') == L'C');
+        CHECK(CleanBookType(L'X') == 0);
+    }
+
+    TEST_CASE("books round-trip, with and without a Kgs sum") {
+        FbdSaveState s;
+        Entry a = MakeBookEntry(L"A", L"Mussels", 72.0, 4.0, L"Cash1", L'C'); a.kgsExpr = L"24+24+24";
+        Entry b = MakeBookEntry(L"B", L"Salmon", 5.0, 3.0, L"Book1", L'D');
+        Entry c; c.supplier = L"C"; c.product = L"Squid"; c.kgs = 1; c.price = 2; c.date = L"2026-10-15";
+        s.entries = { a, b, c };
+        s.draftBook = L"Book2"; s.draftBookType = L'D';
+        std::wstring text = BuildFbdText(s);
+        CHECK(text.find(L"A|Mussels|72.0000|4.0000|2026-10-15||0|24+24+24|Cash1|C\n") != std::wstring::npos);
+        CHECK(text.find(L"B|Salmon|5.0000|3.0000|2026-10-15||0||Book1|D\n") != std::wstring::npos);
+        CHECK(text.find(L"C|Squid|1.0000|2.0000|2026-10-15||0\n") != std::wstring::npos);
+        CHECK(text.find(L"DRAFT_BOOK=Book2|D\n") != std::wstring::npos);
+        auto r = ParseFbdContent(text);
+        REQUIRE(r.ok);
+        REQUIRE(r.entries.size() == 3);
+        CHECK(r.entries[0].book == L"Cash1");
+        CHECK(r.entries[0].bookType == L'C');
+        CHECK(r.entries[0].kgsExpr == L"24+24+24");
+        CHECK(r.entries[1].book == L"Book1");
+        CHECK(r.entries[1].bookType == L'D');
+        CHECK(r.entries[1].kgsExpr == L"");
+        CHECK(r.entries[2].book == L"");
+        CHECK(r.draftBook == L"Book2");
+        CHECK(r.draftBookType == L'D');
+    }
+
+    TEST_CASE("an unusable book name is dropped, the file still loads") {
+        auto r = ParseFbdContent(L"BEGIN\nA|B|1.0000|2.0000|2026-10-15||0||" + std::wstring(kMaxBookNameLength + 1, L'x') + L"|D\nEND\n");
+        REQUIRE(r.ok);
+        REQUIRE(r.entries.size() == 1);
+        CHECK(r.entries[0].book.empty());
+    }
+
+    TEST_CASE("a bad DRAFT_BOOK line is ignored") {
+        auto r = ParseFbdContent(L"DRAFT_BOOK=nonsense\nBEGIN\nEND\n");
+        REQUIRE(r.ok);
+        CHECK(r.draftBook.empty());
+    }
+
+    TEST_CASE("files without books load exactly as before") {
+        auto r = ParseFbdContent(L"BEGIN\nA|B|1.0000|2.0000|2026-10-15||0\nEND\n");
+        REQUIRE(r.ok);
+        CHECK(r.entries[0].book.empty());
+        CHECK(r.entries[0].bookType == 0);
+    }
+
+    TEST_CASE("ComputeBookSummaries, IsBookStart and ComputeSelectionTotals") {
+        std::vector<Entry> v = {
+            MakeBookEntry(L"A", L"X", 10, 2, L"Cash1", L'C'),
+            MakeBookEntry(L"B", L"X", 5, 4, L"Cash1", L'C'),
+            MakeBookEntry(L"C", L"Y", 1, 10, L"Book1", L'D'),
+            MakeBookEntry(L"D", L"Y", 2, 10, L"Book1", L'D'),
+        };
+        Entry loose; loose.supplier = L"E"; loose.product = L"Z"; loose.kgs = 1; loose.price = 1; v.push_back(loose);
+        BooksResult r = ComputeBookSummaries(v);
+        REQUIRE(r.books.size() == 2);
+        CHECK(r.books[0].name == L"Cash1");
+        CHECK(r.books[0].count == 2);
+        CHECK(r.books[0].amount == doctest::Approx(40.0));
+        CHECK(r.books[0].kgs == doctest::Approx(15.0));
+        CHECK(r.books[1].firstIndex == 2);
+        CHECK(r.books[1].amount == doctest::Approx(30.0));
+        CHECK(r.unassignedCount == 1);
+        CHECK(r.unassignedAmount == doctest::Approx(1.0));
+        CHECK(r.unassignedKgs == doctest::Approx(1.0));
+        CHECK(IsBookStart(v, 0));
+        CHECK_FALSE(IsBookStart(v, 1));
+        CHECK(IsBookStart(v, 2));
+        CHECK_FALSE(IsBookStart(v, 4)); // unassigned rows never start a book
+        SelectionTotals t = ComputeSelectionTotals(v, { 1, 2, 99 });
+        CHECK(t.count == 2);
+        CHECK(t.kgs == doctest::Approx(6.0));
+        CHECK(t.amount == doctest::Approx(30.0));
+    }
+
+    TEST_CASE("SplitBookAmounts splits on plus only") {
+        std::vector<double> v;
+        REQUIRE(SplitBookAmounts(L"18633.8+120+12159.3", v));
+        REQUIRE(v.size() == 3);
+        CHECK(v[1] == doctest::Approx(120.0));
+        REQUIRE(SplitBookAmounts(L"500-20+10", v));
+        REQUIRE(v.size() == 2);
+        CHECK(v[0] == doctest::Approx(480.0));
+        CHECK_FALSE(SplitBookAmounts(L"", v));
+        CHECK_FALSE(SplitBookAmounts(L"12+abc", v));
+        CHECK(v.empty());
+    }
+
+    TEST_CASE("ComputeBookChecks matches the n-th book of each type to the n-th amount in its box") {
+        std::vector<Entry> v = {
+            MakeBookEntry(L"A", L"X", 10, 2, L"Cash1", L'C'),
+            MakeBookEntry(L"B", L"X", 10, 5, L"Book1", L'D'),
+            MakeBookEntry(L"C", L"X", 10, 3, L"Book2", L'D'),
+            MakeBookEntry(L"D", L"X", 10, 1, L"Book3", L'D'),
+        };
+        auto checks = ComputeBookChecks(ComputeBookSummaries(v), L"50+31", L"20");
+        REQUIRE(checks.size() == 4);
+        CHECK(checks[0].haveBookFigure);
+        CHECK(checks[0].bookFigure == doctest::Approx(20.0));
+        CHECK(checks[0].difference == doctest::Approx(0.0));
+        CHECK(checks[1].bookFigure == doctest::Approx(50.0));
+        CHECK(checks[1].difference == doctest::Approx(0.0));
+        CHECK(checks[2].bookFigure == doctest::Approx(31.0));
+        CHECK(checks[2].difference == doctest::Approx(-1.0));
+        CHECK_FALSE(checks[3].haveBookFigure); // no third Debtor amount typed yet
+    }
+}

@@ -130,8 +130,28 @@ void RefreshEntriesList() {
         ListView_SetItemText(hListEntries, row, 4, const_cast<LPWSTR>(totalS.c_str()));
         ListView_SetItemText(hListEntries, row, 5, const_cast<LPWSTR>(e.date.c_str()));
         ListView_SetItemText(hListEntries, row, 6, const_cast<LPWSTR>(e.notes.c_str()));
+        ListView_SetItemText(hListEntries, row, 7, const_cast<LPWSTR>(e.book.c_str())); // v0.12.0 Book column
         row++;
     }
+    UpdateSelectionStatus(); // the rebuilt list has nothing selected
+}
+
+// v0.12.0: the status bar's third part shows what the selected rows add up to - the same check as
+// selecting the rows in Excel and reading the sum. Blank when nothing is selected.
+void UpdateSelectionStatus() {
+    if (!hStatusBar || !hListEntries) return;
+    std::vector<int> picked;
+    int r = -1;
+    while ((r = ListView_GetNextItem(hListEntries, r, LVNI_SELECTED)) >= 0) {
+        if (r < (int)g_filteredIndices.size()) picked.push_back(g_filteredIndices[r]);
+    }
+    std::wstring text;
+    if (!picked.empty()) {
+        SelectionTotals t = ComputeSelectionTotals(g_entries, picked);
+        text = L"Selected: " + std::to_wstring(t.count) + (t.count == 1 ? L" row | " : L" rows | ") +
+               FormatKg(t.kgs) + L" kg | " + FormatMoney(t.amount);
+    }
+    SendMessageW(hStatusBar, SB_SETTEXT, 2, (LPARAM)text.c_str());
 }
 
 // Sorts the underlying data by the clicked column (toggling direction on a
@@ -150,6 +170,7 @@ void SortEntriesBy(int col) {
             case 4: return a.Total() < b.Total();
             case 5: return a.date < b.date; // ISO format sorts correctly as plain text
             case 6: return _wcsicmp(a.notes.c_str(), b.notes.c_str()) < 0;
+            case 7: return _wcsicmp(a.book.c_str(), b.book.c_str()) < 0;
             default: return false;
         }
     });
@@ -160,6 +181,7 @@ void SortEntriesBy(int col) {
 }
 
 void RecalcTotals() {
+    RefreshBooksList(); // v0.12.0: depends on the Debtor/Cash boxes as well as the entries
     // Phase 2 / F15 (2026-10-02): accumulation-overflow guard. Kgs/Price
     // are now bounded at every entry point (ValidateWeightKg/
     // ValidatePriceDollars), so this is defense-in-depth rather than a
@@ -293,6 +315,64 @@ void PopulateGroupedTotalsList(HWND lv, bool bySupplier) {
 }
 
 void RefreshOverviewList() { PopulateGroupedTotalsList(hListOverview, true); }
+
+// v0.12.0: the Books table on Total Overview - one row per book with what was entered for it and, when
+// the Debtor/Cash boxes hold a matching amount, the figure from the paper book and the difference.
+// The n-th Debtor book is compared with the n-th amount in the Debtor box (and the same for Cash).
+// Subtotals for all Debtor books and all Cash books follow, then anything not in a book yet.
+void RefreshBooksList() {
+    if (!hListBooks) return;
+    ListView_DeleteAllItems(hListBooks);
+
+    wchar_t buf[kMaxDebtorCashExprLength + 1];
+    GetWindowTextW(hEditDebtor, buf, (int)(kMaxDebtorCashExprLength + 1));
+    std::wstring debtorText = buf;
+    GetWindowTextW(hEditCash, buf, (int)(kMaxDebtorCashExprLength + 1));
+    std::wstring cashText = buf;
+
+    BooksResult books = ComputeBookSummaries(g_entries);
+    std::vector<BookCheck> checks = ComputeBookChecks(books, debtorText, cashText);
+
+    int idx = 0;
+    auto addRow = [&](const std::wstring& name, int rows, double kgs, double amount, bool haveFigure, double figure, double diff) {
+        LVITEMW item{};
+        item.mask = LVIF_TEXT;
+        item.iItem = idx;
+        item.iSubItem = 0;
+        item.pszText = const_cast<LPWSTR>(name.c_str());
+        ListView_InsertItem(hListBooks, &item);
+        std::wstring rowsS = std::to_wstring(rows);
+        ListView_SetItemText(hListBooks, idx, 1, const_cast<LPWSTR>(rowsS.c_str()));
+        std::wstring kgsS = FormatKg(kgs);
+        ListView_SetItemText(hListBooks, idx, 2, const_cast<LPWSTR>(kgsS.c_str()));
+        std::wstring amtS = FormatMoney(amount);
+        ListView_SetItemText(hListBooks, idx, 3, const_cast<LPWSTR>(amtS.c_str()));
+        std::wstring figS = haveFigure ? FormatMoney(figure) : std::wstring(L"-");
+        ListView_SetItemText(hListBooks, idx, 4, const_cast<LPWSTR>(figS.c_str()));
+        std::wstring diffS = haveFigure ? FormatMoney(diff) : std::wstring(L"-");
+        ListView_SetItemText(hListBooks, idx, 5, const_cast<LPWSTR>(diffS.c_str()));
+        idx++;
+    };
+
+    double dRows = 0, dKgs = 0, dAmt = 0, cRows = 0, cKgs = 0, cAmt = 0;
+    double dFig = 0, cFig = 0;
+    bool dAllFig = true, cAllFig = true, anyD = false, anyC = false;
+    for (const auto& c : checks) {
+        addRow(c.book.name + (c.book.type == L'C' ? L" (Cash)" : (c.book.type == L'D' ? L" (Debtor)" : L"")),
+               c.book.count, c.book.kgs, c.book.amount, c.haveBookFigure, c.bookFigure, c.difference);
+        if (c.book.type == L'C') {
+            anyC = true; cRows += c.book.count; cKgs += c.book.kgs; cAmt += c.book.amount;
+            if (c.haveBookFigure) cFig += c.bookFigure; else cAllFig = false;
+        } else {
+            anyD = true; dRows += c.book.count; dKgs += c.book.kgs; dAmt += c.book.amount;
+            if (c.haveBookFigure) dFig += c.bookFigure; else dAllFig = false;
+        }
+    }
+    if (anyD) addRow(L"Total - Debtor books", (int)dRows, dKgs, dAmt, dAllFig, dFig, dAmt - dFig);
+    if (anyC) addRow(L"Total - Cash books", (int)cRows, cKgs, cAmt, cAllFig, cFig, cAmt - cFig);
+    if (books.unassignedCount > 0)
+        addRow(L"Not in a book", books.unassignedCount, books.unassignedKgs, books.unassignedAmount, false, 0, 0);
+}
 
 // By Species gets its own richer view (unlike Overview, which stays a plain
 // Kgs/Total breakdown per supplier): average, highest, and lowest price seen

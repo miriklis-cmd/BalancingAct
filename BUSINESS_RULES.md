@@ -179,6 +179,16 @@ understood:
   or duplicating the entry shows `24+24+24` again instead of just `72.0`. The list always shows the total.
 - A plain number keeps no expression. An empty Kgs box is invalid (it does not mean 0).
 
+## Books (v0.12.0)
+
+- A book is one paper Debtor or Cash book. Each entry can be labelled with the book it was copied from (`Cash1`, `Book1`, `Book2`...);
+  the label marks where a book **starts** (the first row with that name) and which rows belong to it. It changes no total.
+- New entries go into the "current book" shown on Data Entry; Start Book... changes it (next Debtor book, next Cash book, an earlier
+  book, or none). Editing a row never moves it to another book.
+- Per-book check (Total Overview): the n-th Debtor book is compared with the n-th amount typed in the Debtor box, the n-th Cash book
+  with the n-th Cash amount (the boxes already take `a+b+c`, one amount per paper book). No matching amount typed yet -> shown as "-".
+- Selecting rows in the Data Entry grid shows their count, kgs and total in the status bar (any rows, books or not).
+
 ## Unusual-price flag (v0.9.62)
 
 - **One sheet is one balance session** (Jack, 2026-10-14) - that is what
