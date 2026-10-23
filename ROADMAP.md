@@ -4,10 +4,10 @@ This is the current plan: where we are, what is next, what is not built, and wha
 (every version's test checklist, the 0.9.x status notes) is frozen in `ROADMAP_ARCHIVE.md`; version-by-version detail
 is in `CHANGELOG.md`; manual checks still to do are in `Testing.md`.
 
-## Where we are (v0.10.19, 2026-10-17)
+## Where we are (v0.11.0, 2026-10-23)
 
 The app is complete and in use for single-machine daily work: data entry, four report tabs, Finalize Day, autosave,
-rolling backups, restore, print/PDF (Breakdown tab), CSV export, supplier emails, outlier-price flagging, 252 portable
+rolling backups, restore, print/PDF (Breakdown tab), CSV export, supplier emails, outlier-price flagging, 259 portable
 and 25 Windows integration tests.
 
 **Current project: splitting `main.cpp` (was ~5,000 lines, now ~2,860) into `src/core`, `src/data`, `src/services`,
@@ -31,9 +31,9 @@ longer fails silently (0.10.15) and always opens in `backups\` (0.10.16); `*.fbd
 
 1. **Decide: call the split finished and move on.** Stages 7d/7e have nothing worth moving (above); `BuildFbdSaveContent` still gathers its values from the controls, which is front-end territory. Remaining `main.cpp` (~2,860 lines) is the window code a front-end replacement would swap out.
 2. Jack works through the open manual checks in `Testing.md` ("Carried-over checks") so the app's verified state is on record (Finalize Day full pass is already confirmed, 2026-10-17).
-3. **WinUI 3 Data Entry prototype** - only with Jack's explicit go-ahead. Small, throwaway-able; reuses `src/core` and
+3. **WinUI 3 prototype (in progress, separate folder `FishBalanceWinUI`, not in this repo yet)** - Data Entry and Total Overview tabs, Open/Save/Save As, Finalize/Un-finalize with lock and banner, unusual-price flag, Different Date warning, Kgs sums, Enter-to-add; reuses `src/core` and `src/data` unchanged. Build 4e. Approved by Jack; was: only with his go-ahead. Small, throwaway-able; reuses `src/core` and
    `src/data`. May make the stage 6c/6d work and the combo-box glitch (below) moot.
-4. First new feature after the split is **0.11.0**. Candidates, none started (specs below): price history per species,
+4. **0.11.0 done: Kgs can be typed as a sum and the sum is remembered** (Win32 + core; also in the WinUI prototype). Next feature candidates, none started (specs below): price history per species,
    cheapest-supplier highlight, print/PDF for the Overview and By Species tabs, filter on the summary tabs.
 5. **1.0** only when Jack decides it is ready for prime-time release.
 

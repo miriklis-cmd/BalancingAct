@@ -231,6 +231,14 @@ Tick as you do them. Items marked (done) were confirmed by Jack in chat on the d
 - [ ] Rolling backup: edit, wait over 3 minutes, a new `backup_...fbd` appears in `backups\`; wait again without editing - no new file.
 - [ ] After any File > New / Open / Restore, the next edit marks the sheet unsaved again.
 
+## v0.11.0 checks (Kgs sums)
+
+- [ ] Type `24+24+24` in Kgs, add: the list shows 72.0; Edit Selected shows `24+24+24` again; Update keeps it.
+- [ ] Type a plain `72`: edit shows `72.0`. Type `10+abc`: error naming `abc`. Empty Kgs: error.
+- [ ] Save, close, reopen the file: the sum is still there on edit. Open it in the old prototype/other build only if you accept it is refused.
+- [ ] Duplicate Last Entry on a summed row fills Kgs with the sum.
+- [ ] Totals, Overview, Breakdown, By Species, CSV and print all use the total (72.0), not the text.
+
 ## Carried-over checks (never recorded as confirmed)
 
 These were on the old roadmap's unticked list. Several were probably checked casually; none were written down. Tick or strike each once you have looked.

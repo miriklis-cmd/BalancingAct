@@ -171,6 +171,14 @@ understood:
   Entered Total both on-screen (Reconciliation tab) and on the printed
   report.
 
+## Kgs can be typed as a sum (v0.11.0)
+
+- The Kgs box takes the same `+`/`-` expressions as Debtor and Cash (e.g. `24+24+24` for three crates). The entry stores the
+  total as `kgs`; everything (the Kgs column, totals, reports, CSV) uses the total, never the text.
+- The text as typed is kept with the entry (`kgsExpr`, saved as an optional 8th `.fbd` field - see DATA_FORMATS.md) so editing
+  or duplicating the entry shows `24+24+24` again instead of just `72.0`. The list always shows the total.
+- A plain number keeps no expression. An empty Kgs box is invalid (it does not mean 0).
+
 ## Unusual-price flag (v0.9.62)
 
 - **One sheet is one balance session** (Jack, 2026-10-14) - that is what

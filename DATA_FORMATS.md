@@ -12,7 +12,8 @@ The single record type the whole app is built around (defined in
 |------------|---------------|-----------------------------------------------------|
 | `supplier` | `std::wstring`| Free text; cannot contain `\|`                      |
 | `product`  | `std::wstring`| The species; cannot contain `\|`                    |
-| `kgs`      | `double`      | Displayed to 1 decimal place everywhere            |
+| `kgs`      | `double`      | Displayed to 1 decimal place everywhere. Always the evaluated total, even when Kgs was typed as a sum |
+| `kgsExpr`  | `std::wstring`| v0.11.0: the Kgs text as typed when it was a sum such as `24+24+24`; empty for a plain number. Only used to show the sum again when the entry is edited - totals and reports never read it |
 | `price`    | `double`      | Price per kg; displayed to 2 decimal places        |
 | `date`     | `std::wstring`| ISO `YYYY-MM-DD`; empty if not set (older files)   |
 | `notes`    | `std::wstring`| Optional free text; cannot contain `\|`             |
@@ -112,18 +113,23 @@ END
   used to simply be ignored until v0.9.49 closed that gap; a genuinely
   blank line in that position is still harmless.
 - Each entry row is pipe-delimited:
-  `Supplier|Species|Kgs|Price|Date|Notes|Flagged`.
+  `Supplier|Species|Kgs|Price|Date|Notes|Flagged` and, **only when Kgs was typed as a sum** (v0.11.0), an 8th field `|KgsExpr`
+  (e.g. `A|Mussels|72.0000|4.4000|2026-10-15||0|24+24+24`). Plain-number rows stay 7 fields, so a file with no sums is
+  still readable by older builds; an older build rejects a row that has the 8th field.
   - Kgs/Price are written with 4 decimal places of precision internally
     (display rounding to 1dp/2dp happens only when rendering, never on
     the stored value).
   - `Flagged` is `1` if `priceFlagged` is true, `0` otherwise - added
     v0.9.19 (ROADMAP.md item 7).
+  - `KgsExpr` is trusted only if it parses as a sum (same rules as Debtor/Cash), is at most 200 characters, and still adds up
+    to the stored Kgs (within 0.0005). Otherwise it is silently dropped and the entry keeps its numeric Kgs - a bad expression
+    is never a reason to refuse a file.
   - **Backward compatibility**: rows with only 4 fields (no Date/Notes/
     Flagged) are accepted — this is the pre-v0.9.0 format. Rows with 6
     fields (Date/Notes but no Flagged) are accepted — this is the
     pre-v0.9.19 format. Both default the missing field(s) to empty/false.
   - **Phase 1 / F2 (2026-09-30)**: a row that doesn't parse into exactly
-    4, 6, or 7 fields, has an invalid/negative Kgs or Price, or has an
+    4, 6, 7, or 8 fields, has an invalid/negative Kgs or Price, or has an
     empty Supplier or Species, now rejects the **whole document** -
     loading is transactional, not partial. Before this change such a row
     was silently skipped (with a warning showing a count) while every

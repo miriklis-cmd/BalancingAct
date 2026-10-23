@@ -786,3 +786,73 @@ TEST_SUITE("BuildFbdText - building .fbd content") {
         }
     }
 }
+
+// v0.11.0: Kgs typed as a sum ("24+24+24") keeps the text as typed in an optional 8th field, while
+// Entry::kgs always holds the evaluated total. Plain-number rows stay 7 fields so old builds can read them.
+TEST_SUITE("Kgs expression (v0.11.0)") {
+    TEST_CASE("KgsExprToStore keeps real sums and drops plain numbers") {
+        CHECK(KgsExprToStore(L"24+24+24") == L"24+24+24");
+        CHECK(KgsExprToStore(L"  10 + 10.5 ") == L"10 + 10.5");
+        CHECK(KgsExprToStore(L"100-5") == L"100-5");
+        CHECK(KgsExprToStore(L"-5+10") == L"-5+10");
+        CHECK(KgsExprToStore(L"72") == L"");
+        CHECK(KgsExprToStore(L" 72.5 ") == L"");
+        CHECK(KgsExprToStore(L"-5") == L""); // a leading sign alone is not a sum
+        CHECK(KgsExprToStore(L"") == L"");
+        CHECK(KgsExprToStore(std::wstring(kMaxKgsExprLength + 1, L'1') + L"+1") == L"");
+    }
+
+    TEST_CASE("KgsBoxText shows the expression when there is one, else the formatted total") {
+        Entry e; e.kgs = 72.0;
+        CHECK(KgsBoxText(e, L"72.0") == L"72.0");
+        e.kgsExpr = L"24+24+24";
+        CHECK(KgsBoxText(e, L"72.0") == L"24+24+24");
+    }
+
+    TEST_CASE("a sum round-trips through BuildFbdText and ParseFbdContent") {
+        FbdSaveState s;
+        Entry a; a.supplier = L"A"; a.product = L"Mussels"; a.kgs = 72.0; a.price = 4.4;
+        a.date = L"2026-10-15"; a.kgsExpr = L"24+24+24";
+        Entry b; b.supplier = L"B"; b.product = L"Salmon"; b.kgs = 7.8; b.price = 3.5; b.date = L"2026-10-15";
+        s.entries = { a, b };
+        std::wstring text = BuildFbdText(s);
+        CHECK(text.find(L"A|Mussels|72.0000|4.4000|2026-10-15||0|24+24+24\n") != std::wstring::npos);
+        CHECK(text.find(L"B|Salmon|7.8000|3.5000|2026-10-15||0\n") != std::wstring::npos); // still 7 fields
+        auto r = ParseFbdContent(text);
+        REQUIRE(r.ok);
+        REQUIRE(r.entries.size() == 2);
+        CHECK(r.entries[0].kgs == doctest::Approx(72.0));
+        CHECK(r.entries[0].kgsExpr == L"24+24+24");
+        CHECK(r.entries[1].kgsExpr == L"");
+    }
+
+    TEST_CASE("an expression that no longer matches the stored total is dropped, the file still loads") {
+        auto r = ParseFbdContent(L"BEGIN\nA|B|72.0000|2.0000|2026-10-15||0|24+24+25\nEND\n");
+        REQUIRE(r.ok);
+        REQUIRE(r.entries.size() == 1);
+        CHECK(r.entries[0].kgs == doctest::Approx(72.0));
+        CHECK(r.entries[0].kgsExpr == L"");
+    }
+
+    TEST_CASE("an unparseable or oversized expression is dropped, the file still loads") {
+        auto r = ParseFbdContent(L"BEGIN\nA|B|72.0000|2.0000|2026-10-15||0|abc\nEND\n");
+        REQUIRE(r.ok);
+        CHECK(r.entries[0].kgsExpr == L"");
+        std::wstring longExpr = L"1";
+        while (longExpr.size() <= kMaxKgsExprLength) longExpr += L"+0";
+        auto r2 = ParseFbdContent(L"BEGIN\nA|B|1.0000|2.0000|2026-10-15||0|" + longExpr + L"\nEND\n");
+        REQUIRE(r2.ok);
+        CHECK(r2.entries[0].kgsExpr == L"");
+    }
+
+    TEST_CASE("a plain-number 8th field is dropped (nothing to remember)") {
+        auto r = ParseFbdContent(L"BEGIN\nA|B|72.0000|2.0000|2026-10-15||0|72\nEND\n");
+        REQUIRE(r.ok);
+        CHECK(r.entries[0].kgsExpr == L"");
+    }
+
+    TEST_CASE("a 9-field row is still rejected as malformed") {
+        auto r = ParseFbdContent(L"BEGIN\nA|B|72.0000|2.0000|2026-10-15||0|24+24+24|x\nEND\n");
+        CHECK_FALSE(r.ok);
+    }
+}

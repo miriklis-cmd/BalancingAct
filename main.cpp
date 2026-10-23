@@ -538,10 +538,22 @@ void CommitEntryForm() {
         return;
     }
     double kgs, price;
-    if (!ParseDoubleW(kgsStr, kgs)) {
+    // v0.11.0: Kgs may be a sum such as 24+24+24 (the same expression rules as Debtor/Cash). The
+    // entry stores the total in kgs and the text as typed in kgsExpr so editing can show it again.
+    if (TrimW(kgsStr).empty()) {
         MessageBoxW(g_hMainWnd, L"Please enter a valid Kgs value.", L"Invalid Data", MB_OK | MB_ICONWARNING);
         return;
     }
+    SumParseResult kgsSum = ParseSumExprStrict(kgsStr);
+    if (!kgsSum.ok) {
+        std::wstring kgsMsg = kgsSum.tooLarge
+            ? L"The Kgs total is too large."
+            : L"Please enter a valid Kgs value.\n\n\"" + kgsSum.errorTerm + L"\" isn't a number.";
+        MessageBoxW(g_hMainWnd, kgsMsg.c_str(), L"Invalid Data", MB_OK | MB_ICONWARNING);
+        return;
+    }
+    kgs = kgsSum.value;
+    const std::wstring kgsExpr = KgsExprToStore(kgsStr);
     // Phase 2 / F15 (2026-10-02): centralized magnitude check, applied the
     // same way here and at file-load time (ParseFbdContent) - see
     // ValidateWeightKg's comment in FishBalanceCore.h for where the
@@ -620,6 +632,7 @@ void CommitEntryForm() {
         e.supplier = supplier;
         e.product = product;
         e.kgs = kgs;
+        e.kgsExpr = kgsExpr;
         e.price = price;
         e.date = date;
         e.notes = notes;
@@ -632,6 +645,7 @@ void CommitEntryForm() {
         e.supplier = supplier;
         e.product = product;
         e.kgs = kgs;
+        e.kgsExpr = kgsExpr;
         e.price = price;
         e.date = date;
         e.notes = notes;
@@ -674,7 +688,7 @@ void DuplicateLastEntry() {
     Entry& e = g_entries.back();
     SetWindowTextW(hCmbSupplier, e.supplier.c_str());
     SetWindowTextW(hCmbProduct, e.product.c_str());
-    SetWindowTextW(hEditKgs, FormatKg(e.kgs).c_str());
+    SetWindowTextW(hEditKgs, KgsBoxText(e, FormatKg(e.kgs)).c_str()); // v0.11.0: shows the sum if one was typed
     SetWindowTextW(hEditPrice, FormatNum(e.price).c_str());
     SetWindowTextW(hEditNotes, e.notes.c_str());
     SYSTEMTIME st;
@@ -831,7 +845,7 @@ void LoadEntryIntoForm(int idx) {
     Entry& e = g_entries[idx];
     SetWindowTextW(hCmbSupplier, e.supplier.c_str());
     SetWindowTextW(hCmbProduct, e.product.c_str());
-    SetWindowTextW(hEditKgs, FormatKg(e.kgs).c_str());
+    SetWindowTextW(hEditKgs, KgsBoxText(e, FormatKg(e.kgs)).c_str()); // v0.11.0: shows the sum if one was typed
     SetWindowTextW(hEditPrice, FormatNum(e.price).c_str());
     SetWindowTextW(hEditNotes, e.notes.c_str());
     SYSTEMTIME st;
