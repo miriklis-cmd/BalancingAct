@@ -80,22 +80,23 @@ RenderReportResult RenderReportPages(int pageWidthPx, int pageHeightPx, int dpiX
 #endif
         return UniqueFont(CreateFontIndirectW(&lf));
     };
-    UniqueFont hFontTitle = makeFont(18, true);
-    UniqueFont hFontNormal = makeFont(11, false);
-    UniqueFont hFontBold = makeFont(11, true);
+    // v0.11.1: denser layout (was 18/11/11pt on 22px rows, which needed ~2x the pages of the old Excel pivot print).
+    UniqueFont hFontTitle = makeFont(14, true);
+    UniqueFont hFontNormal = makeFont(9, false);
+    UniqueFont hFontBold = makeFont(9, true);
     if (!hFontTitle || !hFontNormal || !hFontBold) {
         out.error = L"Couldn't create fonts for the report.";
         return out;
     }
 
     int marginX = dpiX / 2; // 0.5"
-    int marginY = dpiY / 2;
+    int marginY = MulDiv(dpiY, 2, 5); // 0.4" top/bottom (v0.11.1; was 0.5")
     int colSpeciesX = marginX;
     int colPriceX = marginX + MulDiv(280, dpiX, 96);
     int colKgsX = marginX + MulDiv(400, dpiX, 96);
     int colTotalX = marginX + MulDiv(510, dpiX, 96);
     int rightEdge = pageWidthPx - marginX;
-    int lineHeight = MulDiv(22, dpiY, 96);
+    int lineHeight = MulDiv(15, dpiY, 96); // v0.11.1: was 22px
     if (lineHeight < 1) lineHeight = 1; // guards ensureSpace/newPage against a zero-progress loop at extreme DPI
 
     UniqueDC curDC;
@@ -219,7 +220,7 @@ RenderReportResult RenderReportPages(int pageWidthPx, int pageHeightPx, int dpiX
             ScopedSelect selFont(curDC.get(), hFontTitle.get());
             TextOutW(curDC.get(), marginX, y, L"Fish Balance - Breakdown Report", 32);
         }
-        y += MulDiv(32, dpiY, 96);
+        y += MulDiv(24, dpiY, 96);
 
         SYSTEMTIME st;
         GetLocalTime(&st);
@@ -237,7 +238,7 @@ RenderReportResult RenderReportPages(int pageWidthPx, int pageHeightPx, int dpiX
             ScopedSelect selFont(curDC.get(), hFontNormal.get());
             TextOutW(curDC.get(), marginX, y, ts.c_str(), (int)ts.size());
         }
-        y += lineHeight * 2;
+        y += lineHeight + lineHeight / 2;
 
         if (pageNum == 1) {
             // Book reconciliation summary, so the printout also serves as
@@ -296,7 +297,7 @@ RenderReportResult RenderReportPages(int pageWidthPx, int pageHeightPx, int dpiX
                 ScopedSelect selFont(curDC.get(), hFontBold.get());
                 TextOutW(curDC.get(), marginX, y, l3.c_str(), (int)l3.size());
             }
-            y += lineHeight * 2;
+            y += lineHeight + lineHeight / 2;
         }
 
         drawHeaderRow();

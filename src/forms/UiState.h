@@ -34,6 +34,10 @@ extern HWND hLblFilter, hEditFilter;
 extern HWND hLblDate, hDtpDate, hLblNotes, hEditNotes, hBtnDuplicate, hBtnDuplicateSupSpec;
 extern HWND hBtnFinalize; // "Finalize Day" / "Un-finalize Day" - relabeled in place, same pattern as Add/Update Entry
 extern HWND hListEntries;
+// v0.12.0 Books: read-only box showing which book new entries go into, and the Start Book... button.
+extern HWND hLblBookCur, hEditBookCur, hBtnStartBook;
+extern std::wstring g_currentBook;   // empty = new entries are not put in any book
+extern wchar_t g_currentBookType;    // L'D', L'C' or 0
 extern HWND hGrpRecon, hLblDebtor, hEditDebtor, hLblCash, hEditCash;
 extern HWND hLblBook, hLblEntered, hLblDiff;
 // v0.9.60: Tab 1 reconciliation polish (see CHANGELOG [0.9.60]): a bold
@@ -46,6 +50,7 @@ extern std::vector<HIMAGELIST> g_buttonIconLists;
 
 // Tab 2
 extern HWND hLblOvBook, hLblOvGrand, hLblOvDiff, hListOverview;
+extern HWND hListBooks; // v0.12.0: per-book totals beside the supplier table
 
 // Tab 3
 extern HWND hListBreakdown, hBtnPrintBreakdown, hBtnEmailSuppliers, hBtnPrintPreview;

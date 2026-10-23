@@ -233,11 +233,33 @@ Tick as you do them. Items marked (done) were confirmed by Jack in chat on the d
 
 ## v0.11.0 checks (Kgs sums)
 
-- [ ] Type `24+24+24` in Kgs, add: the list shows 72.0; Edit Selected shows `24+24+24` again; Update keeps it.
-- [ ] Type a plain `72`: edit shows `72.0`. Type `10+abc`: error naming `abc`. Empty Kgs: error.
-- [ ] Save, close, reopen the file: the sum is still there on edit. Open it in the old prototype/other build only if you accept it is refused.
-- [ ] Duplicate Last Entry on a summed row fills Kgs with the sum.
-- [ ] Totals, Overview, Breakdown, By Species, CSV and print all use the total (72.0), not the text.
+- [x] (done 2026-10-23, v0.11.0) Type `24+24+24` in Kgs, add: the list shows 72.0; Edit Selected shows `24+24+24` again; Update keeps it.
+- [x] (done 2026-10-23, v0.11.0) Type a plain `72`: edit shows `72.0`. Type `10+abc`: error naming `abc`. Empty Kgs: error.
+- [x] (done 2026-10-23, v0.11.0) Save, close, reopen the file: the sum is still there on edit. Open it in the old prototype/other build only if you accept it is refused.
+- [x] (done 2026-10-23, v0.11.0) Duplicate Last Entry on a summed row fills Kgs with the sum.
+- [x] (done 2026-10-23, v0.11.0) Totals, Overview, Breakdown, By Species, CSV and print all use the total (72.0), not the text.
+
+## v0.11.1 checks (denser print)
+
+- [ ] Print Preview of a real day's Breakdown: about 3-4 pages instead of 6-7; text still readable; no row cut off at the bottom of a page; heading, summary and column headings look right on page 1 and the column headings repeat on later pages.
+- [ ] Print to PDF gives the same layout as the preview.
+
+## v0.12.0 checks (Books)
+
+Use a copy of a real day, or type a few entries.
+- [ ] Data Entry shows a "Book" box ("(no book)") and a Start Book... button; the layout fits and nothing overlaps at your usual scaling.
+- [ ] Start Book... > "Start next Cash book (Cash1)": box shows "Cash1 (Cash)". Add 3 entries. Start Book... > next Debtor book (Book1): add 3 more, then another Debtor book (Book2) with 2.
+- [ ] Grid has a Book column; the first row of each book is bold with a light blue tint. Clicking the Book header sorts by book.
+- [ ] Ctrl-click / Shift-click several rows: status bar (right) shows `Selected: N rows | kg | $` and matches a calculator. Select nothing: blank.
+- [ ] With 2+ rows selected, Delete Selected Row / Edit Selected Row say to select just one row; with one row they work as before.
+- [ ] Editing a row inside Book1 (change the kgs) keeps it in Book1 even if the current book is Book2.
+- [ ] Total Overview: Books table beside the suppliers. Type Debtor `x+y` and Cash `z` matching your books: Difference is $0.00 for each; change one amount: that book's row goes red.
+- [ ] Rows with no book appear as "Not in a book"; Debtor/Cash subtotal lines add up.
+- [ ] Save, close, reopen the file: books, the Book column and the current book are all still there. Open a pre-0.12 file: loads, no books.
+- [ ] Start Book... > "Add to Cash1 (n rows)" returns to an earlier book; "No book" makes new rows unassigned.
+- [ ] Finalize Day and the History copy keep the books; after Finalize the Start Book button is disabled; File > New clears the current book.
+- [ ] Data Entry shows about 16 grid rows at 1280x720 and the smaller reconciliation box still reads clearly (Debtor/Cash, Book/Entered, status/difference, Finalize).
+- [ ] A file with Kgs sums AND books round-trips (the sum is still shown when editing).
 
 ## Carried-over checks (never recorded as confirmed)
 

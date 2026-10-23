@@ -56,6 +56,11 @@ struct Entry {
     // editing the entry can show how the total was reached. `kgs` always holds the evaluated total
     // - every report, total and the Kgs column use that, never this text. Empty for a plain number.
     std::wstring kgsExpr;
+    // v0.12.0: which book (the paper Debtor/Cash book the entry was copied from) this entry belongs
+    // to, e.g. "Cash1", "Book2". Empty = not assigned. bookType is L'D' (Debtor), L'C' (Cash) or 0.
+    // Purely a label for checking per-book totals - it never changes any total.
+    std::wstring book;
+    wchar_t bookType = 0;
     double Total() const { return kgs * price; }
 };
 
@@ -424,6 +429,126 @@ inline SumParseResult ParseSumExprStrict(const std::wstring& sIn) {
     result.ok = true;
     result.value = sum;
     return result;
+}
+
+// ---------------------------------------------------------------------------
+// v0.12.0: Books. Each entry can carry a book name (and Debtor/Cash type) so the entries copied from
+// one paper book can be selected and totalled together. Boundaries are simply "where the name changes".
+// ---------------------------------------------------------------------------
+static const size_t kMaxBookNameLength = 30;
+
+// A usable book name: 1..30 characters after trimming, no '|' (the .fbd field separator) and no
+// line breaks. Returns the trimmed name, or empty when it is not usable.
+inline std::wstring CleanBookName(const std::wstring& typed) {
+    std::wstring t = TrimW(typed);
+    if (t.empty() || t.size() > kMaxBookNameLength) return L"";
+    for (wchar_t c : t)
+        if (c == L'|' || c == L'\n' || c == L'\r' || c == L'\t') return L"";
+    return t;
+}
+
+inline wchar_t CleanBookType(wchar_t t) { return (t == L'D' || t == L'C') ? t : (wchar_t)0; }
+
+struct BookSummary {
+    std::wstring name;
+    wchar_t type = 0;      // L'D', L'C' or 0 (not set)
+    int firstIndex = -1;   // index in the entries vector of the first row of this book
+    int count = 0;
+    double kgs = 0, amount = 0;
+};
+
+struct BooksResult {
+    std::vector<BookSummary> books;  // in order of first appearance in the entries vector
+    int unassignedCount = 0;         // entries with no book
+    double unassignedKgs = 0;
+    double unassignedAmount = 0;
+};
+
+inline BooksResult ComputeBookSummaries(const std::vector<Entry>& entries) {
+    BooksResult r;
+    for (size_t i = 0; i < entries.size(); i++) {
+        const Entry& e = entries[i];
+        if (e.book.empty()) { r.unassignedCount++; r.unassignedKgs += e.kgs; r.unassignedAmount += e.Total(); continue; }
+        BookSummary* b = nullptr;
+        for (auto& x : r.books) if (x.name == e.book) { b = &x; break; }
+        if (!b) { r.books.push_back(BookSummary()); b = &r.books.back(); b->name = e.book; b->firstIndex = (int)i; }
+        if (b->type == 0) b->type = e.bookType;
+        b->count++;
+        b->kgs += e.kgs;
+        b->amount += e.Total();
+    }
+    return r;
+}
+
+// True when entry i is the first row of its book in the current row order (the row the grid draws a
+// divider above and shows in bold).
+inline bool IsBookStart(const std::vector<Entry>& entries, size_t i) {
+    if (i >= entries.size() || entries[i].book.empty()) return false;
+    return i == 0 || entries[i - 1].book != entries[i].book;
+}
+
+struct SelectionTotals { int count = 0; double kgs = 0, amount = 0; };
+
+inline SelectionTotals ComputeSelectionTotals(const std::vector<Entry>& entries, const std::vector<int>& indices) {
+    SelectionTotals t;
+    for (int i : indices) {
+        if (i < 0 || i >= (int)entries.size()) continue;
+        t.count++;
+        t.kgs += entries[i].kgs;
+        t.amount += entries[i].Total();
+    }
+    return t;
+}
+
+// The separate amounts typed into the Debtor or Cash box ("18633.8+120+12159.3" -> 3 amounts), one per
+// paper book, in order. Splits on '+' only so "500-20" stays one amount. Returns false (and an empty
+// list) when the text is blank or any amount does not parse.
+inline bool SplitBookAmounts(const std::wstring& expr, std::vector<double>& out) {
+    out.clear();
+    std::wstring t = TrimW(expr);
+    if (t.empty()) return false;
+    std::wstring cur;
+    std::vector<std::wstring> terms;
+    for (wchar_t c : t) {
+        if (c == L'+') { terms.push_back(cur); cur.clear(); }
+        else cur.push_back(c);
+    }
+    terms.push_back(cur);
+    for (auto& term : terms) {
+        SumParseResult r = ParseSumExprStrict(term);
+        if (!r.ok) { out.clear(); return false; }
+        out.push_back(r.value);
+    }
+    return true;
+}
+
+// Per-book comparison for the Total Overview: the n-th Debtor book is checked against the n-th amount
+// in the Debtor box, the n-th Cash book against the n-th amount in the Cash box. haveBookFigure is
+// false when that box has no n-th amount (or the box can't be read) - then there is nothing to compare.
+struct BookCheck {
+    BookSummary book;
+    bool haveBookFigure = false;
+    double bookFigure = 0;
+    double difference = 0; // entered - book figure
+};
+
+inline std::vector<BookCheck> ComputeBookChecks(const BooksResult& books, const std::wstring& debtorExpr, const std::wstring& cashExpr) {
+    std::vector<double> debtor, cash;
+    SplitBookAmounts(debtorExpr, debtor);
+    SplitBookAmounts(cashExpr, cash);
+    std::vector<BookCheck> out;
+    size_t dn = 0, cn = 0;
+    for (const auto& b : books.books) {
+        BookCheck c;
+        c.book = b;
+        if (b.type == L'D' && dn < debtor.size()) { c.haveBookFigure = true; c.bookFigure = debtor[dn]; }
+        else if (b.type == L'C' && cn < cash.size()) { c.haveBookFigure = true; c.bookFigure = cash[cn]; }
+        if (b.type == L'D') dn++;
+        else if (b.type == L'C') cn++;
+        if (c.haveBookFigure) c.difference = b.amount - c.bookFigure;
+        out.push_back(c);
+    }
+    return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -842,6 +967,9 @@ struct FbdLoadResult {
     // no draft was pending. draftDate is only ever set to a genuinely valid
     // ISO date (or left empty) - see ParseFbdContent.
     std::wstring draftSupplier, draftSpecies, draftKgs, draftPrice, draftNotes, draftDate;
+    // v0.12.0: the book new entries are going into (set with Start Book, even before any entry exists)
+    std::wstring draftBook;
+    wchar_t draftBookType = 0;
     // Set only for a file that's been through Finalize Day (ROADMAP.md item
     // 3) and written into the history\ folder - a genuinely valid ISO date
     // (same validation as draftDate) recording which business day this
@@ -911,6 +1039,8 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
     std::vector<Entry> newEntries;
     std::wstring debtor, cash;
     std::wstring draftSupplier, draftSpecies, draftKgs, draftPrice, draftNotes, draftDate;
+    std::wstring draftBook;
+    wchar_t draftBookType = 0;
     std::wstring finalizedDate;
     std::wstring sourceFile;
     bool hasSourceFile = false;
@@ -1001,6 +1131,15 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
             SimpleDate d;
             if (ParseISODate(candidate, d)) draftDate = candidate;
             sawRecognizedMarker = true;
+        } else if (line.rfind(L"DRAFT_BOOK=", 0) == 0) {
+            // v0.12.0: "DRAFT_BOOK=<name>|<D or C>". Anything unusable is ignored, never an error.
+            std::wstring v = line.substr(11);
+            size_t bar = v.rfind(L'|');
+            if (bar != std::wstring::npos && bar + 2 == v.size()) {
+                std::wstring nm = CleanBookName(v.substr(0, bar));
+                if (!nm.empty()) { draftBook = nm; draftBookType = CleanBookType(v[bar + 1]); }
+            }
+            sawRecognizedMarker = true;
         } else if (line.rfind(L"SOURCE_FILE=", 0) == 0) {
             // Phase 1 / F1: identity marker, not a financial figure - unlike
             // DEBTOR=/CASH= a duplicate here isn't treated as corruption,
@@ -1054,7 +1193,7 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
             // but a bad number" (InvalidNumericField) as distinct, correctly
             // attributed diagnostics instead of a fixed size>=4 heuristic
             // that could misclassify a wrong-count-and-bad-number row.
-            if (parts.size() != 4 && parts.size() != 6 && parts.size() != 7 && parts.size() != 8) {
+            if (parts.size() != 4 && parts.size() != 6 && parts.size() != 7 && parts.size() != 8 && parts.size() != 10) {
                 // Wrong field count (e.g. an embedded '|' from before that
                 // character was blocked at entry time) - can't be safely
                 // reconstructed, and (Phase 1 / F3+F2) is no longer silently
@@ -1091,13 +1230,19 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
             if (parts.size() >= 7) {
                 e.priceFlagged = (parts[6] == L"1");
             }
-            if (parts.size() == 8) {
+            if (parts.size() >= 8 && !parts[7].empty()) {
                 // v0.11.0: the Kgs text as typed (e.g. "24+24+24"). Only trusted when it still
                 // evaluates to the stored total; anything else (hand-edited, damaged, too long) is
                 // dropped and the entry just keeps its numeric Kgs - never a reason to refuse the file.
                 SumParseResult sr = ParseSumExprStrict(parts[7]);
                 if (parts[7].size() <= kMaxKgsExprLength && sr.ok && std::abs(sr.value - kgs) < 0.0005)
                     e.kgsExpr = KgsExprToStore(parts[7]);
+            }
+            if (parts.size() == 10) {
+                // v0.12.0: book name + type. A name that isn't usable is dropped (entry stays
+                // unassigned) rather than refusing the file - it is only a label.
+                e.book = CleanBookName(parts[8]);
+                if (!e.book.empty() && parts[9].size() == 1) e.bookType = CleanBookType(parts[9][0]);
             }
             // parts.size() == 4 means a file saved before dates/notes
             // existed; parts.size() == 6 means a file saved before the
@@ -1173,6 +1318,8 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
     result.draftPrice = draftPrice;
     result.draftNotes = draftNotes;
     result.draftDate = draftDate;
+    result.draftBook = draftBook;
+    result.draftBookType = draftBookType;
     result.finalizedDate = finalizedDate;
     result.sourceFile = sourceFile;
     result.hasSourceFile = hasSourceFile;
@@ -1199,6 +1346,8 @@ struct FbdSaveState {
     std::wstring draftSupplier, draftSpecies, draftKgs, draftPrice, draftNotes; // Add Entry form
     bool hasDraftDate = false;            // false only if the date picker doesn't exist
     std::wstring draftDate;               // ISO date from the date picker (when hasDraftDate)
+    std::wstring draftBook;               // v0.12.0: book new entries go into (empty = none)
+    wchar_t draftBookType = 0;
     std::vector<Entry> entries;
 };
 
@@ -1217,12 +1366,15 @@ inline std::wstring BuildFbdText(const FbdSaveState& s) {
     writeLine(L"DRAFT_PRICE=" + s.draftPrice);
     writeLine(L"DRAFT_NOTES=" + s.draftNotes);
     if (s.hasDraftDate) writeLine(L"DRAFT_DATE=" + s.draftDate);
+    if (!s.draftBook.empty() && CleanBookType(s.draftBookType) != 0)
+        writeLine(L"DRAFT_BOOK=" + s.draftBook + L"|" + std::wstring(1, s.draftBookType));
     writeLine(L"BEGIN");
     for (const auto& e : s.entries) {
         writeLine(e.supplier + L"|" + e.product + L"|" +
                   ToFixed(e.kgs, 4) + L"|" + ToFixed(e.price, 4) + L"|" +
                   e.date + L"|" + e.notes + L"|" + (e.priceFlagged ? L"1" : L"0") +
-                  (e.kgsExpr.empty() ? L"" : L"|" + e.kgsExpr)); // 8th field only when Kgs was a sum - plain files stay 7 fields
+                  (e.kgsExpr.empty() && e.book.empty() ? L"" : L"|" + e.kgsExpr) + // 8th field only when Kgs was a sum or there is a book
+                  (e.book.empty() ? L"" : L"|" + e.book + L"|" + std::wstring(1, CleanBookType(e.bookType) ? e.bookType : L'D'))); // 9th/10th: book name + type
     }
     writeLine(L"END");
     return out;

@@ -299,6 +299,8 @@ std::string BuildFbdSaveContent(const std::wstring& finalizedDateOverride = L"",
         state.draftDate = FormatDateISO(st);
     }
     state.entries = g_entries;
+    state.draftBook = g_currentBook;
+    state.draftBookType = g_currentBookType;
     return WToUtf8(BuildFbdText(state));
 }
 
@@ -366,6 +368,7 @@ bool LoadFromFile(const std::wstring& path, std::wstring* outError = nullptr) {
     g_lastLoadHasSourceFile = result.hasSourceFile;
 
     g_entries = result.entries;
+    SetCurrentBook(result.draftBook, result.draftBookType); // v0.12.0
     g_allowMixedDatesThisSession = false; // a different sheet - ask again if its dates get mixed
     SetWindowTextW(hEditDebtor, result.debtor.c_str());
     SetWindowTextW(hEditCash, result.cash.c_str());
@@ -493,6 +496,77 @@ void RefreshAll(bool doAutosave) {
     RefreshBySpeciesList();
     RefreshBreakdownList();
     if (doAutosave) AutosaveNow();
+}
+
+// ---------------------------------------------------------------------------
+// Books (v0.12.0)
+// ---------------------------------------------------------------------------
+
+// The text shown in the Book box on Data Entry.
+static std::wstring BookBoxText(const std::wstring& name, wchar_t type) {
+    if (name.empty()) return L"(no book)";
+    return name + (type == L'C' ? L" (Cash)" : (type == L'D' ? L" (Debtor)" : L""));
+}
+
+// Makes `name` the book new entries go into (empty name = none) and shows it in the Book box.
+// Only a label for later checking - it never touches any entered figure.
+void SetCurrentBook(const std::wstring& name, wchar_t type) {
+    g_currentBook = name;
+    g_currentBookType = name.empty() ? (wchar_t)0 : CleanBookType(type);
+    if (hEditBookCur) SetWindowTextW(hEditBookCur, BookBoxText(g_currentBook, g_currentBookType).c_str());
+}
+
+// "Book3" / "Cash2": the first unused number for that type, counting books already on the sheet.
+static std::wstring NextBookName(wchar_t type) {
+    const std::wstring prefix = (type == L'C') ? L"Cash" : L"Book";
+    BooksResult br = ComputeBookSummaries(g_entries);
+    for (int n = 1; n < 1000; n++) {
+        std::wstring candidate = prefix + std::to_wstring(n);
+        bool used = (candidate == g_currentBook);
+        for (const auto& b : br.books) if (b.name == candidate) used = true;
+        if (!used) return candidate;
+    }
+    return prefix;
+}
+
+// The Start Book... button: a small menu to begin the next Debtor/Cash book, go back to an earlier
+// book, or stop putting new entries in any book. (Naming is automatic: Book1, Book2, Cash1, ...)
+void ShowStartBookMenu() {
+    if (!g_finalizedDate.empty() || !hBtnStartBook) return;
+    BooksResult br = ComputeBookSummaries(g_entries);
+    HMENU menu = CreatePopupMenu();
+    if (!menu) return;
+    std::wstring d = L"Start next Debtor book (" + NextBookName(L'D') + L")";
+    std::wstring c = L"Start next Cash book (" + NextBookName(L'C') + L")";
+    AppendMenuW(menu, MF_STRING, ID_BOOK_NEW_DEBTOR, d.c_str());
+    AppendMenuW(menu, MF_STRING, ID_BOOK_NEW_CASH, c.c_str());
+    if (!br.books.empty()) {
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        for (size_t i = 0; i < br.books.size() && i < 40; i++) {
+            std::wstring label = L"Add to " + br.books[i].name + L" (" + std::to_wstring(br.books[i].count) + L" rows)";
+            AppendMenuW(menu, MF_STRING | (br.books[i].name == g_currentBook ? MF_CHECKED : 0), ID_BOOK_PICK_BASE + (UINT)i, label.c_str());
+        }
+    }
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, ID_BOOK_NONE, L"No book (new entries are not put in a book)");
+    RECT rc{};
+    GetWindowRect(hBtnStartBook, &rc);
+    int cmd = (int)TrackPopupMenu(menu, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON, rc.left, rc.bottom, 0, g_hMainWnd, nullptr);
+    DestroyMenu(menu);
+    if (cmd == ID_BOOK_NEW_DEBTOR) {
+        SetCurrentBook(NextBookName(L'D'), L'D');
+    } else if (cmd == ID_BOOK_NEW_CASH) {
+        SetCurrentBook(NextBookName(L'C'), L'C');
+    } else if (cmd == ID_BOOK_NONE) {
+        SetCurrentBook(L"", 0);
+    } else if (cmd >= ID_BOOK_PICK_BASE && cmd < ID_BOOK_PICK_BASE + 40) {
+        size_t i = (size_t)(cmd - ID_BOOK_PICK_BASE);
+        if (i < br.books.size()) SetCurrentBook(br.books[i].name, br.books[i].type);
+    } else {
+        return; // menu dismissed
+    }
+    g_dirty = true;
+    AutosaveNow(); // the current book is part of the saved file (DRAFT_BOOK)
 }
 
 // ---------------------------------------------------------------------------
@@ -650,6 +724,8 @@ void CommitEntryForm() {
         e.date = date;
         e.notes = notes;
         e.priceFlagged = priceFlagged;
+        e.book = g_currentBook;         // v0.12.0: goes into whichever book is current
+        e.bookType = g_currentBookType; // (an edit of an existing row leaves its book alone)
         g_entries.push_back(e);
     }
 
@@ -778,6 +854,10 @@ void DeleteSelectedEntry() {
     int selRow = ListView_GetNextItem(hListEntries, -1, LVNI_SELECTED);
     if (selRow < 0) {
         MessageBoxW(g_hMainWnd, L"Select a row to delete first.", L"No Selection", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    if (ListView_GetSelectedCount(hListEntries) > 1) { // v0.12.0: the grid allows selecting several rows to total them
+        MessageBoxW(g_hMainWnd, L"Select just one row to delete.", L"Several Rows Selected", MB_OK | MB_ICONINFORMATION);
         return;
     }
     if (selRow < 0 || selRow >= (int)g_filteredIndices.size()) return;
@@ -929,6 +1009,10 @@ void EditSelectedEntry() {
         MessageBoxW(g_hMainWnd, L"Select a row to edit first (or double-click it).", L"No Selection", MB_OK | MB_ICONINFORMATION);
         return;
     }
+    if (ListView_GetSelectedCount(hListEntries) > 1) { // v0.12.0
+        MessageBoxW(g_hMainWnd, L"Select just one row to edit.", L"Several Rows Selected", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
     if (selRow < 0 || selRow >= (int)g_filteredIndices.size()) return;
     ReviewOrEditEntry(g_filteredIndices[selRow]);
 }
@@ -975,6 +1059,7 @@ void DoFileNew() {
     // discard prompt, checked backups\ - nothing there.
     WriteBackupSnapshot();
     g_entries.clear();
+    SetCurrentBook(L"", 0); // v0.12.0: a fresh sheet has no current book
     g_allowMixedDatesThisSession = false; // fresh sheet
     SetWindowTextW(hEditDebtor, L""); // triggers EN_CHANGE, which sets g_dirty - explicitly cleared below
     SetWindowTextW(hEditCash, L"");
@@ -1258,7 +1343,7 @@ void ApplyFinalizedLockState() {
     HWND toToggle[] = {
         hCmbSupplier, hCmbProduct, hEditKgs, hEditPrice, hEditNotes, hDtpDate,
         hBtnAdd, hBtnDelete, hBtnEdit, hBtnCancelEdit, hBtnDuplicate, hBtnDuplicateSupSpec,
-        hEditDebtor, hEditCash
+        hBtnStartBook, hEditDebtor, hEditCash
     };
     for (HWND h : toToggle) {
         if (h) EnableWindow(h, enable);
@@ -1413,6 +1498,7 @@ LRESULT CALLBACK FinalizeWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
                 // clears the file, but not the unfinalise button." The next
                 // day's entries are a genuinely new, unlocked, unsaved sheet.
                 g_entries.clear();
+                SetCurrentBook(L"", 0); // v0.12.0
                 g_allowMixedDatesThisSession = false; // next day's sheet starts fresh
                 SetWindowTextW(hEditDebtor, L"");
                 SetWindowTextW(hEditCash, L"");
@@ -1837,6 +1923,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         hBtnDuplicate = MakeControl(L"BUTTON", L"Duplicate Last Entry", WS_VISIBLE | WS_TABSTOP, ID_BTN_DUPLICATE, hwnd);
         hBtnDuplicateSupSpec = MakeControl(L"BUTTON", L"Duplicate Supplier && Species", WS_VISIBLE | WS_TABSTOP, ID_BTN_DUPLICATE_SUPSPEC, hwnd);
 
+        hBtnStartBook = MakeControl(L"BUTTON", L"Start Book...", WS_VISIBLE | WS_TABSTOP, ID_BTN_START_BOOK, hwnd);
+        hLblBookCur = MakeControl(L"STATIC", L"Book (new entries go in this book)", WS_VISIBLE, 0, hwnd);
+        hEditBookCur = MakeControl(L"EDIT", L"(no book)", WS_VISIBLE | WS_BORDER | ES_READONLY, 0, hwnd);
+
         hLblDate = MakeControl(L"STATIC", L"Date", WS_VISIBLE, 0, hwnd);
         hDtpDate = MakeControl(DATETIMEPICK_CLASS, L"", WS_VISIBLE | WS_TABSTOP | DTS_SHORTDATEFORMAT, ID_DTP_DATE, hwnd);
         hLblNotes = MakeControl(L"STATIC", L"Notes", WS_VISIBLE, 0, hwnd);
@@ -1860,7 +1950,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         hLblFilter = MakeControl(L"STATIC", L"Filter:", WS_VISIBLE, 0, hwnd);
         hEditFilter = MakeControl(L"EDIT", L"", WS_VISIBLE | WS_BORDER | WS_TABSTOP, ID_EDIT_FILTER, hwnd);
 
-        hListEntries = MakeControl(L"SysListView32", L"", WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | WS_BORDER, ID_LIST_ENTRIES, hwnd);
+        hListEntries = MakeControl(L"SysListView32", L"", WS_VISIBLE | LVS_REPORT | WS_BORDER, ID_LIST_ENTRIES, hwnd);
         ListView_SetExtendedListViewStyle(hListEntries, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
         AddColumn(hListEntries, 0, L"Supplier", 140);
         AddColumn(hListEntries, 1, L"Species", 150);
@@ -1869,6 +1959,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         AddColumn(hListEntries, 4, L"Total ($)", 125);
         AddColumn(hListEntries, 5, L"Date", 110);
         AddColumn(hListEntries, 6, L"Notes", 160);
+        AddColumn(hListEntries, 7, L"Book", 110); // v0.12.0
 
         hGrpRecon = MakeControl(L"BUTTON", L"Reconciliation (checks Debtor + Cash against entries above)", WS_VISIBLE | BS_GROUPBOX, 0, hwnd);
         hLblDebtor = MakeControl(L"STATIC", L"Debtor amount(s):", WS_VISIBLE, 0, hwnd);
@@ -1911,6 +2002,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         AddColumn(hListOverview, 0, L"Supplier", 220);
         AddColumn(hListOverview, 1, L"Kgs", 90);
         AddColumn(hListOverview, 2, L"Total ($)", 130);
+        // v0.12.0: per-book totals beside the supplier table
+        hListBooks = MakeControl(L"SysListView32", L"", WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | WS_BORDER, 0, hwnd);
+        ListView_SetExtendedListViewStyle(hListBooks, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+        AddColumn(hListBooks, 0, L"Book", 150);
+        AddColumn(hListBooks, 1, L"Rows", 50);
+        AddColumn(hListBooks, 2, L"Kgs", 75);
+        AddColumn(hListBooks, 3, L"Entered ($)", 110);
+        AddColumn(hListBooks, 4, L"From the book ($)", 125);
+        AddColumn(hListBooks, 5, L"Difference ($)", 105);
 
         // Tab 3
         hBtnPrintPreview = MakeControl(L"BUTTON", L"Print Preview...", WS_VISIBLE | WS_TABSTOP, ID_BTN_PRINT_PREVIEW, hwnd);
@@ -1937,18 +2037,19 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         AddButtonGlyphIcon(hBtnDelete, L'\uE74D', RGB(196, 43, 28));  // trash
         AddButtonGlyphIcon(hBtnEdit, L'\uE70F', RGB(0, 95, 184));     // pencil
         AddButtonGlyphIcon(hBtnCancelEdit, L'\uE711', RGB(90, 90, 90)); // cancel (x)
-        for (HWND lv : { hListEntries, hListOverview, hListBreakdown, hListBySpecies })
+        for (HWND lv : { hListOverview, hListBooks, hListBreakdown, hListBySpecies })
             SetListRowHeight(lv, S(28));
+        SetListRowHeight(hListEntries, S(22)); // v0.12.0: denser grid (~16 rows visible), like the spreadsheet
 
         g_tab1Ctrls = { hLblSupplier, hCmbSupplier, hLblProduct, hCmbProduct, hLblKgs, hEditKgs,
                          hLblPrice, hEditPrice, hBtnAdd, hBtnDelete, hBtnEdit, hBtnCancelEdit, hBtnDuplicate,
-                         hBtnDuplicateSupSpec,
+                         hBtnDuplicateSupSpec, hBtnStartBook, hLblBookCur, hEditBookCur,
                          hLblDate, hDtpDate, hLblNotes, hEditNotes,
                          hLblFilter, hEditFilter, hListEntries, hGrpRecon,
                          hLblDebtor, hEditDebtor, hLblCash, hEditCash, hLblBook, hLblEntered, hLblDiff,
                          hLblStatus, hDivRecon1, hDivRecon2,
                          hBtnFinalize };
-        g_tab2Ctrls = { hLblOvBook, hLblOvGrand, hLblOvDiff, hListOverview };
+        g_tab2Ctrls = { hLblOvBook, hLblOvGrand, hLblOvDiff, hListOverview, hListBooks };
         g_tab3Ctrls = { hBtnPrintPreview, hBtnPrintBreakdown, hBtnEmailSuppliers, hListBreakdown };
         g_tab4Ctrls = { hListBySpecies };
 
@@ -1967,8 +2068,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // relative order.
         hStatusBar = MakeControl(STATUSCLASSNAMEW, L"", WS_VISIBLE | SBARS_SIZEGRIP, 0, hwnd);
         {
-            int parts[2] = { S(150), -1 }; // part 0: version, fixed width; part 1: filename, extends to the right edge
-            SendMessageW(hStatusBar, SB_SETPARTS, 2, (LPARAM)parts);
+            // part 0: version; part 1: filename (wide enough for a typical path); part 2: v0.12.0 selected-rows total, extends to the right edge
+            int parts[3] = { S(150), S(150) + S(520), -1 };
+            SendMessageW(hStatusBar, SB_SETPARTS, 3, (LPARAM)parts);
         }
 
         LayoutAll(hwnd);
@@ -2135,6 +2237,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 ReviewOrEditEntry(g_filteredIndices[nia->iItem]);
             return 0;
         }
+        if (hdr->hwndFrom == hListEntries && hdr->code == (UINT)LVN_ITEMCHANGED) {
+            LPNMLISTVIEW nmlv = (LPNMLISTVIEW)lParam;
+            if (nmlv->uChanged & LVIF_STATE) UpdateSelectionStatus(); // v0.12.0: selected-rows total
+            return 0;
+        }
         if (hdr->hwndFrom == hListEntries && hdr->code == (UINT)LVN_COLUMNCLICK) {
             LPNMLISTVIEW nmlv = (LPNMLISTVIEW)lParam;
             SortEntriesBy(nmlv->iSubItem);
@@ -2147,6 +2254,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 int row = (int)cd->nmcd.dwItemSpec;
                 bool flagged = row >= 0 && row < (int)g_filteredIndices.size() &&
                                g_entries[g_filteredIndices[row]].priceFlagged;
+                // v0.12.0: the first row of each book is bold on a light blue tint, so book boundaries show.
+                bool bookStart = row >= 0 && row < (int)g_filteredIndices.size() &&
+                                 IsBookStart(g_entries, (size_t)g_filteredIndices[row]);
+                if (bookStart && !flagged) cd->clrTextBk = RGB(228, 238, 252);
                 if (flagged) {
                     // ROADMAP.md item 7 - same red used for the Debtor/Cash
                     // "out of balance" text color elsewhere in this app,
@@ -2154,7 +2265,26 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     cd->clrTextBk = RGB(255, 235, 235);
                     cd->clrText = RGB(200, 0, 0);
                 }
+                if (bookStart) {
+                    SelectObject(cd->nmcd.hdc, g_boldFont);
+                    return CDRF_NEWFONT;
+                }
                 return CDRF_DODEFAULT;
+            }
+        }
+        if (hdr->code == (UINT)NM_CUSTOMDRAW && hdr->hwndFrom == hListBooks) {
+            // v0.12.0: Books table - totals in bold, a book whose Difference isn't $0.00 in red
+            LPNMLVCUSTOMDRAW cd = (LPNMLVCUSTOMDRAW)lParam;
+            if (cd->nmcd.dwDrawStage == CDDS_PREPAINT) return CDRF_NOTIFYITEMDRAW;
+            if (cd->nmcd.dwDrawStage == CDDS_ITEMPREPAINT) {
+                wchar_t name[256] = { 0 }, diff[64] = { 0 };
+                ListView_GetItemText(hListBooks, (int)cd->nmcd.dwItemSpec, 0, name, 256);
+                ListView_GetItemText(hListBooks, (int)cd->nmcd.dwItemSpec, 5, diff, 64);
+                const std::wstring d = diff;
+                if (!d.empty() && d != L"-" && d != FormatMoney(0.0)) cd->clrText = RGB(200, 0, 0);
+                bool bold = wcsstr(name, L"Total") != nullptr;
+                SelectObject(cd->nmcd.hdc, bold ? g_boldFont : g_normalFont);
+                return CDRF_NEWFONT;
             }
         }
         if (hdr->code == (UINT)NM_CUSTOMDRAW &&
@@ -2231,6 +2361,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case ID_BTN_CANCEL_EDIT: CancelEdit(); return 0;
         case ID_BTN_DUPLICATE: DuplicateLastEntry(); return 0;
         case ID_BTN_DUPLICATE_SUPSPEC: DuplicateSupplierSpecies(); return 0;
+        case ID_BTN_START_BOOK: ShowStartBookMenu(); return 0;
         case ID_BTN_FINALIZE:
             if (g_finalizedDate.empty()) DoFinalizeDay(); else DoUnfinalizeDay();
             return 0;
@@ -2629,6 +2760,7 @@ struct TempTestDir {
 // executable, not per-test state doctest can isolate on its own.
 void ResetApplicationStateForTest() {
     g_entries.clear();
+    SetCurrentBook(L"", 0);
     g_allowMixedDatesThisSession = false;
     g_currentFile.clear();
     g_finalizedDate.clear();

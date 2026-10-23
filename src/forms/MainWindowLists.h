@@ -10,5 +10,6 @@ void RefreshEntriesList();
 void SortEntriesBy(int col);
 void RecalcTotals();
 void RefreshOverviewList();
+void RefreshBooksList(); // v0.12.0: the Books table on Total Overview
 void RefreshBySpeciesList();
 void RefreshBreakdownList();

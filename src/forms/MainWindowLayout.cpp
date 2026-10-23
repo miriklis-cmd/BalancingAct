@@ -238,9 +238,10 @@ void LayoutAll(HWND hwnd) {
     MoveWindow(hBtnAdd, x, boxY - S(3), addW, btnH, TRUE);
 
     // -- Row B: Date | Notes (stretches) | Duplicate buttons --
-    int row1b = boxY + boxH + S(14);
-    int dateW = S(150), dup1W = S(190), dup2W = S(220);
-    int notesW = (right - left) - dateW - dup1W - dup2W - 4 * gap;
+    int row1b = boxY + boxH + S(8); // v0.12.0: tighter rows so the grid can show ~16 entries
+    // v0.12.0: Date | Notes | Book (which book new entries go into) | the two Duplicate buttons
+    int dateW = S(150), dup1W = S(190), dup2W = S(220), bookW = S(190);
+    int notesW = (right - left) - dateW - bookW - dup1W - dup2W - 5 * gap;
     if (notesW < S(120)) notesW = S(120);
     int boxYb = row1b + labelToBox;
     x = left;
@@ -250,23 +251,28 @@ void LayoutAll(HWND hwnd) {
     MoveWindow(hLblNotes, x, row1b, notesW, lblH, TRUE);
     MoveWindow(hEditNotes, x, boxYb, notesW, boxH, TRUE);
     x += notesW + gap;
+    MoveWindow(hLblBookCur, x, row1b, bookW, lblH, TRUE);
+    MoveWindow(hEditBookCur, x, boxYb, bookW, boxH, TRUE);
+    x += bookW + gap;
     MoveWindow(hBtnDuplicate, x, boxYb - S(3), dup1W, btnH, TRUE);
     x += dup1W + gap;
     MoveWindow(hBtnDuplicateSupSpec, x, boxYb - S(3), dup2W, btnH, TRUE);
 
     // -- Row C: Delete | Edit | Cancel Edit ............ Filter --
-    int row2 = boxYb + boxH + S(16);
+    int row2 = boxYb + boxH + S(8);
     MoveWindow(hBtnDelete, left, row2, S(180), btnH, TRUE);
     MoveWindow(hBtnEdit, left + S(190), row2, S(160), btnH, TRUE);
     MoveWindow(hBtnCancelEdit, left + S(360), row2, S(160), btnH, TRUE);
+    MoveWindow(hBtnStartBook, left + S(530), row2, S(130), btnH, TRUE);
     int filterW = S(260);
     int filterX = right - filterW;
     MoveWindow(hEditFilter, filterX, row2 + S(3), filterW, boxH, TRUE);
     MoveWindow(hLblFilter, filterX - S(50), row2 + S(7), S(45), lblH, TRUE);
 
-    int listTop = row2 + btnH + S(12);
-    int reconHeight = S(140);
-    int listBottom = disp.bottom - reconHeight - S(10);
+    int listTop = row2 + btnH + S(8);
+    // v0.12.0: the reconciliation box keeps its layout but is two tight rows (was ~140px tall).
+    int reconHeight = S(66);
+    int listBottom = disp.bottom - reconHeight - S(12);
     if (listBottom < listTop + S(60)) listBottom = listTop + S(60);
     MoveWindow(hListEntries, left, listTop, right - left, listBottom - listTop, TRUE);
 
@@ -276,17 +282,17 @@ void LayoutAll(HWND hwnd) {
     // status column (bold tick/cross badge, then the Difference or - when
     // the check fails closed - the reason, which can need two lines); and
     // Finalize Day at the far right.
-    int reconTop = listBottom + S(12);
-    MoveWindow(hGrpRecon, left, reconTop, right - left, disp.bottom - reconTop - S(5), TRUE);
-    int rowR1 = reconTop + S(28);
-    int rowR2 = reconTop + S(62);
+    int reconTop = listBottom + S(10);
+    MoveWindow(hGrpRecon, left, reconTop, right - left, disp.bottom - reconTop - S(3), TRUE);
+    int rowR1 = reconTop + S(15);
+    int rowR2 = reconTop + S(40);
     int c1x = left + S(15);
     MoveWindow(hLblDebtor, c1x, rowR1, S(115), boxH, TRUE);
     MoveWindow(hEditDebtor, c1x + S(120), rowR1, S(200), boxH, TRUE);
     MoveWindow(hLblCash, c1x, rowR2, S(115), boxH, TRUE);
     MoveWindow(hEditCash, c1x + S(120), rowR2, S(200), boxH, TRUE);
     int div1x = c1x + S(120) + S(200) + gap;
-    int divH = S(80);
+    int divH = S(48);
     MoveWindow(hDivRecon1, div1x, rowR1 - S(4), S(2), divH, TRUE);
     int c2x = div1x + S(2) + gap;
     int c2w = S(230);
@@ -300,14 +306,24 @@ void LayoutAll(HWND hwnd) {
     int c3w = finX - gap - c3x;
     if (c3w < S(160)) c3w = S(160);
     MoveWindow(hLblStatus, c3x, rowR1, c3w, boxH, TRUE);
-    MoveWindow(hLblDiff, c3x, rowR2, c3w, S(44), TRUE);
-    MoveWindow(hBtnFinalize, finX, rowR1 + S(16), finW, S(34), TRUE);
+    MoveWindow(hLblDiff, c3x, rowR2, c3w, boxH, TRUE);
+    MoveWindow(hBtnFinalize, finX, rowR1 + S(8), finW, S(30), TRUE);
 
     // ---- Tab 2 ----
     MoveWindow(hLblOvBook, left, top, S(300), S(22), TRUE);
     MoveWindow(hLblOvGrand, left + S(310), top, S(300), S(22), TRUE);
     MoveWindow(hLblOvDiff, left + S(620), top, S(300), S(22), TRUE);
-    MoveWindow(hListOverview, left, top + S(32), right - left, disp.bottom - (top + S(32)) - S(5), TRUE);
+    // v0.12.0: supplier table on the left (the bigger share), Books table on the right
+    {
+        int ovTop = top + S(32);
+        int ovH = disp.bottom - ovTop - S(5);
+        int ovGap = S(12);
+        int booksW = S(560);
+        if (booksW > (right - left) * 5 / 11) booksW = (right - left) * 5 / 11;
+        int supW2 = (right - left) - booksW - ovGap;
+        MoveWindow(hListOverview, left, ovTop, supW2, ovH, TRUE);
+        MoveWindow(hListBooks, left + supW2 + ovGap, ovTop, booksW, ovH, TRUE);
+    }
 
     // ---- Tab 3 ----
     MoveWindow(hBtnPrintPreview, left, top, S(170), S(28), TRUE);
