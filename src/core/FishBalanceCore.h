@@ -576,27 +576,27 @@ inline SelectionTotals ComputeSelectionTotals(const std::vector<Entry>& entries,
 }
 
 // The separate amounts typed into the Debtor or Cash box, one per paper book, in order.
-// If the text contains ';' the amounts are what sits between the semicolons, and each may itself be a
-// sum ("15470.2+22.4-133;26076.2+110" -> 2 amounts). Without any ';' it splits on '+' ("18633.8+120" ->
-// 2 amounts) and "500-20" stays one amount. A '+' inside parentheses never separates books:
-// "(15470.2+22.4-133)+(26076.2+110)" -> 2 amounts. Returns false (and an empty list) when the text is blank or
-// any amount does not parse.
+// v0.12.5: ';' is the ONLY thing that starts a new book. Everything between semicolons is one book's
+// amount and may itself be a sum: "15470.2+22.4-133;26076.2+110" -> 2 amounts, and "2436.5+56+1900" ->
+// 1 amount (a plain '+' or '-' is just arithmetic). Brackets group as before, and a ';' inside brackets
+// does not split. Returns false (and an empty list) when the text is blank, any amount does not parse,
+// or a piece between semicolons is empty ("100;", ";100", "1;;2").
 inline bool SplitBookAmounts(const std::wstring& expr, std::vector<double>& out) {
     out.clear();
     std::wstring t = TrimW(expr);
     if (t.empty()) return false;
     std::wstring cur;
     std::vector<std::wstring> terms;
-    const wchar_t sep = (t.find(L';') != std::wstring::npos) ? L';' : L'+';
-    int depth = 0; // v0.12.3: a '+' inside parentheses does not start a new book
+    int depth = 0;
     for (wchar_t c : t) {
         if (c == L'(') depth++;
         else if (c == L')' && depth > 0) depth--;
-        if (c == sep && (sep == L';' || depth == 0)) { terms.push_back(cur); cur.clear(); }
+        if (c == L';' && depth == 0) { terms.push_back(cur); cur.clear(); }
         else cur.push_back(c);
     }
     terms.push_back(cur);
     for (auto& term : terms) {
+        if (TrimW(term).empty()) { out.clear(); return false; }
         SumParseResult r = ParseSumExprStrict(term);
         if (!r.ok) { out.clear(); return false; }
         out.push_back(r.value);

@@ -4,10 +4,10 @@ This is the current plan: where we are, what is next, what is not built, and wha
 (every version's test checklist, the 0.9.x status notes) is frozen in `ROADMAP_ARCHIVE.md`; version-by-version detail
 is in `CHANGELOG.md`; manual checks still to do are in `Testing.md`.
 
-## Where we are (v0.12.0, 2026-10-24)
+## Where we are (v0.12.5, 2026-10-25)
 
 The app is complete and in use for single-machine daily work: data entry, four report tabs, Finalize Day, autosave,
-rolling backups, restore, print/PDF (Breakdown tab), CSV export, supplier emails, outlier-price flagging, Books (v0.12.0: mark where each Debtor/Cash book starts, check per-book totals), 267 portable
+rolling backups, restore, print/PDF (Breakdown tab), CSV export, supplier emails, outlier-price flagging, Books (v0.12.0: mark where each Debtor/Cash book starts, check per-book totals; v0.12.5: only `;` separates books in the Debtor/Cash boxes, with a hover tooltip), 275 portable
 and 25 Windows integration tests.
 
 **Current project: splitting `main.cpp` (was ~5,000 lines, now ~2,860) into `src/core`, `src/data`, `src/services`,
@@ -33,7 +33,7 @@ longer fails silently (0.10.15) and always opens in `backups\` (0.10.16); `*.fbd
 2. Jack works through the open manual checks in `Testing.md` ("Carried-over checks") so the app's verified state is on record (Finalize Day full pass is already confirmed, 2026-10-17).
 3. **WinUI 3 prototype (in progress, separate folder `FishBalanceWinUI`, not in this repo yet)** - Data Entry and Total Overview tabs, Open/Save/Save As, Finalize/Un-finalize with lock and banner, unusual-price flag, Different Date warning, Kgs sums, Enter-to-add, Books (build 5a: Book box + Start Book menu, Book column, multi-select with selected-rows total, Books table on Overview; needs the v0.12.2 core); reuses `src/core` and `src/data` unchanged. Build 5a. Approved by Jack; was: only with his go-ahead. Small, throwaway-able; reuses `src/core` and
    `src/data`. May make the stage 6c/6d work and the combo-box glitch (below) moot.
-4. **0.12.0 built, awaiting Jack's test: Books** (Win32 + core; WinUI prototype next after sign-off). See CHANGELOG and Testing.md "v0.12.0 checks". Open follow-ups: type/rename book names by hand, Book column in CSV/print, books in WinUI, whether the layout of the Book box / Start Book button needs moving (Jack is thinking about it).
+4. **0.12.0-0.12.5 built, awaiting Jack's test: Books** (0.12.5: `;` is the only book separator + tooltip; if the `;` rule still confuses, the next step is Option B - a per-book "Figure" cell in the Books table, roughly a v0.13 change - or an "Other amounts (no book)" line) (Win32 + core; WinUI prototype next after sign-off). See CHANGELOG and Testing.md "v0.12.0 checks". Open follow-ups: type/rename book names by hand, Book column in CSV/print, books in WinUI, whether the layout of the Book box / Start Book button needs moving (Jack is thinking about it).
    0.11.0 done: Kgs can be typed as a sum and the sum is remembered** (Win32 + core; also in the WinUI prototype). Next feature candidates, none started (specs below): price history per species,
    cheapest-supplier highlight, print/PDF for the Overview and By Species tabs, filter on the summary tabs.
 5. **1.0** only when Jack decides it is ready for prime-time release.

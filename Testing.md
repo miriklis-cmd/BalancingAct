@@ -261,6 +261,18 @@ Use a copy of a real day, or type a few entries.
 - [ ] Data Entry shows about 16 grid rows at 1280x720 and the smaller reconciliation box still reads clearly (Debtor/Cash, Book/Entered, status/difference, Finalize).
 - [ ] A file with Kgs sums AND books round-trips (the sum is still shown when editing).
 
+## v0.12.1 - v0.12.5 checks (Books follow-ups)
+
+- [ ] (0.12.1) Total Overview: all six Books columns (Book, Rows, Kgs, Entered, From the book, Difference) show without a horizontal scroll at 1280 wide.
+- [ ] (0.12.2) Excel importer: `python tools\xlsx_to_fbd.py BALANCE_PivotTable.xlsx out.fbd --date 2026-10-23`, open `out.fbd`: entries, books and Debtor/Cash load; entered total matches Excel's.
+- [ ] (0.12.3) Debtor `(15470.2+22.4-133);(26076.2+110)` gives a total of 41,545.80 and two per-book figures; `(1+2` and `5(1+2)` show the "cannot check" message.
+- [ ] (0.12.4) Kgs `8*30` adds as 240.0, Edit shows `8*30` again; `(8*30)+16` = 256.0; Debtor/Cash typed with `*` is refused.
+- [ ] (0.12.5) Cash box `2436.5+56+1900` with one Cash book: Books table shows the Cash1 figure as 4,392.50 (one book), not just the first amount.
+- [ ] (0.12.5) Two Cash books and Cash box `2436.5+56+1900;980.25`: Cash1 compares with 4,392.50, Cash2 with 980.25.
+- [ ] (0.12.5) `100;` or `1;;2` in a box: the box total still works (the `;` counts as +, so `100;` is "cannot check" like any dangling operator) and no per-book figures appear until it is fixed.
+- [ ] (0.12.5) Hover the mouse over the Debtor box, then the Cash box and keep it still for a moment: a tooltip appears explaining that `;` starts the next book, with an example; it stays readable (not cut off) at 150% scaling and disappears when the mouse moves away.
+- [ ] (0.12.5) The tooltip also appears after switching to another tab and back, and after Un-finalize Day (when the boxes are enabled again).
+
 ## Carried-over checks (never recorded as confirmed)
 
 These were on the old roadmap's unticked list. Several were probably checked casually; none were written down. Tick or strike each once you have looked.
