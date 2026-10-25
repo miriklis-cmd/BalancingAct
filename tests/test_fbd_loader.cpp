@@ -957,6 +957,17 @@ TEST_SUITE("Books (v0.12.0)") {
         REQUIRE(SplitBookAmounts(L"500-20+10", v));
         REQUIRE(v.size() == 2);
         CHECK(v[0] == doctest::Approx(480.0));
+        REQUIRE(SplitBookAmounts(L"15470.2+22.4-133;26076.2+110", v)); // ';' = one amount per book, each may be a sum
+        REQUIRE(v.size() == 2);
+        CHECK(v[0] == doctest::Approx(15359.6));
+        CHECK(v[1] == doctest::Approx(26186.2));
+        CHECK(ParseSumExprStrict(L"1;2+3").value == doctest::Approx(6.0)); // ';' counts as '+' in the total
+        REQUIRE(SplitBookAmounts(L"(15470.2+22.4-133)+(26076.2+110)", v)); // parentheses group one book
+        REQUIRE(v.size() == 2);
+        CHECK(v[0] == doctest::Approx(15359.6));
+        CHECK(v[1] == doctest::Approx(26186.2));
+        REQUIRE(SplitBookAmounts(L"(100+5)+(200-1)+50", v));
+        CHECK(v.size() == 3);
         CHECK_FALSE(SplitBookAmounts(L"", v));
         CHECK_FALSE(SplitBookAmounts(L"12+abc", v));
         CHECK(v.empty());
@@ -979,5 +990,77 @@ TEST_SUITE("Books (v0.12.0)") {
         CHECK(checks[2].bookFigure == doctest::Approx(31.0));
         CHECK(checks[2].difference == doctest::Approx(-1.0));
         CHECK_FALSE(checks[3].haveBookFigure); // no third Debtor amount typed yet
+    }
+}
+
+TEST_SUITE("Parentheses in sums (v0.12.3)") {
+    TEST_CASE("groups evaluate and combine") {
+        auto r = ParseSumExprStrict(L"(15470.2+22.4-133)+(26076.2+110)");
+        REQUIRE(r.ok);
+        CHECK(r.value == doctest::Approx(41545.8));
+        CHECK(ParseSumExprStrict(L"(10+5)-(3)").value == doctest::Approx(12.0));
+        CHECK(ParseSumExprStrict(L"100-(5-20)").value == doctest::Approx(115.0)); // a negative group flips the operator
+        CHECK(ParseSumExprStrict(L"-(5)+10").value == doctest::Approx(5.0));
+        CHECK(ParseSumExprStrict(L" ( 1 + 2 ) ;( 3 ) ").value == doctest::Approx(6.0));
+        CHECK(ParseSumExprStrict(L"(24+24)+24").value == doctest::Approx(72.0));
+    }
+    TEST_CASE("bad parentheses are rejected, never guessed") {
+        CHECK_FALSE(ParseSumExprStrict(L"(1+2").ok);
+        CHECK_FALSE(ParseSumExprStrict(L"1+2)").ok);
+        CHECK_FALSE(ParseSumExprStrict(L"()").ok);
+        CHECK_FALSE(ParseSumExprStrict(L"((1+2))").ok);   // no nesting
+        CHECK_FALSE(ParseSumExprStrict(L"5(1+2)").ok);    // a group must follow an operator
+        CHECK_FALSE(ParseSumExprStrict(L"(1+2)3").ok);
+        CHECK_FALSE(ParseSumExprStrict(L"(1+x)").ok);
+        CHECK(ParseSumExprStrict(L"(1+x)").errorTerm == L"x");
+    }
+    TEST_CASE("a text without parentheses is unchanged") {
+        CHECK(ParseSumExprStrict(L"1+2-3").value == doctest::Approx(0.0));
+        CHECK(ParseSumExprStrict(L"").ok);
+    }
+    TEST_CASE("a Kgs sum with brackets is stored and survives a round trip") {
+        FbdSaveState s;
+        Entry a; a.supplier = L"A"; a.product = L"X"; a.kgs = 48.0; a.price = 2.0; a.date = L"2026-10-15"; a.kgsExpr = KgsExprToStore(L"(24+24)");
+        CHECK(a.kgsExpr == L"(24+24)");
+        s.entries = { a };
+        auto r = ParseFbdContent(BuildFbdText(s));
+        REQUIRE(r.ok);
+        CHECK(r.entries[0].kgsExpr == L"(24+24)");
+    }
+}
+
+TEST_SUITE("Kgs products (v0.12.4)") {
+    TEST_CASE("products work when allowed, and only then") {
+        CHECK(ParseSumExprStrict(L"8*30", true).value == doctest::Approx(240.0));
+        CHECK(ParseSumExprStrict(L"(8*30)+16", true).value == doctest::Approx(256.0));
+        CHECK(ParseSumExprStrict(L"(3*28)+29", true).value == doctest::Approx(113.0));
+        CHECK(ParseSumExprStrict(L"2*3*4+1", true).value == doctest::Approx(25.0));
+        CHECK(ParseSumExprStrict(L"100-2*5", true).value == doctest::Approx(90.0));   // * binds tighter than -
+        CHECK(ParseSumExprStrict(L" 8 * 30 ", true).value == doctest::Approx(240.0));
+        CHECK(ParseSumExprStrict(L"8.5*2", true).value == doctest::Approx(17.0));
+        CHECK_FALSE(ParseSumExprStrict(L"8*30").ok);       // Debtor/Cash never take products
+        CHECK_FALSE(ParseSumExprStrict(L"(8*30)+16").ok);
+    }
+    TEST_CASE("malformed products are rejected") {
+        CHECK_FALSE(ParseSumExprStrict(L"8*", true).ok);
+        CHECK_FALSE(ParseSumExprStrict(L"*8", true).ok);
+        CHECK_FALSE(ParseSumExprStrict(L"8**3", true).ok);
+        CHECK_FALSE(ParseSumExprStrict(L"8*x", true).ok);
+        CHECK(ParseSumExprStrict(L"8*x", true).errorTerm == L"8*x");
+    }
+    TEST_CASE("a product is remembered and round-trips") {
+        CHECK(KgsExprToStore(L"8*30") == L"8*30");
+        CHECK(KgsExprToStore(L"(8*30)+16") == L"(8*30)+16");
+        FbdSaveState s;
+        Entry a; a.supplier = L"A"; a.product = L"X"; a.kgs = 240.0; a.price = 2.0; a.date = L"2026-10-15"; a.kgsExpr = L"8*30";
+        s.entries = { a };
+        auto r = ParseFbdContent(BuildFbdText(s));
+        REQUIRE(r.ok);
+        CHECK(r.entries[0].kgsExpr == L"8*30");
+        CHECK(r.entries[0].kgs == doctest::Approx(240.0));
+        // a stored expression that no longer matches the total is dropped, file still loads
+        auto r2 = ParseFbdContent(L"BEGIN\nA|B|241.0000|2.0000|2026-10-15||0|8*30\nEND\n");
+        REQUIRE(r2.ok);
+        CHECK(r2.entries[0].kgsExpr.empty());
     }
 }

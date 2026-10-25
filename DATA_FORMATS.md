@@ -115,12 +115,13 @@ END
   used to simply be ignored until v0.9.49 closed that gap; a genuinely
   blank line in that position is still harmless.
 - Each entry row is pipe-delimited:
-  `Supplier|Species|Kgs|Price|Date|Notes|Flagged` and, **only when Kgs was typed as a sum** (v0.11.0), an 8th field `|KgsExpr`
+  `Supplier|Species|Kgs|Price|Date|Notes|Flagged` and, **only when Kgs was typed as a sum** (v0.11.0), an 8th field `|KgsExpr` (a sum, and from v0.12.4 also a product such as `8*30`)
   (e.g. `A|Mussels|72.0000|4.4000|2026-10-15||0|24+24+24`). Plain-number rows stay 7 fields, so a file with no sums is
   still readable by older builds; an older build rejects a row that has the 8th field.
   **v0.12.0 books:** a row in a book has 10 fields: `...|Flagged|KgsExpr|Book|D` (the KgsExpr field is empty when Kgs was a plain number,
   e.g. `A|Mussels|72.0000|4.4000|2026-10-15||0||Book1|D`). Rows not in a book are unchanged (7 or 8 fields). 9 fields is still rejected.
   A book name that is not usable (empty, over 30 characters, contains `|`) is dropped on load and the row stays unassigned - the file still loads.
+  `DEBTOR=` / `CASH=` values may contain `;` between books (v0.12.2); it is treated as `+` in the total. Parentheses around each book's amount are accepted too (v0.12.3).
   The header may also contain `DRAFT_BOOK=<name>|<D or C>` (the book new entries go into); a malformed one is ignored.
   - Kgs/Price are written with 4 decimal places of precision internally
     (display rounding to 1dp/2dp happens only when rendering, never on
