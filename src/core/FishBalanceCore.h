@@ -336,9 +336,12 @@ static const double kMaxDebtorCashTotalDollars = 1000000.0;
 //     ParseDoubleW is even consulted for these cases.
 // Unlike the old ParseSumExpr, a single bad term invalidates the WHOLE
 // expression rather than being silently dropped or partially applied.
-inline SumParseResult ParseSumExprStrict(const std::wstring& sIn) {
+inline SumParseResult ParseSumExprFlat(const std::wstring& sIn, bool allowMul = false) {
     SumParseResult result;
     std::wstring s = TrimW(sIn);
+    // v0.12.2: ';' separates the amounts of different paper books ("15470.2+22.4-133;26076.2+110") and
+    // counts as '+' for the total - see SplitBookAmounts.
+    for (auto& ch : s) if (ch == L';') ch = L'+';
     if (s.empty()) {
         result.ok = true;
         result.value = 0.0;
@@ -359,6 +362,27 @@ inline SumParseResult ParseSumExprStrict(const std::wstring& sIn) {
             }
         }
         return sawDigit; // "." alone (or empty) has no digits - invalid
+    };
+
+    // v0.12.4: with allowMul (the Kgs box only) a term may be a product such as "8*30" or "2*3*4".
+    // '*' binds tighter than +/-, which falls out of treating each product as one term.
+    auto evalTerm = [&](const std::wstring& t, double& out) {
+        if (!allowMul || t.find(L'*') == std::wstring::npos)
+            return isValidTermChars(t) && ParseDoubleW(t, out);
+        double prod = 1.0;
+        size_t start = 0;
+        while (true) {
+            const size_t p = t.find(L'*', start);
+            const std::wstring f = TrimW(t.substr(start, p == std::wstring::npos ? std::wstring::npos : p - start));
+            double fv = 0.0;
+            if (!isValidTermChars(f) || !ParseDoubleW(f, fv)) return false;
+            prod *= fv;
+            if (p == std::wstring::npos) break;
+            start = p + 1;
+        }
+        if (!std::isfinite(prod)) return false;
+        out = prod;
+        return true;
     };
 
     auto fail = [&](const std::wstring& badFragment) {
@@ -387,11 +411,8 @@ inline SumParseResult ParseSumExprStrict(const std::wstring& sIn) {
                 // sign) with nothing accumulated in between
                 return fail(s.substr(0, i + 1));
             }
-            if (!isValidTermChars(t)) {
-                return fail(t);
-            }
             double v = 0.0;
-            if (!ParseDoubleW(t, v)) {
+            if (!evalTerm(t, v)) {
                 return fail(t);
             }
             sum += curSign * v;
@@ -406,11 +427,8 @@ inline SumParseResult ParseSumExprStrict(const std::wstring& sIn) {
     if (lastTerm.empty()) {
         return fail(s); // dangling trailing operator, e.g. "100+"
     }
-    if (!isValidTermChars(lastTerm)) {
-        return fail(lastTerm);
-    }
     double v = 0.0;
-    if (!ParseDoubleW(lastTerm, v)) {
+    if (!evalTerm(lastTerm, v)) {
         return fail(lastTerm);
     }
     sum += curSign * v;
@@ -429,6 +447,63 @@ inline SumParseResult ParseSumExprStrict(const std::wstring& sIn) {
     result.ok = true;
     result.value = sum;
     return result;
+}
+
+// v0.12.3: ParseSumExprStrict also accepts parentheses to group one paper book's amount:
+// "(15470.2+22.4-133)+(26076.2+110)". A group is a plain +/- sum (no nesting) and must sit between
+// operators (or the ends); "(" ")" anywhere else is an error. Each group is evaluated by
+// ParseSumExprFlat and folded into the expression as a signed number, so a text with no parentheses
+// takes exactly the old path.
+inline SumParseResult ParseSumExprStrict(const std::wstring& sIn, bool allowMul = false) {
+    if (sIn.find(L'(') == std::wstring::npos && sIn.find(L')') == std::wstring::npos)
+        return ParseSumExprFlat(sIn, allowMul);
+
+    std::wstring s = TrimW(sIn);
+    for (auto& ch : s) if (ch == L';') ch = L'+';
+    auto fail = [](const std::wstring& frag) {
+        SumParseResult r;
+        r.ok = false;
+        r.errorTerm = frag;
+        return r;
+    };
+    std::wstring out;
+    size_t i = 0;
+    while (i < s.size()) {
+        const wchar_t c = s[i];
+        if (c == L')') return fail(L")");
+        if (c != L'(') { out.push_back(c); i++; continue; }
+
+        size_t j = i + 1;
+        while (j < s.size() && s[j] != L')') {
+            if (s[j] == L'(') return fail(L"(");   // groups cannot be nested
+            j++;
+        }
+        if (j >= s.size()) return fail(L"(");      // never closed
+        const std::wstring inner = s.substr(i + 1, j - i - 1);
+        if (TrimW(inner).empty()) return fail(L"()");
+
+        // What sits before the group must be an operator (or nothing); after it, an operator (or nothing).
+        std::wstring before = TrimW(out);
+        if (!before.empty() && before.back() != L'+' && before.back() != L'-') return fail(s.substr(i, j - i + 1));
+        size_t k = j + 1;
+        while (k < s.size() && s[k] == L' ') k++;
+        if (k < s.size() && s[k] != L'+' && s[k] != L'-') return fail(s.substr(i, j - i + 1));
+
+        SumParseResult g = ParseSumExprFlat(inner, allowMul);
+        if (!g.ok) return g;
+
+        const bool neg = g.value < 0;
+        const std::wstring mag = ToFixed(neg ? -g.value : g.value, 6);
+        if (before.empty()) {
+            out = (neg ? L"-" : L"") + mag;
+        } else {
+            out = before;
+            out.back() = (neg == (out.back() == L'-')) ? L'+' : L'-'; // a negative group flips the operator before it
+            out += mag;
+        }
+        i = j + 1;
+    }
+    return ParseSumExprFlat(out, allowMul);
 }
 
 // ---------------------------------------------------------------------------
@@ -500,17 +575,24 @@ inline SelectionTotals ComputeSelectionTotals(const std::vector<Entry>& entries,
     return t;
 }
 
-// The separate amounts typed into the Debtor or Cash box ("18633.8+120+12159.3" -> 3 amounts), one per
-// paper book, in order. Splits on '+' only so "500-20" stays one amount. Returns false (and an empty
-// list) when the text is blank or any amount does not parse.
+// The separate amounts typed into the Debtor or Cash box, one per paper book, in order.
+// If the text contains ';' the amounts are what sits between the semicolons, and each may itself be a
+// sum ("15470.2+22.4-133;26076.2+110" -> 2 amounts). Without any ';' it splits on '+' ("18633.8+120" ->
+// 2 amounts) and "500-20" stays one amount. A '+' inside parentheses never separates books:
+// "(15470.2+22.4-133)+(26076.2+110)" -> 2 amounts. Returns false (and an empty list) when the text is blank or
+// any amount does not parse.
 inline bool SplitBookAmounts(const std::wstring& expr, std::vector<double>& out) {
     out.clear();
     std::wstring t = TrimW(expr);
     if (t.empty()) return false;
     std::wstring cur;
     std::vector<std::wstring> terms;
+    const wchar_t sep = (t.find(L';') != std::wstring::npos) ? L';' : L'+';
+    int depth = 0; // v0.12.3: a '+' inside parentheses does not start a new book
     for (wchar_t c : t) {
-        if (c == L'+') { terms.push_back(cur); cur.clear(); }
+        if (c == L'(') depth++;
+        else if (c == L')' && depth > 0) depth--;
+        if (c == sep && (sep == L';' || depth == 0)) { terms.push_back(cur); cur.clear(); }
         else cur.push_back(c);
     }
     terms.push_back(cur);
@@ -564,7 +646,7 @@ inline std::wstring KgsExprToStore(const std::wstring& typed) {
     std::wstring t = TrimW(typed);
     if (t.size() > kMaxKgsExprLength) return L"";
     for (size_t i = 1; i < t.size(); i++)
-        if (t[i] == L'+' || t[i] == L'-') return t;
+        if (t[i] == L'+' || t[i] == L'-' || t[i] == L'*') return t;
     return L"";
 }
 
@@ -1234,7 +1316,7 @@ inline FbdLoadResult ParseFbdContent(const std::wstring& all) {
                 // v0.11.0: the Kgs text as typed (e.g. "24+24+24"). Only trusted when it still
                 // evaluates to the stored total; anything else (hand-edited, damaged, too long) is
                 // dropped and the entry just keeps its numeric Kgs - never a reason to refuse the file.
-                SumParseResult sr = ParseSumExprStrict(parts[7]);
+                SumParseResult sr = ParseSumExprStrict(parts[7], true);
                 if (parts[7].size() <= kMaxKgsExprLength && sr.ok && std::abs(sr.value - kgs) < 0.0005)
                     e.kgsExpr = KgsExprToStore(parts[7]);
             }

@@ -618,7 +618,7 @@ void CommitEntryForm() {
         MessageBoxW(g_hMainWnd, L"Please enter a valid Kgs value.", L"Invalid Data", MB_OK | MB_ICONWARNING);
         return;
     }
-    SumParseResult kgsSum = ParseSumExprStrict(kgsStr);
+    SumParseResult kgsSum = ParseSumExprStrict(kgsStr, true); // v0.12.4: Kgs also takes products like 8*30
     if (!kgsSum.ok) {
         std::wstring kgsMsg = kgsSum.tooLarge
             ? L"The Kgs total is too large."
@@ -2005,10 +2005,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // v0.12.0: per-book totals beside the supplier table
         hListBooks = MakeControl(L"SysListView32", L"", WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | WS_BORDER, 0, hwnd);
         ListView_SetExtendedListViewStyle(hListBooks, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
-        AddColumn(hListBooks, 0, L"Book", 150);
-        AddColumn(hListBooks, 1, L"Rows", 50);
-        AddColumn(hListBooks, 2, L"Kgs", 75);
-        AddColumn(hListBooks, 3, L"Entered ($)", 110);
+        AddColumn(hListBooks, 0, L"Book", 130);
+        AddColumn(hListBooks, 1, L"Rows", 42);
+        AddColumn(hListBooks, 2, L"Kgs", 65);
+        AddColumn(hListBooks, 3, L"Entered ($)", 100);
         AddColumn(hListBooks, 4, L"From the book ($)", 125);
         AddColumn(hListBooks, 5, L"Difference ($)", 105);
 

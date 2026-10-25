@@ -18,6 +18,39 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.12.4] - Kgs takes products (bins x kg)
+
+- The Kgs box accepts multiplication: `8*30` (8 bins of 30 kg), `(8*30)+16`, `2*3*4+1`. `*` binds tighter than `+`/`-`. As with sums, the
+  total is stored and shown in the grid; the text as typed (`8*30`) is kept and shown again when you edit. Debtor and Cash do NOT take `*`.
+- Excel converter keeps these (`=8*30`, `=(8*30)+16`) as typed; your workbook's 5 such rows now carry their expressions.
+- Core `ParseSumExprStrict(text, allowMul)`; only the Kgs entry paths and the file loader pass `true`. 3 new test cases (274, 908 assertions).
+- WinUI prototype build 5b has the same change.
+
+## [0.12.3] - Parentheses group one book's amount
+
+- Sums (Debtor, Cash and Kgs) accept parentheses: `(15470.2+22.4-133)+(26076.2+110+479+272+52.5)`. Each group is one book's amount
+  with its own corrections inside; a `+` inside a group never starts a new book. Groups are plain +/- sums (no nesting) and must sit
+  between operators: `5(1+2)`, `((1+2))`, `(1+2`, `()` are errors, never guessed. `;` still works too, and text without brackets takes the old path.
+- Core only (`ParseSumExprStrict` now wraps `ParseSumExprFlat`; `SplitBookAmounts` ignores `+` inside brackets), so the Win32 app and the
+  WinUI prototype both get it. 4 new test cases (271 total, 887 assertions).
+
+## [0.12.2] - Semicolon between books; Excel importer
+
+- **`;` in the Debtor / Cash boxes** separates one paper book's amount from the next when a book's amount is itself a sum:
+  `15470.2+22.4-133;26076.2+110+479+272+52.5` = two books. `;` counts as `+` in every total, so nothing else changes. Without any `;`
+  each `+` term is still one book. The Total Overview Books table uses this to pair the n-th book with the n-th amount.
+- **`tools/xlsx_to_fbd.py`**: converts the Excel workbook's Source Data sheet into a `.fbd` (entries, Kgs sums like `40+30+20` kept,
+  books from the marker column - names starting "Cash" become Cash books - and the Debtor/Cash amounts). Run:
+  `python tools\xlsx_to_fbd.py BALANCE_PivotTable.xlsx out.fbd --date 2026-10-23` (needs `pip install openpyxl`). Kgs typed as a
+  product in Excel (`=8*30`) keeps only the total - the app's Kgs box does not take `*` yet. Tested on the 140-row workbook: entered total
+  matches Excel's to the cent.
+- Tests: 267 cases, 861 assertions.
+
+## [0.12.1] - Total Overview: Books table fits
+
+- Books table on Total Overview was cut off (Difference column needed a horizontal scroll). It now takes more of the width (the supplier
+  table had spare space) and its columns are a little narrower, so all six columns show at 1280 wide.
+
 ## [0.12.0] - Books (Win32 + core)
 
 Jack's Excel sheet marks where each Debtor/Cash book starts (Cash1, Book1, Book2 in the F column) so a book's rows can be selected

@@ -318,8 +318,8 @@ void LayoutAll(HWND hwnd) {
         int ovTop = top + S(32);
         int ovH = disp.bottom - ovTop - S(5);
         int ovGap = S(12);
-        int booksW = S(560);
-        if (booksW > (right - left) * 5 / 11) booksW = (right - left) * 5 / 11;
+        int booksW = S(640); // columns add up to ~570 + scrollbar room, so no horizontal scrolling
+        if (booksW > (right - left) * 11 / 20) booksW = (right - left) * 11 / 20;
         int supW2 = (right - left) - booksW - ovGap;
         MoveWindow(hListOverview, left, ovTop, supW2, ovH, TRUE);
         MoveWindow(hListBooks, left + supW2 + ovGap, ovTop, booksW, ovH, TRUE);
