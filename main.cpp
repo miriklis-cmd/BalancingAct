@@ -2073,6 +2073,46 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             SendMessageW(hStatusBar, SB_SETPARTS, 3, (LPARAM)parts);
         }
 
+        // v0.12.5: hover tooltip on the Debtor and Cash boxes explaining that ';' is what starts the next
+        // book (a '+' or '-' is just arithmetic inside one book's amount). The tooltip text pointers must
+        // stay valid while the tooltip exists, so they are string literals. A failure to create the
+        // tooltip is harmless - the boxes work the same without it.
+        {
+            HWND hTip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr,
+                                        WS_POPUP | TTS_ALWAYSTIP,
+                                        CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+                                        hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
+            if (hTip) {
+                SendMessageW(hTip, TTM_SETMAXTIPWIDTH, 0, (LPARAM)S(380));
+                SendMessageW(hTip, TTM_SETDELAYTIME, TTDT_INITIAL, 400);
+                SendMessageW(hTip, TTM_SETDELAYTIME, TTDT_AUTOPOP, 30000);
+                auto addTip = [&](HWND target, LPWSTR text) {
+                    if (!target) return;
+                    TTTOOLINFOW ti{};
+                    ti.cbSize = sizeof(TTTOOLINFOW);
+                    ti.uFlags = TTF_SUBCLASS | TTF_IDISHWND;
+                    ti.hwnd = hwnd;
+                    ti.uId = (UINT_PTR)target;
+                    ti.lpszText = text;
+                    SendMessageW(hTip, TTM_ADDTOOLW, 0, (LPARAM)&ti);
+                };
+                addTip(hEditDebtor, const_cast<LPWSTR>(
+                    L"Debtor amount(s) from your Debtor book(s).\r\n\r\n"
+                    L"One book: type its amount, or a sum such as 15470.2+22.4-133 (+ and - are just arithmetic).\r\n"
+                    L"More than one book: put a semicolon ; between the books' amounts.\r\n"
+                    L"Example: 15470.2+22.4-133;26076.2+110 is two books.\r\n\r\n"
+                    L"The 1st Debtor book on the sheet is checked against the 1st amount, the 2nd against the 2nd, and so on "
+                    L"(see the Books table on Total Overview). Brackets such as (100+5) are fine."));
+                addTip(hEditCash, const_cast<LPWSTR>(
+                    L"Cash amount(s) from your Cash book(s).\r\n\r\n"
+                    L"One book: type its amount, or a sum such as 2436.5+56+1900 (+ and - are just arithmetic).\r\n"
+                    L"More than one book: put a semicolon ; between the books' amounts.\r\n"
+                    L"Example: 2436.5+56+1900;980.25 is two books.\r\n\r\n"
+                    L"The 1st Cash book on the sheet is checked against the 1st amount, the 2nd against the 2nd, and so on "
+                    L"(see the Books table on Total Overview). Brackets such as (100+5) are fine."));
+            }
+        }
+
         LayoutAll(hwnd);
         ShowTab(0);
 

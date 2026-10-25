@@ -949,28 +949,64 @@ TEST_SUITE("Books (v0.12.0)") {
         CHECK(t.amount == doctest::Approx(30.0));
     }
 
-    TEST_CASE("SplitBookAmounts splits on plus only") {
+    TEST_CASE("SplitBookAmounts: only ';' starts a new book (v0.12.5)") {
         std::vector<double> v;
-        REQUIRE(SplitBookAmounts(L"18633.8+120+12159.3", v));
-        REQUIRE(v.size() == 3);
-        CHECK(v[1] == doctest::Approx(120.0));
+        REQUIRE(SplitBookAmounts(L"18633.8+120+12159.3", v));   // no ';' = ONE book, a plain sum
+        REQUIRE(v.size() == 1);
+        CHECK(v[0] == doctest::Approx(30913.1));
+        REQUIRE(SplitBookAmounts(L"2436.5+56+1900", v));        // Jack's Cash box: one book
+        REQUIRE(v.size() == 1);
+        CHECK(v[0] == doctest::Approx(4392.5));
         REQUIRE(SplitBookAmounts(L"500-20+10", v));
-        REQUIRE(v.size() == 2);
-        CHECK(v[0] == doctest::Approx(480.0));
+        REQUIRE(v.size() == 1);
+        CHECK(v[0] == doctest::Approx(490.0));
         REQUIRE(SplitBookAmounts(L"15470.2+22.4-133;26076.2+110", v)); // ';' = one amount per book, each may be a sum
         REQUIRE(v.size() == 2);
         CHECK(v[0] == doctest::Approx(15359.6));
         CHECK(v[1] == doctest::Approx(26186.2));
+        REQUIRE(SplitBookAmounts(L" 1+1 ; 100 ", v));
+        REQUIRE(v.size() == 2);
+        CHECK(v[0] == doctest::Approx(2.0));
+        CHECK(v[1] == doctest::Approx(100.0));
         CHECK(ParseSumExprStrict(L"1;2+3").value == doctest::Approx(6.0)); // ';' counts as '+' in the total
-        REQUIRE(SplitBookAmounts(L"(15470.2+22.4-133)+(26076.2+110)", v)); // parentheses group one book
+        REQUIRE(SplitBookAmounts(L"(15470.2+22.4-133);(26076.2+110)", v)); // brackets still fine
         REQUIRE(v.size() == 2);
         CHECK(v[0] == doctest::Approx(15359.6));
         CHECK(v[1] == doctest::Approx(26186.2));
-        REQUIRE(SplitBookAmounts(L"(100+5)+(200-1)+50", v));
+        REQUIRE(SplitBookAmounts(L"(15470.2+22.4-133)+(26076.2+110)", v)); // brackets joined by '+' = ONE book now
+        REQUIRE(v.size() == 1);
+        CHECK(v[0] == doctest::Approx(41545.8));
+        REQUIRE(SplitBookAmounts(L"(100+5);(200-1);50", v));
         CHECK(v.size() == 3);
         CHECK_FALSE(SplitBookAmounts(L"", v));
         CHECK_FALSE(SplitBookAmounts(L"12+abc", v));
         CHECK(v.empty());
+        CHECK_FALSE(SplitBookAmounts(L"100;", v));   // an empty book between/after semicolons is an error
+        CHECK_FALSE(SplitBookAmounts(L";100", v));
+        CHECK_FALSE(SplitBookAmounts(L"1;;2", v));
+        CHECK_FALSE(SplitBookAmounts(L"1; ;2", v));
+        CHECK(v.empty());
+    }
+
+    TEST_CASE("one bare sum in the Cash box is one book's amount (v0.12.5)") {
+        std::vector<Entry> v = {
+            MakeBookEntry(L"A", L"X", 100, 20, L"Cash1", L'C'),   // 2000
+            MakeBookEntry(L"B", L"X", 10, 39.25, L"Cash1", L'C'), // 392.5 -> Cash1 = 2392.5
+            MakeBookEntry(L"C", L"X", 1, 2000, L"Cash2", L'C'),   // 2000
+        };
+        // Typed as one sum: Cash1 is checked against the WHOLE sum, Cash2 has no figure yet.
+        auto one = ComputeBookChecks(ComputeBookSummaries(v), L"", L"2436.5+56-100");
+        REQUIRE(one.size() == 2);
+        CHECK(one[0].haveBookFigure);
+        CHECK(one[0].bookFigure == doctest::Approx(2392.5));
+        CHECK(one[0].difference == doctest::Approx(0.0));
+        CHECK_FALSE(one[1].haveBookFigure);
+        // With ';' the same figures become two books.
+        auto two = ComputeBookChecks(ComputeBookSummaries(v), L"", L"2436.5+56-100;2000");
+        REQUIRE(two.size() == 2);
+        CHECK(two[0].difference == doctest::Approx(0.0));
+        CHECK(two[1].haveBookFigure);
+        CHECK(two[1].difference == doctest::Approx(0.0));
     }
 
     TEST_CASE("ComputeBookChecks matches the n-th book of each type to the n-th amount in its box") {
@@ -980,7 +1016,7 @@ TEST_SUITE("Books (v0.12.0)") {
             MakeBookEntry(L"C", L"X", 10, 3, L"Book2", L'D'),
             MakeBookEntry(L"D", L"X", 10, 1, L"Book3", L'D'),
         };
-        auto checks = ComputeBookChecks(ComputeBookSummaries(v), L"50+31", L"20");
+        auto checks = ComputeBookChecks(ComputeBookSummaries(v), L"50;31", L"20");
         REQUIRE(checks.size() == 4);
         CHECK(checks[0].haveBookFigure);
         CHECK(checks[0].bookFigure == doctest::Approx(20.0));

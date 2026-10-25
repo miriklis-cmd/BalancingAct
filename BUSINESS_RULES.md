@@ -190,10 +190,14 @@ understood:
   the label marks where a book **starts** (the first row with that name) and which rows belong to it. It changes no total.
 - New entries go into the "current book" shown on Data Entry; Start Book... changes it (next Debtor book, next Cash book, an earlier
   book, or none). Editing a row never moves it to another book.
-- Debtor/Cash boxes: wrap each book's amount in parentheses (`(15470.2+22.4-133)+(26076.2+110)`) or put a `;` between books; both give one amount per book (v0.12.3).
-- (older note) put a `;` between books when a book's amount is itself a sum (`15470.2+22.4-133;26076.2+110`); `;` counts as `+` in the total. Without any `;` each `+` term is one book.
+- **Debtor/Cash boxes (v0.12.5): `;` is the only separator between books.** Everything between semicolons is one book's amount and may
+  be a sum: `2436.5+56+1900` is ONE book (4392.50); `15470.2+22.4-133;26076.2+110` is TWO. `+` and `-` are always plain arithmetic.
+  Brackets may be used to group (`(15470.2+22.4-133);(26076.2+110)`); a `;` inside brackets does not split. An empty piece
+  (`100;`, `;100`, `1;;2`) is an error. `;` counts as `+` in the box total, so reconciliation and Finalize Day are not affected.
+  (v0.12.2-v0.12.4 also split on `+` when there was no `;`; that was dropped because it was too confusing - Jack, 2026-10-25.)
+  The boxes show a hover tooltip stating this rule.
 - Per-book check (Total Overview): the n-th Debtor book is compared with the n-th amount typed in the Debtor box, the n-th Cash book
-  with the n-th Cash amount (the boxes already take `a+b+c`, one amount per paper book). No matching amount typed yet -> shown as "-".
+  with the n-th Cash amount (amounts separated by `;`). No matching amount typed yet -> shown as "-".
 - Selecting rows in the Data Entry grid shows their count, kgs and total in the status bar (any rows, books or not).
 
 ## Unusual-price flag (v0.9.62)
