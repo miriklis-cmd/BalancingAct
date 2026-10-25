@@ -713,6 +713,80 @@ inline std::vector<SupplierGroup> BuildBreakdownData(const std::vector<Entry>& e
     return result;
 }
 
+// ---------------------------------------------------------------------------
+// v0.12.6: Breakdown drill-down. Double-clicking a row on the Breakdown tab lists the entries behind
+// it (like double-clicking a pivot cell in Excel). A Breakdown row is one of three kinds, and the list
+// of entries shown is exactly the set of entries that row adds up, so the drill-down total matches it.
+// ---------------------------------------------------------------------------
+enum class BreakdownRowKind {
+    Price,         // "Species  $price" line: this supplier's entries of that species at exactly that price
+    SpeciesTotal,  // "Species Total" line: all of this supplier's entries of that species
+    SupplierTotal  // "Supplier Total" line: all of this supplier's entries
+};
+
+struct BreakdownRowRef {
+    BreakdownRowKind kind = BreakdownRowKind::Price;
+    std::wstring supplier;
+    std::wstring species; // empty for SupplierTotal
+    double price = 0;     // only used by Price
+};
+
+// One reference per row of the Breakdown list, in the SAME order RefreshBreakdownList() inserts the rows:
+// for each supplier, for each species: its price lines, then "<species> Total"; then "<supplier> Total".
+inline std::vector<BreakdownRowRef> BuildBreakdownRowRefs(const std::vector<SupplierGroup>& data) {
+    std::vector<BreakdownRowRef> refs;
+    for (const auto& sg : data) {
+        for (const auto& pg : sg.products) {
+            for (const auto& pl : pg.prices) {
+                BreakdownRowRef r;
+                r.kind = BreakdownRowKind::Price;
+                r.supplier = sg.supplier;
+                r.species = pg.species;
+                r.price = pl.price;
+                refs.push_back(r);
+            }
+            BreakdownRowRef st;
+            st.kind = BreakdownRowKind::SpeciesTotal;
+            st.supplier = sg.supplier;
+            st.species = pg.species;
+            refs.push_back(st);
+        }
+        BreakdownRowRef sup;
+        sup.kind = BreakdownRowKind::SupplierTotal;
+        sup.supplier = sg.supplier;
+        refs.push_back(sup);
+    }
+    return refs;
+}
+
+struct DrillDownResult {
+    std::vector<size_t> indices; // into the entries vector, ordered by species then date (then entry order)
+    double kgs = 0;
+    double amt = 0;
+};
+
+// The entries a Breakdown row adds up. The price match is exact (==) on purpose: BuildBreakdownData groups
+// price lines by the exact stored double, so the same test here picks exactly the entries in that line.
+inline DrillDownResult ComputeDrillDown(const std::vector<Entry>& entries, const BreakdownRowRef& ref) {
+    DrillDownResult r;
+    for (size_t i = 0; i < entries.size(); i++) {
+        const Entry& e = entries[i];
+        if (e.supplier != ref.supplier) continue;
+        if (ref.kind != BreakdownRowKind::SupplierTotal && e.product != ref.species) continue;
+        if (ref.kind == BreakdownRowKind::Price && e.price != ref.price) continue;
+        r.indices.push_back(i);
+    }
+    std::stable_sort(r.indices.begin(), r.indices.end(), [&entries](size_t a, size_t b) {
+        if (entries[a].product != entries[b].product) return entries[a].product < entries[b].product;
+        return entries[a].date < entries[b].date; // ISO dates sort correctly as text
+    });
+    for (size_t i : r.indices) {
+        r.kgs += entries[i].kgs;
+        r.amt += entries[i].Total();
+    }
+    return r;
+}
+
 // Grouped Kgs/$ totals by an arbitrary key (Supplier for the Total Overview
 // tab, Species for part of the By Species tab) - the pure computation
 // behind PopulateGroupedTotalsList(), with all HWND/ListView rendering

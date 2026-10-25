@@ -29,6 +29,7 @@ set(APP_SOURCES
     src/forms/MainWindowLists.cpp
     src/forms/ManageNamesWindow.cpp
     src/forms/PrintPreviewWindow.cpp
+    src/forms/DrillDownWindow.cpp
 )
 
 add_executable(FishBalanceManager WIN32 ${APP_SOURCES} app_icon.rc)
@@ -88,6 +89,7 @@ add_executable(FishBalanceTests
     tests/test_email.cpp
     tests/test_recovery_and_finalize.cpp
     tests/test_phase2_numeric_and_layout.cpp
+    tests/test_drilldown.cpp
 )
 if (MSVC)
     target_compile_options(FishBalanceTests PRIVATE /W4 /WX /EHsc)

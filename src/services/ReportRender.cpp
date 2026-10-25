@@ -91,19 +91,24 @@ RenderReportResult RenderReportPages(int pageWidthPx, int pageHeightPx, int dpiX
 
     int marginX = dpiX / 2; // 0.5"
     int marginY = MulDiv(dpiY, 2, 5); // 0.4" top/bottom (v0.11.1; was 0.5")
-    int colSpeciesX = marginX;
+    int colSupplierX = marginX; // v0.12.6: the supplier name sits in its own left column (on the supplier's first row), not on a line of its own
+    int colSpeciesX = marginX + MulDiv(120, dpiX, 96);
     int colPriceX = marginX + MulDiv(280, dpiX, 96);
     int colKgsX = marginX + MulDiv(400, dpiX, 96);
     int colTotalX = marginX + MulDiv(510, dpiX, 96);
     int rightEdge = pageWidthPx - marginX;
     int lineHeight = MulDiv(15, dpiY, 96); // v0.11.1: was 22px
     if (lineHeight < 1) lineHeight = 1; // guards ensureSpace/newPage against a zero-progress loop at extreme DPI
+    const int supplierGap = MulDiv(6, dpiY, 96); // v0.12.6: thin gap + hairline between suppliers (was a blank line before and after each)
 
     UniqueDC curDC;
     RenderedPage curPage; // the page curDC is currently drawing into
     int y = 0;
     int pageNum = 0;
     bool failed = false;
+    std::wstring curSupplier;       // v0.12.6: supplier whose rows are being drawn (empty between suppliers)
+    bool needSupplierLabel = false; // the next row should show curSupplier in the left column
+    int contentTopY = 0;            // y just below the column header on the current page
 
     // Phase 2 / F10 (2026-10-02): the page-count cap enforces the TOTAL
     // preview memory budget, not just a fixed count. Printing (onPageReady
@@ -156,6 +161,7 @@ RenderReportResult RenderReportPages(int pageWidthPx, int pageHeightPx, int dpiX
 
     auto drawHeaderRow = [&]() {
         ScopedSelect selFont(curDC.get(), hFontBold.get());
+        TextOutW(curDC.get(), colSupplierX, y, L"Supplier", 8);
         TextOutW(curDC.get(), colSpeciesX, y, L"Species", 7);
         TextOutW(curDC.get(), colPriceX, y, L"Price ($/kg)", 12);
         TextOutW(curDC.get(), colKgsX, y, L"Kgs (weight)", 12);
@@ -216,6 +222,7 @@ RenderReportResult RenderReportPages(int pageWidthPx, int pageHeightPx, int dpiX
 
         pageNum++;
         y = marginY;
+        if (pageNum == 1) { // v0.12.6: title and "Generated" only on the first page; later pages start with the column header
         {
             ScopedSelect selFont(curDC.get(), hFontTitle.get());
             TextOutW(curDC.get(), marginX, y, L"Fish Balance - Breakdown Report", 32);
@@ -239,6 +246,7 @@ RenderReportResult RenderReportPages(int pageWidthPx, int pageHeightPx, int dpiX
             TextOutW(curDC.get(), marginX, y, ts.c_str(), (int)ts.size());
         }
         y += lineHeight + lineHeight / 2;
+        } // end of the page-1-only title block
 
         if (pageNum == 1) {
             // Book reconciliation summary, so the printout also serves as
@@ -301,6 +309,8 @@ RenderReportResult RenderReportPages(int pageWidthPx, int pageHeightPx, int dpiX
         }
 
         drawHeaderRow();
+        contentTopY = y;
+        needSupplierLabel = !curSupplier.empty(); // a supplier that runs onto this page is named again on its first row here
         return true;
     };
 
@@ -309,12 +319,22 @@ RenderReportResult RenderReportPages(int pageWidthPx, int pageHeightPx, int dpiX
         if (y + need > pageHeightPx - marginY) newPage();
     };
 
-    auto drawRow = [&](const std::wstring& species, const std::wstring& priceStr, double kgs, double amt, bool bold) {
+    // supplierCol: text for the left (Supplier) column - a "<name> Total" or "GRAND TOTAL" label, or empty. When it is
+    // empty and this is the first row of a supplier (or the first row of a page inside one), the supplier's name goes there.
+    auto drawRow = [&](const std::wstring& supplierCol, const std::wstring& species, const std::wstring& priceStr, double kgs, double amt, bool bold) {
         if (failed || out.pageCapHit) return;
         ensureSpace(lineHeight);
         if (failed || out.pageCapHit) return; // page cap: drop remaining content cleanly rather than drawing past the page
+        const std::wstring* lbl = nullptr;
+        if (!supplierCol.empty()) lbl = &supplierCol;
+        else if (needSupplierLabel && !curSupplier.empty()) lbl = &curSupplier;
+        needSupplierLabel = false;
         ScopedSelect selFont(curDC.get(), (bold ? hFontBold : hFontNormal).get());
-        TextOutW(curDC.get(), colSpeciesX, y, species.c_str(), (int)species.size());
+        if (lbl) {
+            ScopedSelect selLbl(curDC.get(), hFontBold.get());
+            TextOutW(curDC.get(), colSupplierX, y, lbl->c_str(), (int)lbl->size());
+        }
+        if (!species.empty()) TextOutW(curDC.get(), colSpeciesX, y, species.c_str(), (int)species.size());
         if (!priceStr.empty()) TextOutW(curDC.get(), colPriceX, y, priceStr.c_str(), (int)priceStr.size());
         std::wstring kgsS = FormatKg(kgs);
         TextOutW(curDC.get(), colKgsX, y, kgsS.c_str(), (int)kgsS.size());
@@ -330,34 +350,42 @@ RenderReportResult RenderReportPages(int pageWidthPx, int pageHeightPx, int dpiX
         double grandKgs = 0, grandAmt = 0;
         for (auto& sg : data) {
             if (failed || out.pageCapHit) break;
-            ensureSpace(lineHeight * 2);
+            ensureSpace(lineHeight * 2 + supplierGap);
             if (failed || out.pageCapHit) break;
-            y += lineHeight / 2;
-            {
-                ScopedSelect selFont(curDC.get(), hFontBold.get());
-                TextOutW(curDC.get(), marginX, y, sg.supplier.c_str(), (int)sg.supplier.size());
+            if (y > contentTopY) { // v0.12.6: a hairline and a small gap between suppliers (not under the column header)
+                y += supplierGap / 2;
+                UniquePen rule(CreatePen(PS_SOLID, 1, RGB(170, 170, 170)));
+                if (rule) {
+                    ScopedSelect selRule(curDC.get(), rule.get());
+                    MoveToEx(curDC.get(), marginX, y, nullptr);
+                    LineTo(curDC.get(), rightEdge, y);
+                }
+                y += supplierGap - supplierGap / 2;
             }
-            y += lineHeight;
+            curSupplier = sg.supplier;
+            needSupplierLabel = true;
 
             for (auto& pg : sg.products) {
                 if (failed || out.pageCapHit) break;
                 for (auto& pl : pg.prices) {
                     if (failed || out.pageCapHit) break;
-                    drawRow(pg.species, FormatMoney(pl.price), pl.kgs, pl.amt, false);
+                    drawRow(L"", pg.species, FormatMoney(pl.price), pl.kgs, pl.amt, false);
                 }
                 if (failed || out.pageCapHit) break;
-                drawRow(pg.species + L" Total", L"", pg.totalKgs, pg.totalAmt, true);
+                drawRow(L"", pg.species + L" Total", L"", pg.totalKgs, pg.totalAmt, true);
             }
             if (failed || out.pageCapHit) break;
-            drawRow(sg.supplier + L" Total", L"", sg.totalKgs, sg.totalAmt, true);
+            drawRow(sg.supplier + L" Total", L"", L"", sg.totalKgs, sg.totalAmt, true);
+            curSupplier.clear();
+            needSupplierLabel = false;
             grandKgs += sg.totalKgs;
             grandAmt += sg.totalAmt;
-            y += lineHeight / 2;
         }
 
         if (!failed && !out.pageCapHit) {
             ensureSpace(lineHeight * 2);
             if (!failed && !out.pageCapHit) {
+                y += supplierGap / 2;
                 UniquePen pen2(CreatePen(PS_SOLID, 1, RGB(0, 0, 0)));
                 if (pen2) {
                     ScopedSelect selPen(curDC.get(), pen2.get());
@@ -365,7 +393,7 @@ RenderReportResult RenderReportPages(int pageWidthPx, int pageHeightPx, int dpiX
                     LineTo(curDC.get(), rightEdge, y);
                 }
                 y += lineHeight / 2;
-                drawRow(L"GRAND TOTAL", L"", grandKgs, grandAmt, true);
+                drawRow(L"GRAND TOTAL", L"", L"", grandKgs, grandAmt, true);
             }
         }
     }

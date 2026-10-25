@@ -25,8 +25,8 @@ The split is staged (ROADMAP.md "Where we are"); code not yet moved still lives 
 
 ## Windows in the app
 
-There are four top-level windows, each with its own `WndProc`. The main window and the Finalize popup are in
-`main.cpp`; Manage Names and Print Preview moved to `src/forms/` in v0.10.6:
+There are five top-level windows, each with its own `WndProc`. The main window and the Finalize popup are in
+`main.cpp`; Manage Names and Print Preview moved to `src/forms/` in v0.10.6, and the Breakdown drill-down popup (v0.12.6) is in `src/forms/`:
 
 1. **Main window** (`WndProc`) — the tabbed interface (Data Entry, Total
    Overview, Breakdown, By Species). Controls for all four tabs are
@@ -40,7 +40,13 @@ There are four top-level windows, each with its own `WndProc`. The main window a
    ROADMAP.md item 3) — same pattern again, opened by the "Finalize Day"
    button on Tab 1 once Debtor+Cash balances.
 
-All three popups follow the same lifecycle: `EnableWindow(mainWnd, FALSE)`
+5. **Breakdown drill-down popup** (`DrillWndProc`, `src/forms/DrillDownWindow.cpp`, v0.12.6) - opened by a
+   double-click on a Breakdown tab row (`NM_DBLCLK` in `main.cpp`); a read-only list of the entries behind the row.
+   Its handles and state are file-local to `DrillDownWindow.cpp` (not in `UiState.h`). The row-to-entries logic is
+   core (`BuildBreakdownRowRefs`, `ComputeDrillDown`), so keep it in step with `RefreshBreakdownList`'s row order.
+   Every failure in it is reported to the user (`ReportDrillFailure`), never swallowed.
+
+All the popups follow the same lifecycle: `EnableWindow(mainWnd, FALSE)`
 on creation (so the popup behaves modally without actually being a true
 Win32 modal dialog), `EnableWindow(mainWnd, TRUE)` on the popup's own
 `WM_DESTROY`. If you add another popup, follow this pattern exactly —
