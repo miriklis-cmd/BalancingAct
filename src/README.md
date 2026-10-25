@@ -22,7 +22,7 @@ Storage (`data/Storage`): exe-folder paths, settings, recent-files and supplier-
 
 Services (`services/`): `CsvExport` (CSV report), `Email` (supplier price email via mailto:). `ReportRender` (Breakdown report to bitmaps, shared by Print Preview and printing).
 
-Popups (`forms/ManageNamesWindow`, `forms/PrintPreviewWindow`): the Manage Names and Print Preview windows. `forms/MainWindowApi.h` lists what the main window (still in `main.cpp`) provides to them.
+Popups (`forms/ManageNamesWindow`, `forms/PrintPreviewWindow`, `forms/DrillDownWindow`): the Manage Names, Print Preview and Breakdown drill-down (v0.12.6) windows. `forms/MainWindowApi.h` lists what the main window (still in `main.cpp`) provides to them.
 
 Backups (`data/Backups`, v0.10.14): writing a timestamped rolling-backup snapshot to `backups\` - no UI; the failure popup stays in `main.cpp`.
 

@@ -22,6 +22,8 @@ enum {
     ID_PREVIEW_PREV = 500, ID_PREVIEW_NEXT, ID_PREVIEW_PRINT, ID_PREVIEW_CLOSE,
     // Finalize Day date-prompt popup window controls
     ID_FIN_DTP = 600, ID_FIN_OK, ID_FIN_CANCEL,
+    // Breakdown drill-down popup window controls (v0.12.6)
+    ID_DRILL_LIST = 700, ID_DRILL_CLOSE,
     // v0.12.0 Start Book... popup menu items (ID_BOOK_PICK_BASE + n = continue an existing book)
     ID_BOOK_NEW_DEBTOR = 990, ID_BOOK_NEW_CASH = 991, ID_BOOK_NONE = 992, ID_BOOK_PICK_BASE = 1000,
     // Up to 8 Recent Files slots

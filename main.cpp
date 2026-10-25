@@ -61,11 +61,13 @@
 #include "src/data/FishBalanceWin32IO.h"
 #include "src/core/FishBalanceControlLimits.h"
 
+#ifdef _MSC_VER // v0.12.6: MSVC-only; MinGW (-Werror) rejects the unknown pragma and links via build_mingw.bat's -l flags
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "comdlg32.lib")
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "winspool.lib")
+#endif
 
 // v0.10.2 (split stage 2): the data model/globals, control IDs and window handles
 // that used to be declared here now live in these headers (definitions in
@@ -80,6 +82,7 @@
 #include "src/forms/MainWindowLists.h"
 #include "src/forms/MainWindowLayout.h"
 #include "src/forms/ManageNamesWindow.h"
+#include "src/forms/DrillDownWindow.h"
 #include "src/forms/PrintPreviewWindow.h"
 #include "src/forms/PopupPlacement.h"
 #include "src/forms/ControlIds.h"
@@ -2269,6 +2272,23 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         if (hdr->hwndFrom == hDtpDate && hdr->code == (UINT)DTN_DATETIMECHANGE) {
             AutosaveNow(); // persist the in-progress draft - see SaveToFile's DRAFT_* fields
+            return 0;
+        }
+        if (hdr->hwndFrom == hListBreakdown && hdr->code == (UINT)NM_DBLCLK) {
+            // v0.12.6: double-click a Breakdown row -> read-only list of the entries behind it.
+            // The row refs are rebuilt from the same BuildBreakdownData() the list was filled from
+            // (RefreshBreakdownList runs after every data change), so item index == ref index.
+            LPNMITEMACTIVATE nia = (LPNMITEMACTIVATE)lParam;
+            if (nia->iItem >= 0) {
+                std::vector<BreakdownRowRef> refs = BuildBreakdownRowRefs(BuildBreakdownData(g_entries));
+                if (nia->iItem < (int)refs.size()) {
+                    OpenDrillDownWindow(refs[(size_t)nia->iItem]);
+                } else {
+                    // Cannot happen while the list and the data are in step - if it ever does, say so.
+                    MessageBoxW(hwnd, L"This Breakdown row could not be matched to its entries (the list and the data are out of step).\n\nPlease report this.",
+                                L"Cannot Open Entry List", MB_OK | MB_ICONERROR);
+                }
+            }
             return 0;
         }
         if (hdr->hwndFrom == hListEntries && hdr->code == (UINT)NM_DBLCLK) {

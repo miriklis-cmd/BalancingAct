@@ -18,6 +18,70 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.12.8] - Breakdown print: supplier column, fits 3 pages
+
+Jack printed the same day from the app (4 pages) and from his Excel pivot (3 pages). Excel keeps the "Total" line for every species
+(single-price ones too) and has no title block on later pages, no per-supplier lines and no blank gaps; the app wasted that space.
+Print, PDF and Print Preview share one renderer, so all three change together.
+- **Supplier in its own left column.** The supplier's name now sits on its first row (and again on the first row of a new page if the
+  supplier runs over), like the Supplier column in the pivot, instead of taking a line of its own. Species moved right to make room.
+  "<Supplier> Total" and "GRAND TOTAL" labels sit in that column too; the per-supplier totals Jack prints separately from Excel stay.
+- **Less blank space between suppliers:** a hairline and a small gap replace the blank line before and after each supplier.
+- **Pages 2+ no longer repeat the title and "Generated" lines** - just the column header row.
+- Species "Total" lines are unchanged (every species still has one, as in Excel).
+- Roughly 30 lines saved over the report on Jack's 2026-10-25 day (4th page was about a third full), so it should now fit 3 pages.
+  Layout only; what is printed is unchanged. The page-count result depends on the day's data - Jack to check (Testing.md).
+- GDI drawing is not covered by the portable tests and was NOT compiled here. Margins left as they were (the Excel print's
+  1.9 cm top/bottom would cost rows; the left/right 0.6 cm does not change the row count).
+
+## [0.12.7] - Drill-down popup reports every failure (nothing fails quietly)
+
+Jack (2026-10-26): "do not silence errors - fix them". Reviewed the 0.12.6 drill-down code for anywhere an error was swallowed:
+- **Popup could not be created** (`CreateWindowExW` returned NULL): `OpenDrillDownWindow` just returned and nothing happened. It now shows
+  "The entry list could not be opened: ..." with the Windows error code. The main window stays enabled.
+- **Window class registration** result was not checked (the same gap exists in the older popups, listed under audit F16-F22). The drill-down now checks it and reports.
+- **A control failing to create** used to leave a half-built popup. `WM_CREATE` now aborts the window (so the failure above is reported) if any of
+  its four controls is missing.
+- **A list row the control refused** was dropped without a word. Rows that cannot be inserted are now counted and the total line says
+  `WARNING: n row(s) could not be shown - the total above still includes them`.
+- **A Breakdown row with no matching entry reference** (only possible if the list and the data were out of step) did nothing; it now shows
+  "This Breakdown row could not be matched to its entries ... Please report this." Double-clicking blank space below the rows is still a plain no-op.
+- Not silenced anywhere else: the `-Wno-unknown-pragmas` flag used briefly while compile-checking 0.12.6 was dropped again; the real fix (the
+  `#pragma comment(lib)` lines guarded with `#ifdef _MSC_VER`) is what shipped and what is checked.
+- These failure paths cannot be provoked in normal use, so they are verified by reading and by a clean build only. Normal behaviour is unchanged
+  (re-run under Wine: same lists and totals as 0.12.6). Expect 282 portable, 25 integration.
+
+## [0.12.6] - Breakdown drill-down: double-click a row to see the entries behind it
+
+Jack (2026-10-25): in Excel he double-clicks a species, or one price within a species, in the pivot table and gets the list of entries behind
+it. Same thing here, on the Breakdown tab first (Win32 + core; the WinUI prototype has no Breakdown tab yet, so there is nothing to port there
+until it gets one).
+- **Double-click a row on the Breakdown tab** and a read-only popup lists the entries behind that row: Supplier, Species, Date, Kgs, Price ($/kg)
+  and Total ($), with a bold line underneath: `Total: 2 entries | 13.0 kg | $162.50`. That line is formatted like the row's own Kgs and Total
+  columns so the two can be compared by eye.
+  - a **price row** (`Flathead  $12.50`) -> only that supplier's entries of that species at exactly that price;
+  - a **species total row** (`Flathead Total`) -> all of that supplier's entries of that species;
+  - a **supplier total row** (`Imlay Total`) -> every entry of that supplier (a small extra beyond what was asked; the rows are free to support).
+  Entries are listed by species, then date (older first), then the order they were entered. The popup is a snapshot, read-only (no edit or delete
+  from it), and the main window is disabled while it is open, like Manage Names and Print Preview. Close with the Close button or the window X.
+- The popup header says which row it came from (`Imlay - Flathead at $12.50 /kg`). Supplier names with `&` (`Jenkins & Son`) show literally.
+- **Core:** `BreakdownRowRef` / `BuildBreakdownRowRefs` (one reference per Breakdown list row, in the same order `RefreshBreakdownList` inserts them)
+  and `ComputeDrillDown` in `FishBalanceCore.h`. The price match is exact `==`, the same test `BuildBreakdownData` uses to group price lines, so the
+  drill-down picks exactly the entries in the clicked line. `tests/test_drilldown.cpp` (new, 7 cases, 94 assertions) includes a check that **every
+  row of a Breakdown report drills down to Kgs and Total ($) equal to the row's own figures**.
+- **Forms:** new `src/forms/DrillDownWindow.h/.cpp` (added to all four build paths and `run_tests.ps1` / the CMake test list), new `ID_DRILL_LIST` /
+  `ID_DRILL_CLOSE` in `ControlIds.h`, and an `NM_DBLCLK` handler for `hListBreakdown` in `main.cpp` that rebuilds the row refs from the same
+  `BuildBreakdownData(g_entries)` the list was filled from.
+- **Also fixed (found while compile-checking, present in v0.12.5):** `main.cpp`'s five `#pragma comment(lib, ...)` lines are now `#ifdef _MSC_VER`
+  only. `build_mingw.bat` uses `-Werror`, and GCC treats the unknown pragma as an error, so the MinGW build could never have succeeded. MSVC is unchanged.
+- **Verified here:** the new core tests pass with g++ (`-Wall -Wextra -Wpedantic -Werror`) together with `test_fbd_loader.cpp` (94 cases, 489
+  assertions); the whole app (all 13 `.cpp` files, including this popup and the v0.12.5 tooltip code) compiles and links with MinGW-w64 using
+  `build_mingw.bat`'s exact flags; and that build was run under Wine with a five-entry sheet: double-clicking a price row, a species total, a
+  supplier total and a `Jenkins & Son` row each opened the right list with a total equal to the clicked row, and Close re-enabled the main window.
+  **Not built with MSVC and not run on Windows**, so the Windows look at 150% scaling is unchecked (Testing.md "v0.12.6 checks"). The full portable
+  suite (all 10 files in `run_tests.ps1`) was then run over the final files: 282 cases, 1026 assertions, all passing (275 + 7); expect 25 integration.
+  (This entry first said the full suite had not been re-run; it had been by the time the zip was made - corrected in 0.12.7.)
+
 ## [0.12.5] - Only `;` separates books; tooltip on Debtor / Cash
 
 Jack typed `2436.5+56+1900` in the Cash box and the Books table still showed Cash1 about $36 out: with the old rule each `+` started a new

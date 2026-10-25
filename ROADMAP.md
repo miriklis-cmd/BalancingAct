@@ -4,10 +4,10 @@ This is the current plan: where we are, what is next, what is not built, and wha
 (every version's test checklist, the 0.9.x status notes) is frozen in `ROADMAP_ARCHIVE.md`; version-by-version detail
 is in `CHANGELOG.md`; manual checks still to do are in `Testing.md`.
 
-## Where we are (v0.12.5, 2026-10-25)
+## Where we are (v0.12.8, 2026-10-26)
 
 The app is complete and in use for single-machine daily work: data entry, four report tabs, Finalize Day, autosave,
-rolling backups, restore, print/PDF (Breakdown tab), CSV export, supplier emails, outlier-price flagging, Books (v0.12.0: mark where each Debtor/Cash book starts, check per-book totals; v0.12.5: only `;` separates books in the Debtor/Cash boxes, with a hover tooltip), 275 portable
+rolling backups, restore, print/PDF (Breakdown tab), CSV export, supplier emails, outlier-price flagging, Books (v0.12.0: mark where each Debtor/Cash book starts, check per-book totals; v0.12.5: only `;` separates books in the Debtor/Cash boxes, with a hover tooltip; v0.12.6: double-click a Breakdown row to list the entries behind it), 282 portable
 and 25 Windows integration tests.
 
 **Current project: splitting `main.cpp` (was ~5,000 lines, now ~2,860) into `src/core`, `src/data`, `src/services`,
@@ -36,6 +36,11 @@ longer fails silently (0.10.15) and always opens in `backups\` (0.10.16); `*.fbd
 4. **0.12.0-0.12.5 built, awaiting Jack's test: Books** (0.12.5: `;` is the only book separator + tooltip; if the `;` rule still confuses, the next step is Option B - a per-book "Figure" cell in the Books table, roughly a v0.13 change - or an "Other amounts (no book)" line) (Win32 + core; WinUI prototype next after sign-off). See CHANGELOG and Testing.md "v0.12.0 checks". Open follow-ups: type/rename book names by hand, Book column in CSV/print, books in WinUI, whether the layout of the Book box / Start Book button needs moving (Jack is thinking about it).
    0.11.0 done: Kgs can be typed as a sum and the sum is remembered** (Win32 + core; also in the WinUI prototype). Next feature candidates, none started (specs below): price history per species,
    cheapest-supplier highlight, print/PDF for the Overview and By Species tabs, filter on the summary tabs.
+4a. **0.12.8 built, awaiting Jack's page count: Breakdown print/PDF/preview with a Supplier column, fits 3 pages (Excel pivot print was 3, the app 4); GDI code not run on Windows.**
+4b. **0.12.6-0.12.7 built, awaiting Jack's test: Breakdown drill-down** (0.12.7: the popup reports every failure instead of failing quietly) (Win32 + core): double-click a price row, species total row or supplier total row on
+   the Breakdown tab for a read-only list (supplier, species, date, kgs, price, total) whose total matches the row. Still to do: the same on Total
+   Overview if wanted; the WinUI prototype has no Breakdown tab, so there is nothing to port yet; then WinUI step 5c (compact the Data Entry grid
+   to about 16 rows).
 5. **1.0** only when Jack decides it is ready for prime-time release.
 
 ## Not built yet
@@ -60,6 +65,8 @@ longer fails silently (0.10.15) and always opens in `backups\` (0.10.16); `*.fbd
   diagnostic build, not another guess; WinUI 3 would likely remove it. See `ARCHITECTURE.md`.
 - **Never built or run by Jack:** the MinGW build (`build_mingw.bat`) and the CMake build. Only MSVC (batch file or
   Visual Studio) is exercised. Keep them in step with source-file changes; update this line the first time they are built.
+  (2026-10-25: v0.12.6 was cross-compiled with MinGW-w64 using `build_mingw.bat`'s flags and ran under Wine. That found the `#pragma comment`
+  `-Werror` failure, now fixed. The CMake path has still not been tried.)
 
 ## Decisions on record
 

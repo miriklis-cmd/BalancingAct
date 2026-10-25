@@ -273,6 +273,28 @@ Use a copy of a real day, or type a few entries.
 - [ ] (0.12.5) Hover the mouse over the Debtor box, then the Cash box and keep it still for a moment: a tooltip appears explaining that `;` starts the next book, with an example; it stays readable (not cut off) at 150% scaling and disappears when the mouse moves away.
 - [ ] (0.12.5) The tooltip also appears after switching to another tab and back, and after Un-finalize Day (when the boxes are enabled again).
 
+## v0.12.8 checks (Breakdown print layout)
+
+- [ ] Print Preview of the same day that printed as 4 pages (2026-10-25 data, 140 entries): now 3 pages, with a little room left on page 3. (Layout depends on the day's data; a much bigger day can still need more.)
+- [ ] The supplier name appears once, in the left column, on the supplier's first row (not on a line of its own); a supplier that runs over onto the next page is named again on that page's first row.
+- [ ] "<Supplier> Total" and GRAND TOTAL are bold and in the left column; every species still has its bold "<Species> Total" line.
+- [ ] A hairline and small gap separate suppliers; none directly under the column header at the top of a page.
+- [ ] Pages 2 and 3 start straight with the Supplier / Species / Price / Kgs / Total header (no title or "Generated" line); page 1 still has the title, the Book Total / Entered / Difference lines.
+- [ ] Species names and "<Species> Total" labels do not run into the Price column (longest names, e.g. "Ckd Sch Prawn Total"); same check in the saved PDF and on a real printer.
+
+## v0.12.6 - v0.12.7 checks (Breakdown drill-down)
+
+- [ ] Expect 282 portable test cases (275 + 7 in `test_drilldown.cpp`) and 25 integration; build is clean with `/W4 /WX`.
+- [ ] Breakdown tab, double-click a price row (e.g. `Flathead $12.50`): a popup lists only that supplier's entries at that price, with supplier, species, date, kgs, price and total, and a bold total line. The line's kgs and dollars equal the clicked row's Kgs (weight) and Total ($).
+- [ ] Double-click a `<species> Total` row: all of that supplier's entries of the species; the total line equals that row.
+- [ ] Double-click a `<supplier> Total` row: every entry of that supplier; the total line equals that row.
+- [ ] Two suppliers with the same species and price: each supplier's row lists only its own entries.
+- [ ] Double-click a row of a supplier named with an `&` (e.g. `Jenkins & Son`): the header shows the `&` literally (no underlined letter).
+- [ ] The popup is readable at 150% scaling (nothing cut off), stays inside the screen, can be resized, and Close or the window X closes it; the main window is usable again straight away.
+- [ ] While the popup is open the main window cannot be clicked (like Manage Names). After closing, double-clicking another row works.
+- [ ] Double-click on the empty area below the last row does nothing. Double-click on the Entries tab list still opens the edit/review as before.
+- [ ] Build with `build_mingw.bat` if you have MinGW (it failed before 0.12.6 because of the `#pragma comment` lines).
+
 ## Carried-over checks (never recorded as confirmed)
 
 These were on the old roadmap's unticked list. Several were probably checked casually; none were written down. Tick or strike each once you have looked.

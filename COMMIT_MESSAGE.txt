@@ -1,25 +1,4 @@
-v0.12.5: Only ';' separates books in Debtor/Cash; hover tooltip explains it
+v0.12.8: Breakdown print: supplier column, fits 3 pages
 
 See the top entry of CHANGELOG.md. push_update.ps1 builds the commit message from it,
 so this file is only a copy for reference.
-## [0.12.5] - Only `;` separates books; tooltip on Debtor / Cash
-
-Jack typed `2436.5+56+1900` in the Cash box and the Books table still showed Cash1 about $36 out: with the old rule each `+` started a new
-book, so Cash1 was compared with just the first amount. He found the mixed `+` / `;` rule too confusing and chose "Option A".
-- **`;` is now the ONLY thing that starts the next book** in the Debtor and Cash boxes. Everything between semicolons is one book's
-  amount, and may itself be a sum: `2436.5+56+1900` = one book; `15470.2+22.4-133;26076.2+110` = two books. `+` and `-` are always
-  just arithmetic. Brackets still work and `;` inside brackets does not split. `;` still counts as `+` in every total, so the
-  Debtor/Cash totals, Finalize Day and the print/PDF report are unchanged.
-- **Blank pieces are errors** (`100;`, `;100`, `1;;2`): because `;` counts as `+`, the box total already failed on these ("cannot check",
-  like a dangling `100+`); the per-book check now also shows nothing for that box until it is fixed.
-- **Behaviour change to be aware of:** a box typed as `a+b` used to mean two books and now means one. Brackets joined by `+`,
-  `(100+5)+(200-1)`, are also one book now - use `(100+5);(200-1)`. Existing files whose Debtor/Cash text relied on the old rule
-  will show fewer per-book figures (those books read "-") until `;` is put between the books. The Excel converter already writes
-  `;` between books, so files it produced are unaffected.
-- **Tooltip:** hovering over the Debtor or Cash box explains the rule with an example (Win32 tooltip control, shows after about
-  0.4 s and stays up for 30 s). Not shown while a day is finalized (the boxes are disabled then).
-- Core `SplitBookAmounts` only. Tests: the old "splits on plus only" case was rewritten for the new rule and a case for Jack's
-  Cash example was added (275 cases; this suite run here passed). The tooltip code in `main.cpp` was NOT compiled here - Jack to
-  build and check (Testing.md "v0.12.1 - v0.12.5 checks").
-- The WinUI prototype picks up the rule change from the core, but has no tooltip yet.
-
