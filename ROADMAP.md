@@ -4,10 +4,10 @@ This is the current plan: where we are, what is next, what is not built, and wha
 (every version's test checklist, the 0.9.x status notes) is frozen in `ROADMAP_ARCHIVE.md`; version-by-version detail
 is in `CHANGELOG.md`; manual checks still to do are in `Testing.md`.
 
-## Where we are (v0.12.8, 2026-10-26)
+## Where we are (v0.12.9, 2026-10-26)
 
 The app is complete and in use for single-machine daily work: data entry, four report tabs, Finalize Day, autosave,
-rolling backups, restore, print/PDF (Breakdown tab), CSV export, supplier emails, outlier-price flagging, Books (v0.12.0: mark where each Debtor/Cash book starts, check per-book totals; v0.12.5: only `;` separates books in the Debtor/Cash boxes, with a hover tooltip; v0.12.6: double-click a Breakdown row to list the entries behind it), 282 portable
+rolling backups, restore, print/PDF (Breakdown tab), CSV export, supplier emails, outlier-price flagging, Books (v0.12.0: mark where each Debtor/Cash book starts, check per-book totals; v0.12.5: only `;` separates books in the Debtor/Cash boxes, with a hover tooltip; v0.12.6: double-click a Breakdown row to list the entries behind it), 287 portable
 and 25 Windows integration tests.
 
 **Current project: splitting `main.cpp` (was ~5,000 lines, now ~2,860) into `src/core`, `src/data`, `src/services`,
@@ -37,7 +37,7 @@ longer fails silently (0.10.15) and always opens in `backups\` (0.10.16); `*.fbd
    0.11.0 done: Kgs can be typed as a sum and the sum is remembered** (Win32 + core; also in the WinUI prototype). Next feature candidates, none started (specs below): price history per species,
    cheapest-supplier highlight, print/PDF for the Overview and By Species tabs, filter on the summary tabs.
 4a. **0.12.8 built, awaiting Jack's page count: Breakdown print/PDF/preview with a Supplier column, fits 3 pages (Excel pivot print was 3, the app 4); GDI code not run on Windows.**
-4b. **0.12.6-0.12.7 built, awaiting Jack's test: Breakdown drill-down** (0.12.7: the popup reports every failure instead of failing quietly) (Win32 + core): double-click a price row, species total row or supplier total row on
+4b. **0.12.6-0.12.9 built (0.12.6-0.12.8 tested OK by Jack): Breakdown drill-down** (0.12.7: the popup reports every failure; 0.12.9: click a header to sort, Esc closes - awaiting Jack's test) (Win32 + core): double-click a price row, species total row or supplier total row on
    the Breakdown tab for a read-only list (supplier, species, date, kgs, price, total) whose total matches the row. Still to do: the same on Total
    Overview if wanted; the WinUI prototype has no Breakdown tab, so there is nothing to port yet; then WinUI step 5c (compact the Data Entry grid
    to about 16 rows).

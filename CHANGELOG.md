@@ -18,6 +18,22 @@ for prime time (released).
 ## [Unreleased]
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.12.9] - Drill-down: click a column header to sort; Esc closes it
+
+Jack's feedback after testing 0.12.6-0.12.8: a species row covers several prices, so the list needs to be sortable by price or kgs.
+- **Click any column header in the "Entries Behind This Row" list to sort by it** (Supplier, Species, Date, Kgs, Price, Total). Click the same
+  header again to reverse. The clicked header shows a sort arrow. Kgs, Price and Total sort as numbers (10.0 after 4.5), Date as ISO text.
+  Rows that tie keep the default order (species, then date), so sorting by Price keeps each price's entries in date order.
+  Each time the popup opens it starts in the default order again.
+- **Esc closes the popup**, whether the list or the Close button has the keyboard focus. The popup is a plain window (no dialog
+  handling), so the list and Close button are subclassed (`SetWindowSubclass`); if that cannot be set up the popup reports it instead
+  of opening without Esc.
+- The sort lives in core (`DrillSortKey`, `SortDrillDownIndices`) and only reorders the rows; the total line is unchanged by sorting.
+- 5 new portable test cases (287 total, 1149 assertions): price asc/desc with stable ties, kgs and total numerically, date/supplier/species,
+  Default leaves the order, and every Breakdown row keeps the same set of rows under every sort key.
+- Checked: strict MinGW build (`-Wall -Wextra -Wpedantic -Werror`, nothing suppressed) and run under Wine: header clicks show the arrow and
+  flip it, one real Esc keypress closes the popup. Not checked: the look on Windows at 150%, MSVC `/W4 /WX`.
+
 ## [0.12.8] - Breakdown print: supplier column, fits 3 pages
 
 Jack printed the same day from the app (4 pages) and from his Excel pivot (3 pages). Excel keeps the "Total" line for every species

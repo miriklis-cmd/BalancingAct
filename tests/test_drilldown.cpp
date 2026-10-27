@@ -1,4 +1,5 @@
-// test_drilldown.cpp - v0.12.6 Breakdown drill-down: BuildBreakdownRowRefs and ComputeDrillDown.
+// test_drilldown.cpp - Breakdown drill-down: BuildBreakdownRowRefs, ComputeDrillDown (v0.12.6) and
+// SortDrillDownIndices (v0.12.9, click-a-header sorting).
 #include "doctest_setup.h"
 #include "doctest.h"
 #include "../src/core/FishBalanceCore.h"
@@ -161,4 +162,95 @@ TEST_CASE("Drill-down with no matching entries is empty") {
     CHECK(r.kgs == 0);
     CHECK(r.amt == 0);
     CHECK(BuildBreakdownRowRefs(BuildBreakdownData({})).empty());
+}
+
+namespace {
+std::vector<double> KgsOf(const std::vector<Entry>& entries, const std::vector<size_t>& idx) {
+    std::vector<double> v;
+    for (size_t i : idx) v.push_back(entries[i].kgs);
+    return v;
+}
+std::vector<double> PricesOf(const std::vector<Entry>& entries, const std::vector<size_t>& idx) {
+    std::vector<double> v;
+    for (size_t i : idx) v.push_back(entries[i].price);
+    return v;
+}
+BreakdownRowRef ImlayFlatheadAllPrices() {
+    BreakdownRowRef ref;
+    ref.kind = BreakdownRowKind::SpeciesTotal;
+    ref.supplier = L"Imlay";
+    ref.species = L"Flathead";
+    return ref;
+}
+}
+
+TEST_CASE("SortDrillDownIndices sorts a species' entries by price, ascending and descending") {
+    auto entries = Fixture();
+    auto r = ComputeDrillDown(entries, ImlayFlatheadAllPrices()); // 3 entries: 12.50, 12.50, 14.00
+    SortDrillDownIndices(entries, r.indices, DrillSortKey::Price, true);
+    CHECK(PricesOf(entries, r.indices) == std::vector<double>{12.50, 12.50, 14.00});
+    // equal prices keep the default (date) order: 10-19 (3.0 kg) before 10-21 (10.0 kg)
+    CHECK(KgsOf(entries, r.indices) == std::vector<double>{3.0, 10.0, 4.5});
+    SortDrillDownIndices(entries, r.indices, DrillSortKey::Price, false);
+    CHECK(PricesOf(entries, r.indices) == std::vector<double>{14.00, 12.50, 12.50});
+}
+
+TEST_CASE("SortDrillDownIndices sorts by kgs and by total, numerically") {
+    auto entries = Fixture();
+    auto r = ComputeDrillDown(entries, ImlayFlatheadAllPrices());
+    SortDrillDownIndices(entries, r.indices, DrillSortKey::Kgs, true);
+    CHECK(KgsOf(entries, r.indices) == std::vector<double>{3.0, 4.5, 10.0}); // 10.0 after 4.5, not text order
+    SortDrillDownIndices(entries, r.indices, DrillSortKey::Kgs, false);
+    CHECK(KgsOf(entries, r.indices) == std::vector<double>{10.0, 4.5, 3.0});
+    SortDrillDownIndices(entries, r.indices, DrillSortKey::Total, false); // 125.00, 63.00, 37.50
+    CHECK(KgsOf(entries, r.indices) == std::vector<double>{10.0, 4.5, 3.0});
+    SortDrillDownIndices(entries, r.indices, DrillSortKey::Total, true);
+    CHECK(KgsOf(entries, r.indices) == std::vector<double>{3.0, 4.5, 10.0});
+}
+
+TEST_CASE("SortDrillDownIndices by date, supplier and species; Default leaves the order alone") {
+    auto entries = Fixture();
+    BreakdownRowRef all;
+    all.kind = BreakdownRowKind::SupplierTotal;
+    all.supplier = L"Imlay";
+    auto r = ComputeDrillDown(entries, all); // Bream, then Flathead by date
+    auto before = r.indices;
+    SortDrillDownIndices(entries, r.indices, DrillSortKey::Default, false);
+    CHECK(r.indices == before);
+    SortDrillDownIndices(entries, r.indices, DrillSortKey::Date, true);
+    for (size_t i = 1; i < r.indices.size(); i++)
+        CHECK(entries[r.indices[i - 1]].date <= entries[r.indices[i]].date);
+    SortDrillDownIndices(entries, r.indices, DrillSortKey::Species, false);
+    CHECK(entries[r.indices.front()].product == L"Flathead");
+    CHECK(entries[r.indices.back()].product == L"Bream");
+    SortDrillDownIndices(entries, r.indices, DrillSortKey::Supplier, true); // all Imlay: nothing may move or vanish
+    CHECK(r.indices.size() == before.size());
+}
+
+TEST_CASE("SortDrillDownIndices never changes which rows are listed, so the totals are unchanged") {
+    auto entries = Fixture();
+    auto data = BuildBreakdownData(entries);
+    auto refs = BuildBreakdownRowRefs(data);
+    const DrillSortKey keys[] = {DrillSortKey::Supplier, DrillSortKey::Species, DrillSortKey::Date,
+                                 DrillSortKey::Kgs, DrillSortKey::Price, DrillSortKey::Total};
+    for (const auto& ref : refs) {
+        auto base = ComputeDrillDown(entries, ref);
+        for (DrillSortKey k : keys) {
+            for (bool asc : {true, false}) {
+                auto idx = base.indices;
+                SortDrillDownIndices(entries, idx, k, asc);
+                auto a = idx, b = base.indices;
+                std::sort(a.begin(), a.end());
+                std::sort(b.begin(), b.end());
+                CHECK(a == b);
+            }
+        }
+    }
+}
+
+TEST_CASE("SortDrillDownIndices on an empty list is harmless") {
+    auto entries = Fixture();
+    std::vector<size_t> none;
+    SortDrillDownIndices(entries, none, DrillSortKey::Price, true);
+    CHECK(none.empty());
 }

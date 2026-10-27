@@ -24,6 +24,8 @@ HWND g_hDrillList = nullptr;
 HWND g_hDrillTotal = nullptr;
 HWND g_hDrillClose = nullptr;
 BreakdownRowRef g_drillRef; // the Breakdown row this window was opened for
+int g_drillSortCol = -1;    // list column last clicked (-1 = default order: species, then date)
+bool g_drillSortAsc = true;
 
 // Never fail quietly: say what could not be done and the Windows error code.
 void ReportDrillFailure(const wchar_t* what) {
@@ -46,9 +48,49 @@ std::wstring DescribeDrillRow(const BreakdownRowRef& ref) {
     return ref.supplier;
 }
 
+// Esc closes the popup whichever control has the keyboard focus (the list or the Close button). The popup is a
+// plain window, not a dialog, so there is no IDCANCEL handling for free - the children are subclassed instead.
+LRESULT CALLBACK DrillChildSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR, DWORD_PTR) {
+    if (msg == WM_KEYDOWN && wParam == VK_ESCAPE) {
+        DestroyWindow(GetParent(hwnd));
+        return 0; // hwnd is destroyed with its parent - nothing may touch it after this
+    }
+    if (msg == WM_NCDESTROY) RemoveWindowSubclass(hwnd, DrillChildSubclassProc, 1);
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+// Shows the sort arrow on the clicked column's header (and clears it from the others).
+void UpdateDrillSortArrow() {
+    HWND header = ListView_GetHeader(g_hDrillList);
+    if (!header) return;
+    int count = Header_GetItemCount(header);
+    for (int i = 0; i < count; i++) {
+        HDITEMW hd{};
+        hd.mask = HDI_FORMAT;
+        if (!Header_GetItem(header, i, &hd)) continue;
+        hd.fmt &= ~(HDF_SORTUP | HDF_SORTDOWN);
+        if (i == g_drillSortCol) hd.fmt |= g_drillSortAsc ? HDF_SORTUP : HDF_SORTDOWN;
+        Header_SetItem(header, i, &hd);
+    }
+}
+
+DrillSortKey DrillSortKeyForColumn(int col) {
+    switch (col) {
+    case 0: return DrillSortKey::Supplier;
+    case 1: return DrillSortKey::Species;
+    case 2: return DrillSortKey::Date;
+    case 3: return DrillSortKey::Kgs;
+    case 4: return DrillSortKey::Price;
+    case 5: return DrillSortKey::Total;
+    }
+    return DrillSortKey::Default;
+}
+
 void FillDrillList() {
     ListView_DeleteAllItems(g_hDrillList);
     DrillDownResult res = ComputeDrillDown(g_entries, g_drillRef);
+    SortDrillDownIndices(g_entries, res.indices, DrillSortKeyForColumn(g_drillSortCol), g_drillSortAsc);
+    UpdateDrillSortArrow();
 
     int row = 0;
     size_t notShown = 0; // rows the list control refused - reported next to the total, never dropped silently
@@ -108,6 +150,11 @@ LRESULT CALLBACK DrillWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         AddColumn(g_hDrillList, 4, L"Price ($/kg)", 105);
         AddColumn(g_hDrillList, 5, L"Total ($)", 115);
         SetListRowHeight(g_hDrillList, S(22));
+        if (!SetWindowSubclass(g_hDrillList, DrillChildSubclassProc, 1, 0) ||
+            !SetWindowSubclass(g_hDrillClose, DrillChildSubclassProc, 1, 0)) {
+            SetLastError(ERROR_INVALID_WINDOW_HANDLE); // Esc would not work - report it rather than run without it
+            return -1;
+        }
         FillDrillList();
         return 0;
     }
@@ -135,6 +182,17 @@ LRESULT CALLBACK DrillWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_COMMAND:
         if (LOWORD(wParam) == ID_DRILL_CLOSE) { DestroyWindow(hwnd); return 0; }
         break;
+    case WM_NOTIFY: {
+        LPNMHDR hdr = (LPNMHDR)lParam;
+        if (hdr->hwndFrom == g_hDrillList && hdr->code == (UINT)LVN_COLUMNCLICK) {
+            int col = ((LPNMLISTVIEW)lParam)->iSubItem;
+            if (g_drillSortCol == col) g_drillSortAsc = !g_drillSortAsc; // same column again: flip direction
+            else { g_drillSortCol = col; g_drillSortAsc = true; }
+            FillDrillList();
+            return 0;
+        }
+        break;
+    }
     case WM_CLOSE:
         DestroyWindow(hwnd);
         return 0;
@@ -156,6 +214,8 @@ void OpenDrillDownWindow(const BreakdownRowRef& ref) {
         return;
     }
     g_drillRef = ref;
+    g_drillSortCol = -1; // each opening starts in the default order
+    g_drillSortAsc = true;
 
     static bool classRegistered = false;
     if (!classRegistered) {

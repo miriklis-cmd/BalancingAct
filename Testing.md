@@ -273,6 +273,16 @@ Use a copy of a real day, or type a few entries.
 - [ ] (0.12.5) Hover the mouse over the Debtor box, then the Cash box and keep it still for a moment: a tooltip appears explaining that `;` starts the next book, with an example; it stays readable (not cut off) at 150% scaling and disappears when the mouse moves away.
 - [ ] (0.12.5) The tooltip also appears after switching to another tab and back, and after Un-finalize Day (when the boxes are enabled again).
 
+## v0.12.9 checks (drill-down sort + Esc)
+- [ ] Expect 287 portable test cases (282 + 5 sort cases in `test_drilldown.cpp`); build is clean with `/W4 /WX`.
+- [ ] Double-click a `<species> Total` row that has several prices. Click the `Price ($/kg)` header: rows sort by price ascending with an up arrow on the header; click again: descending, down arrow.
+- [ ] Same for `Kgs` (10.0 sorts after 4.5, not before) and `Total ($)`; also `Date`, `Species`, `Supplier`.
+- [ ] Rows with the same price stay in date order when sorting by price.
+- [ ] The bold total line does not change when you sort.
+- [ ] Close the popup and open another row: it starts in the default order (no arrow) again.
+- [ ] Press Esc with a row selected in the list: the popup closes and the main window is usable again.
+- [ ] Esc on the main window itself does nothing new.
+
 ## v0.12.8 checks (Breakdown print layout)
 
 - [ ] Print Preview of the same day that printed as 4 pages (2026-10-25 data, 140 entries): now 3 pages, with a little room left on page 3. (Layout depends on the day's data; a much bigger day can still need more.)
