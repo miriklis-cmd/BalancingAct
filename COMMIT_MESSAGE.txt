@@ -1,4 +1,4 @@
-v0.12.8: Breakdown print: supplier column, fits 3 pages
+v0.12.9: Drill-down: click a column header to sort; Esc closes it
 
 See the top entry of CHANGELOG.md. push_update.ps1 builds the commit message from it,
 so this file is only a copy for reference.

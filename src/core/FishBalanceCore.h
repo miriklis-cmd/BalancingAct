@@ -787,6 +787,34 @@ inline DrillDownResult ComputeDrillDown(const std::vector<Entry>& entries, const
     return r;
 }
 
+// v0.12.9: which column the drill-down list is sorted by (clicking a column header). Default keeps the
+// order ComputeDrillDown returns (species, then date).
+enum class DrillSortKey { Default, Supplier, Species, Date, Kgs, Price, Total };
+
+// Re-orders `indices` (positions in `entries`, as returned by ComputeDrillDown) by one column. The sort is
+// stable, so rows that tie keep the Default order (species, then date) - e.g. sorting by Price keeps each
+// price's entries in date order. Only the order changes; the set of rows, and so the totals, do not.
+inline void SortDrillDownIndices(const std::vector<Entry>& entries, std::vector<size_t>& indices,
+                                 DrillSortKey key, bool ascending) {
+    if (key == DrillSortKey::Default) return;
+    auto less = [&entries, key](size_t a, size_t b) {
+        const Entry& x = entries[a];
+        const Entry& y = entries[b];
+        switch (key) {
+        case DrillSortKey::Supplier: return x.supplier < y.supplier;
+        case DrillSortKey::Species:  return x.product < y.product;
+        case DrillSortKey::Date:     return x.date < y.date;
+        case DrillSortKey::Kgs:      return x.kgs < y.kgs;
+        case DrillSortKey::Price:    return x.price < y.price;
+        case DrillSortKey::Total:    return x.Total() < y.Total();
+        case DrillSortKey::Default:  break;
+        }
+        return false;
+    };
+    if (ascending) std::stable_sort(indices.begin(), indices.end(), less);
+    else std::stable_sort(indices.begin(), indices.end(), [&less](size_t a, size_t b) { return less(b, a); });
+}
+
 // Grouped Kgs/$ totals by an arbitrary key (Supplier for the Total Overview
 // tab, Species for part of the By Species tab) - the pure computation
 // behind PopulateGroupedTotalsList(), with all HWND/ListView rendering

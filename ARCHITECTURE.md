@@ -45,6 +45,8 @@ There are five top-level windows, each with its own `WndProc`. The main window a
    Its handles and state are file-local to `DrillDownWindow.cpp` (not in `UiState.h`). The row-to-entries logic is
    core (`BuildBreakdownRowRefs`, `ComputeDrillDown`), so keep it in step with `RefreshBreakdownList`'s row order.
    Every failure in it is reported to the user (`ReportDrillFailure`), never swallowed.
+   Header click sorts (`SortDrillDownIndices`, core); Esc closes via `SetWindowSubclass` on the list and Close button, because the
+   popup is a plain window with no IDCANCEL handling.
 
 All the popups follow the same lifecycle: `EnableWindow(mainWnd, FALSE)`
 on creation (so the popup behaves modally without actually being a true
