@@ -1,4 +1,4 @@
-v0.12.9: Drill-down: click a column header to sort; Esc closes it
+v0.12.10: Printing code made shareable (no change you should see)
 
 See the top entry of CHANGELOG.md. push_update.ps1 builds the commit message from it,
 so this file is only a copy for reference.

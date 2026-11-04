@@ -7,6 +7,7 @@
 #pragma once
 
 #include "../PlatformWin.h"
+#include "../core/FishBalanceCore.h"
 #include <functional>
 #include <string>
 #include <vector>
@@ -91,9 +92,10 @@ struct RenderReportResult {
 
 void FreeRenderedPages(std::vector<RenderedPage>& pages);
 
-// Renders the Breakdown report (current sheet, g_entries) into DIB pages.
+// Renders the Breakdown report for `entries` into DIB pages. (v0.12.10: the entries are a parameter, not the
+// g_entries global, so the WinUI prototype can use this file without the Win32 app's globals.)
 // debtorText/cashText are the raw contents of the Debtor and Cash boxes.
 // See ReportRender.cpp for the full behaviour of `onPageReady`.
-RenderReportResult RenderReportPages(int pageWidthPx, int pageHeightPx, int dpiX, int dpiY,
+RenderReportResult RenderReportPages(const std::vector<Entry>& entries, int pageWidthPx, int pageHeightPx, int dpiX, int dpiY,
                                       const std::wstring& debtorText, const std::wstring& cashText,
                                       const std::function<bool(RenderedPage&)>& onPageReady = {});

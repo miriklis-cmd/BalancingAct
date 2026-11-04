@@ -11,7 +11,6 @@
 #include <cwchar>
 #include <map>
 
-#include "../data/AppData.h"
 
 // Phase 2 / F10-F11 (2026-10-02) resource-safety rewrite - summary (full
 // writeup in CHANGELOG.md):
@@ -56,7 +55,7 @@ void FreeRenderedPages(std::vector<RenderedPage>& pages) {
 // from the callback aborts rendering immediately (used when printing
 // itself has failed) - whatever was still in progress is cleaned up and
 // RenderReportPages returns ok == false.
-RenderReportResult RenderReportPages(int pageWidthPx, int pageHeightPx, int dpiX, int dpiY,
+RenderReportResult RenderReportPages(const std::vector<Entry>& entries, int pageWidthPx, int pageHeightPx, int dpiX, int dpiY,
                                       const std::wstring& debtorText, const std::wstring& cashText,
                                       const std::function<bool(RenderedPage&)>& onPageReady) {
     RenderReportResult out;
@@ -255,7 +254,7 @@ RenderReportResult RenderReportPages(int pageWidthPx, int pageHeightPx, int dpiX
             // guard for why.
             double entered = 0;
             bool enteredOverflow = false;
-            for (auto& e : g_entries) {
+            for (auto& e : entries) {
                 double term;
                 if (!SafeMultiplyFinite(e.kgs, e.price, term) || !SafeAccumulate(entered, term)) {
                     enteredOverflow = true;
@@ -346,7 +345,7 @@ RenderReportResult RenderReportPages(int pageWidthPx, int pageHeightPx, int dpiX
     newPage();
 
     if (!failed && !out.pageCapHit) {
-        auto data = BuildBreakdownData(g_entries);
+        auto data = BuildBreakdownData(entries);
         double grandKgs = 0, grandAmt = 0;
         for (auto& sg : data) {
             if (failed || out.pageCapHit) break;

@@ -77,6 +77,7 @@
 #include "src/data/Backups.h"
 #include "src/services/CsvExport.h"
 #include "src/services/Email.h"
+#include "src/services/PrintJob.h"
 #include "src/services/ReportRender.h"
 #include "src/forms/MainWindowApi.h"
 #include "src/forms/MainWindowLists.h"
@@ -1675,113 +1676,12 @@ void GetDebtorCashText(std::wstring& debtor, std::wstring& cash) {
     cash = buf;
 }
 
-// Prints the Breakdown report via the standard Windows print dialog. To get a
-// PDF, the user just picks the built-in "Microsoft Print to PDF" printer in
-// that dialog - no PDF library is needed, Windows handles the conversion.
+// Prints the Breakdown report via the standard Windows print dialog. The job itself lives in
+// src/services/PrintJob.cpp (v0.12.10), shared with the WinUI prototype; this just feeds it the current sheet.
 void PrintBreakdownReport(HWND owner) {
-    PRINTDLGW pd{};
-    pd.lStructSize = sizeof(pd);
-    pd.hwndOwner = owner;
-    pd.Flags = PD_RETURNDC | PD_NOPAGENUMS | PD_NOSELECTION;
-    if (!PrintDlgW(&pd)) return; // user cancelled, or no printers installed
-
-    // PrintDlgW allocates these two blocks; we're responsible for freeing
-    // them regardless of how this function exits from here on.
-    auto freeDlgHandles = [&]() {
-        if (pd.hDevMode) GlobalFree(pd.hDevMode);
-        if (pd.hDevNames) GlobalFree(pd.hDevNames);
-    };
-
-    HDC hdc = pd.hDC;
-    if (!hdc) { freeDlgHandles(); return; }
-
-    int pageWidthPx = GetDeviceCaps(hdc, HORZRES);
-    int pageHeightPx = GetDeviceCaps(hdc, VERTRES);
-    int dpiX = GetDeviceCaps(hdc, LOGPIXELSX);
-    int dpiY = GetDeviceCaps(hdc, LOGPIXELSY);
-
-    std::wstring dimError;
-    if (!ValidateReportPageDimensions(pageWidthPx, pageHeightPx, dpiX, dpiY, &dimError)) {
-        MessageBoxW(owner, dimError.c_str(), L"Print", MB_OK | MB_ICONERROR);
-        DeleteDC(hdc);
-        freeDlgHandles();
-        return;
-    }
-
-    DOCINFOW di{};
-    di.cbSize = sizeof(di);
-    di.lpszDocName = L"Fish Balance - Breakdown Report";
-    if (StartDocW(hdc, &di) <= 0) {
-        MessageBoxW(owner, L"Windows couldn't start the print job.", L"Print", MB_OK | MB_ICONERROR);
-        DeleteDC(hdc);
-        freeDlgHandles();
-        return;
-    }
-
-    // Phase 2 / F10 (2026-10-02): pages are printed one at a time as
-    // they're rendered - this callback receives each finished page, prints
-    // it immediately, and frees it before RenderReportPages renders the
-    // next one, so at most one full-resolution page bitmap exists in
-    // memory for the whole print job (see RenderReportPages's comment).
-    bool printFailed = false;
-    std::wstring printError;
-    auto onPageReady = [&](RenderedPage& page) -> bool {
-        bool pageOk = true;
-        if (StartPage(hdc) <= 0) {
-            printError = L"Windows couldn't start a page while printing.";
-            pageOk = false;
-        } else {
-            BITMAPINFO bmi{};
-            bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-            bmi.bmiHeader.biWidth = page.width;
-            bmi.bmiHeader.biHeight = -page.height;
-            bmi.bmiHeader.biPlanes = 1;
-            bmi.bmiHeader.biBitCount = 24;
-            bmi.bmiHeader.biCompression = BI_RGB;
-            int blitResult = StretchDIBits(hdc, 0, 0, page.width, page.height, 0, 0, page.width, page.height,
-                                            page.bits, &bmi, DIB_RGB_COLORS, SRCCOPY);
-            if (blitResult == 0 || blitResult == (int)GDI_ERROR) {
-                printError = L"Windows couldn't draw a page while printing.";
-                pageOk = false;
-            } else if (EndPage(hdc) <= 0) {
-                printError = L"Windows couldn't finish a page while printing.";
-                pageOk = false;
-            }
-        }
-        if (page.bitmap) DeleteObject(page.bitmap); // this callback owns the page once handed it, regardless of pageOk
-        if (!pageOk) printFailed = true;
-        return pageOk;
-    };
-
     std::wstring debtorText, cashText;
     GetDebtorCashText(debtorText, cashText);
-    RenderReportResult result = RenderReportPages(pageWidthPx, pageHeightPx, dpiX, dpiY, debtorText, cashText, onPageReady);
-
-    if (printFailed || !result.ok) {
-        // AbortDoc, not EndDoc: StartDocW succeeded, so the spooler has an
-        // open job for this document that must be explicitly cancelled
-        // rather than left to finish (EndDoc) or just abandoned.
-        AbortDoc(hdc);
-        DeleteDC(hdc);
-        freeDlgHandles();
-        std::wstring msg = !printError.empty() ? printError : result.error;
-        if (msg.empty()) msg = L"Printing failed.";
-        MessageBoxW(owner, msg.c_str(), L"Print", MB_OK | MB_ICONERROR);
-        return;
-    }
-
-    if (EndDoc(hdc) <= 0) {
-        MessageBoxW(owner, L"Windows reported a problem finishing the print job - the document may not "
-                            L"have printed correctly.", L"Print", MB_OK | MB_ICONWARNING);
-    }
-    DeleteDC(hdc);
-    freeDlgHandles();
-
-    if (result.pageCapHit) {
-        MessageBoxW(owner, (L"This report has more than " + std::to_wstring(kReportMaxPages) +
-            L" pages. Only the first " + std::to_wstring(kReportMaxPages) +
-            L" were printed.").c_str(), L"Print", MB_OK | MB_ICONWARNING);
-    }
+    PrintBreakdownJob(owner, g_entries, debtorText, cashText);
 }
 
 // ---------------------------------------------------------------------------
