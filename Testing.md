@@ -231,6 +231,14 @@ Tick as you do them. Items marked (done) were confirmed by Jack in chat on the d
 - [ ] Rolling backup: edit, wait over 3 minutes, a new `backup_...fbd` appears in `backups\`; wait again without editing - no new file.
 - [ ] After any File > New / Open / Restore, the next edit marks the sheet unsaved again.
 
+## v0.12.10 checks (printing code moved)
+Nothing should have changed - these confirm it. Open a file with a few suppliers, then:
+1. File > Print Preview: the same pages as before (title, book summary, supplier column), Previous / Next work, Close closes.
+2. In the preview click Print..., pick "Microsoft Print to PDF": the PDF has the same pages.
+3. File > Print Breakdown (no preview first): same PDF.
+4. Cancel the Print dialog: nothing happens, no error.
+5. With no entries, Print Preview says "Nothing to preview yet." (not a blank page).
+
 ## v0.11.0 checks (Kgs sums)
 
 - [x] (done 2026-10-23, v0.11.0) Type `24+24+24` in Kgs, add: the list shows 72.0; Edit Selected shows `24+24+24` again; Update keeps it.

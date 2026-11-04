@@ -4,7 +4,7 @@ This is the current plan: where we are, what is next, what is not built, and wha
 (every version's test checklist, the 0.9.x status notes) is frozen in `ROADMAP_ARCHIVE.md`; version-by-version detail
 is in `CHANGELOG.md`; manual checks still to do are in `Testing.md`.
 
-## Where we are (v0.12.9, 2026-10-26)
+## Where we are (v0.12.10, 2026-11-05)
 
 The app is complete and in use for single-machine daily work: data entry, four report tabs, Finalize Day, autosave,
 rolling backups, restore, print/PDF (Breakdown tab), CSV export, supplier emails, outlier-price flagging, Books (v0.12.0: mark where each Debtor/Cash book starts, check per-book totals; v0.12.5: only `;` separates books in the Debtor/Cash boxes, with a hover tooltip; v0.12.6: double-click a Breakdown row to list the entries behind it), 287 portable
@@ -33,14 +33,15 @@ longer fails silently (0.10.15) and always opens in `backups\` (0.10.16); `*.fbd
 2. Jack works through the open manual checks in `Testing.md` ("Carried-over checks") so the app's verified state is on record (Finalize Day full pass is already confirmed, 2026-10-17).
 3. **WinUI 3 prototype (in progress, separate folder `FishBalanceWinUI`, not in this repo yet)** - Data Entry and Total Overview tabs, Open/Save/Save As, Finalize/Un-finalize with lock and banner, unusual-price flag, Different Date warning, Kgs sums, Enter-to-add, Books (build 5a: Book box + Start Book menu, Book column, multi-select with selected-rows total, Books table on Overview; needs the v0.12.2 core); reuses `src/core` and `src/data` unchanged. Build 5a. Approved by Jack; was: only with his go-ahead. Small, throwaway-able; reuses `src/core` and
    `src/data`. May make the stage 6c/6d work and the combo-box glitch (below) moot.
-4. **0.12.0-0.12.5 built, awaiting Jack's test: Books** (0.12.5: `;` is the only book separator + tooltip; if the `;` rule still confuses, the next step is Option B - a per-book "Figure" cell in the Books table, roughly a v0.13 change - or an "Other amounts (no book)" line) (Win32 + core; WinUI prototype next after sign-off). See CHANGELOG and Testing.md "v0.12.0 checks". Open follow-ups: type/rename book names by hand, Book column in CSV/print, books in WinUI, whether the layout of the Book box / Start Book button needs moving (Jack is thinking about it).
+4. **0.12.0-0.12.5 built, tested OK by Jack 2026-11-02 (Balanced screen with Cash/Debtor books; per-book Total Overview table and Save/Reopen/Finalize still to be confirmed): Books** (0.12.5: `;` is the only book separator + tooltip; if the `;` rule still confuses, the next step is Option B - a per-book "Figure" cell in the Books table, roughly a v0.13 change - or an "Other amounts (no book)" line) (Win32 + core; WinUI prototype next after sign-off). See CHANGELOG and Testing.md "v0.12.0 checks". Open follow-ups: type/rename book names by hand, Book column in CSV/print, books in WinUI, whether the layout of the Book box / Start Book button needs moving (Jack is thinking about it).
    0.11.0 done: Kgs can be typed as a sum and the sum is remembered** (Win32 + core; also in the WinUI prototype). Next feature candidates, none started (specs below): price history per species,
    cheapest-supplier highlight, print/PDF for the Overview and By Species tabs, filter on the summary tabs.
-4a. **0.12.8 built, awaiting Jack's page count: Breakdown print/PDF/preview with a Supplier column, fits 3 pages (Excel pivot print was 3, the app 4); GDI code not run on Windows.**
-4b. **0.12.6-0.12.9 built (0.12.6-0.12.8 tested OK by Jack): Breakdown drill-down** (0.12.7: the popup reports every failure; 0.12.9: click a header to sort, Esc closes - awaiting Jack's test) (Win32 + core): double-click a price row, species total row or supplier total row on
+4a. **0.12.8 done, tested OK by Jack: Breakdown print/PDF/preview with a Supplier column, fits 3 pages (Excel pivot print was 3, the app 4).**
+4b. **0.12.6-0.12.9 done, tested OK by Jack (2026-11-02): Breakdown drill-down** (0.12.7: the popup reports every failure; 0.12.9: click a header to sort, Esc closes) (Win32 + core): double-click a price row, species total row or supplier total row on
    the Breakdown tab for a read-only list (supplier, species, date, kgs, price, total) whose total matches the row. Still to do: the same on Total
-   Overview if wanted; the WinUI prototype has no Breakdown tab, so there is nothing to port yet; then WinUI step 5c (compact the Data Entry grid
-   to about 16 rows).
+   Overview if wanted. WinUI (separate project): 5c (compact Data Entry grid: row height 24, field labels moved into the boxes as placeholders +
+   tooltips; got 10 rows -> about 11-12, 16 would need a smaller list font or a tighter Reconciliation card) and the "unsaved changes right after Open"
+   fix are tested OK by Jack (2026-11-04); 6a (Breakdown tab with drill-down dialog, same core grouping/sort as Win32) built and tested OK by Jack; 6b (By Species tab) written, awaiting Jack's test; step 7 (File > Print Preview / Print Breakdown, using the shared v0.12.10 `PrintJob`/`ReportRender`) written, not compiled or seen - the WinUI project must add `src/services/ReportRender.cpp` and `PrintJob.cpp` (precompiled header OFF for both, link winspool.lib). WinUI still lacks (Jack's order, 2026-11-05): email suppliers, Manage Names, then CSV, backups/autosave, settings.
 5. **1.0** only when Jack decides it is ready for prime-time release.
 
 ## Not built yet
@@ -78,6 +79,8 @@ longer fails silently (0.10.15) and always opens in `backups\` (0.10.16); `*.fbd
   the split is being done first; Bucket C will be shaped by the split code rather than the other way round.
 - Finalize Day: workflow, rules and design are in `BUSINESS_RULES.md` and `CHANGELOG.md` `[0.9.40]` (built; not detection-based).
 - Outlier price flag: Tukey fences, IQR floor of 20% of the median, silent flag, live per species/day - see `CHANGELOG.md` `[0.9.19]`-`[0.9.23]`.
+
+- 2026-11-04: both apps stay. The Win32 app is the main app and the common denominator (WinUI 3 cannot run on Windows 7 or Server 2008 R2, and needs Windows 10 1809+). Whether the Windows 7 box and/or the 2008 R2 DC will run the app, or Postgres, is undecided ("might / might not"): keep Win7-kernel compatibility cheap (no Windows 10-only API without a fallback, e.g. POSIX rename needs the retry fallback) but do not test on Win7 until Jack decides. Features needed by every machine go into Win32 first; WinUI is an optional front end on 10/11 machines.
 
 ## Explicitly decided against (for now)
 
@@ -270,6 +273,26 @@ are the old numbers: item 3 = Finalize Day, item 7 = outlier warning, both built
     coherent answer needs to cover both together.
 
 ## Bucket C: multi-machine, encryption, shared hosting (designed 2026-09-05, not built)
+
+**Decisions on record, 2026-11-04 (price tracker / database):** the price tracker is the reason for the database. It is a **tab of its own ("5. Price Guide")**, not a flyout
+or a strip on Data Entry (a mockup that removed Data Entry controls was rejected; nothing may be removed from Data Entry). The database will be a **networked PostgreSQL**
+database from the start, NOT the per-machine SQLite replica in the old design (Jack is already migrating another project from SQLite to PostgreSQL and found it painful). This
+replaces item 6 of Bucket C. Rules carried over: the `.fbd` files stay the only source of truth; the database is derived and disposable (a Rebuild command re-reads every
+finalized day); entry, saving and Finalize Day must NEVER depend on the database being reachable (a failed ingest is queued and retried, never blocks Finalize); the
+single writer does the ingest, as one transaction per date (delete + insert), so it is repeatable. Open: where Postgres runs (it needs a Linux or similar box, not the
+2008 R2 DC), how Win32 talks to it (libpq with its DLLs beside the exe, or ODBC), how credentials are stored on each machine, and backups.
+
+**Decisions on record, 2026-11-02 (multi-machine):** Jack will go multi-machine "sooner rather than later". All clients run Windows 11 and
+authenticate against one domain controller, a Windows Server 2008 R2 box that stays as the DC (it is end-of-life, so it should NOT hold the
+data). Data goes on a separate, patched storage box (NAS, or a small Linux machine running Samba) joined to the domain; a Hyper-V Linux VM on the
+2008 R2 host was considered and advised against (the unpatched host stays exposed). Sequence: file locking with read-only fallback first, then
+the read-only UI, encryption, hosting in parallel, SQLite price history last. First task, DONE on Jack's PC (local NTFS, 8/8 passed, 2026-11-02): a throwaway test (`lockspike`, v2) of the writer lock (a separate `<file>.lock` held open
+with FILE_SHARE_READ) alongside the atomic save (temp file + rename) while readers poll. Results: a second writer is refused and the lock names its holder; readers
+never see a torn file; a killed writer's lock is released at once. FINDING: a plain rename over the file fails ("access denied") if ANY reader has it open at that moment,
+even one that shares delete. Two fixes both work: retry the rename every 20 ms for up to ~2 s (4 retries in 40 saves, worst wait 16 ms with 3 readers polling every 5 ms),
+and the Windows 10+ POSIX-semantics rename (replaces an open file). Plan for the app: try POSIX rename, fall back to retry. STILL TO TEST: the same selftest over a real
+network share (Windows-to-Windows SMB first, then the chosen NAS/Samba box), the POSIX rename over SMB, and how long a dead writer's lock lasts after a network drop. Open: the storage box choice, whether
+encryption is in the first multi-machine release, and the failure mode when the DC is down (new SMB sessions need it; local autosave must keep working).
 
 Full design, reasoning, and explicitly-rejected alternatives in
 **NETWORK_ARCHITECTURE.md** — this section is just the build sequence.

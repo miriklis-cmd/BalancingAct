@@ -15,6 +15,7 @@
 #include "../data/AppData.h"
 #include "../data/FishBalanceWin32IO.h"
 #include "../data/Storage.h"
+#include "../services/PrintJob.h"
 #include "../services/ReportRender.h"
 #include "ControlIds.h"
 #include "UiState.h"
@@ -153,60 +154,20 @@ void OpenPrintPreview(HWND owner) {
         return;
     }
 
-    // Size the preview to the default printer's page, so it's a realistic
-    // representation of what will actually print. If there's no default
-    // printer configured at all (e.g. a fresh machine with none installed),
-    // or getting its info fails, fall back to a generic Letter-sized page
-    // (the declaration defaults below) so preview still works.
-    int pageWidthPx = 850, pageHeightPx = 1100, dpiX = 100, dpiY = 100;
-    wchar_t printerName[256];
-    DWORD nameSize = 256;
-    if (GetDefaultPrinterW(printerName, &nameSize)) {
-        HDC icDC = CreateICW(L"WINSPOOL", printerName, nullptr, nullptr);
-        if (icDC) {
-            pageWidthPx = GetDeviceCaps(icDC, HORZRES);
-            pageHeightPx = GetDeviceCaps(icDC, VERTRES);
-            dpiX = GetDeviceCaps(icDC, LOGPIXELSX);
-            dpiY = GetDeviceCaps(icDC, LOGPIXELSY);
-            DeleteDC(icDC);
-        }
-    }
-
-    // The preview is only ever shown shrunk down to fit a small on-screen
-    // window (see `w` below), so rendering at the printer's full native DPI
-    // (often 600+) wastes enormous amounts of memory for zero visible
-    // benefit - a single 24-bit page at 600 DPI is roughly 100MB, and a
-    // multi-page report could reach several GB. Cap the PREVIEW's DPI
-    // (only the preview - PrintBreakdownReport() still uses the real
-    // printer DPI for actual print quality) while scaling the pixel
-    // dimensions down to match, so the real printer's page proportions
-    // (Letter/A4/etc) are still preserved exactly, just at a screen-
-    // appropriate resolution.
-    const int kPreviewDpiCap = 150;
-    int previewDpiX = std::min(dpiX, kPreviewDpiCap);
-    int previewDpiY = std::min(dpiY, kPreviewDpiCap);
-    int previewWidthPx = MulDiv(pageWidthPx, previewDpiX, dpiX);
-    int previewHeightPx = MulDiv(pageHeightPx, previewDpiY, dpiY);
-
-    // Phase 2 / F10 (2026-10-02): sanity-check the page size/DPI up front -
-    // does even a SINGLE page at this resolution fit at all (dimensions in
-    // range, and not so large that one page alone blows the per-page
-    // ceiling)? The actual TOTAL-memory bound across every page is enforced
-    // progressively inside RenderReportPages itself, based on the real
-    // per-page byte size - see its comment - rather than pre-checked here
-    // against the worst-case page count, which would wrongly refuse an
-    // ordinary, legitimate multi-page report.
+    // Page size comes from the default printer (capped DPI, validated) - shared with the WinUI prototype.
+    PreviewPageSpec spec;
     std::wstring budgetError;
-    if (!ValidateReportPageDimensions(previewWidthPx, previewHeightPx, previewDpiX, previewDpiY, &budgetError) ||
-        !PreviewBudgetAllows(previewWidthPx, previewHeightPx, 1, &budgetError)) {
+    if (!GetPreviewPageSpec(spec, &budgetError)) {
         MessageBoxW(owner, budgetError.c_str(), L"Print Preview", MB_OK | MB_ICONERROR);
         return;
     }
+    const int previewWidthPx = spec.widthPx, previewHeightPx = spec.heightPx;
+    const int previewDpiX = spec.dpiX, previewDpiY = spec.dpiY;
 
     FreeRenderedPages(g_previewPages);
     std::wstring debtorText, cashText;
     GetDebtorCashText(debtorText, cashText);
-    RenderReportResult result = RenderReportPages(previewWidthPx, previewHeightPx, previewDpiX, previewDpiY, debtorText, cashText);
+    RenderReportResult result = RenderReportPages(g_entries, previewWidthPx, previewHeightPx, previewDpiX, previewDpiY, debtorText, cashText);
     g_previewPageIndex = 0;
 
     if (!result.ok) {

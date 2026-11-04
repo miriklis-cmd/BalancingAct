@@ -24,6 +24,7 @@ set(APP_SOURCES
     src/services/CsvExport.cpp
     src/services/Email.cpp
     src/services/ReportRender.cpp
+    src/services/PrintJob.cpp
     src/forms/UiState.cpp
     src/forms/MainWindowLayout.cpp
     src/forms/MainWindowLists.cpp

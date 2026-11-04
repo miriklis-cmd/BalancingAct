@@ -20,7 +20,7 @@ layer header) rather than `<windows.h>` itself.
 
 Storage (`data/Storage`): exe-folder paths, settings, recent-files and supplier-email files, backup pruning.
 
-Services (`services/`): `CsvExport` (CSV report), `Email` (supplier price email via mailto:). `ReportRender` (Breakdown report to bitmaps, shared by Print Preview and printing).
+Services (`services/`): `CsvExport` (CSV report), `Email` (supplier price email via mailto:). `ReportRender` (Breakdown report to bitmaps, shared by Print Preview and printing), `PrintJob` (the print job and the preview page size; entries and Debtor/Cash text are parameters, so the WinUI prototype shares it).
 
 Popups (`forms/ManageNamesWindow`, `forms/PrintPreviewWindow`, `forms/DrillDownWindow`): the Manage Names, Print Preview and Breakdown drill-down (v0.12.6) windows. `forms/MainWindowApi.h` lists what the main window (still in `main.cpp`) provides to them.
 

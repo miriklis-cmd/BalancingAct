@@ -16,7 +16,22 @@ Decided with Jack 2026-10-14: the `main.cpp` split is **0.10.0**, and every upda
 for prime time (released).
 
 ## [Unreleased]
+
+- WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
+
+## [0.12.10] - Printing code made shareable (no change you should see)
+
+Prepares the WinUI prototype's File > Print Preview / Print Breakdown, which run the SAME code as the Win32 app.
+- `RenderReportPages` now takes the entries as a parameter instead of reading the `g_entries` global, and `ReportRender.cpp` no longer includes
+  `AppData.h`.
+- New `src/services/PrintJob.cpp/.h`: `PrintBreakdownJob` (the print job, moved unchanged out of `main.cpp`; the Debtor/Cash text and entries are
+  parameters) and `GetPreviewPageSpec` (the default printer's page size at the capped preview DPI, moved out of `OpenPrintPreview`).
+  `PrintBreakdownReport` in `main.cpp` and `OpenPrintPreview` are now thin callers. Added to all four build lists.
+- Nothing should look or behave differently in the Win32 app: Print Preview and Print Breakdown must still work exactly as before.
+- Checked: strict MinGW build (`-Wall -Wextra -Wpedantic -Werror`, nothing suppressed) of the whole app; `ReportRender.o` and `PrintJob.o` have no
+  undefined `g_` symbols. Not checked: MSVC `/W4 /WX`, an actual print or preview (no printer/screen here).
+- WinUI prototype (not part of the Win32 build): step 7 adds File > Print Preview... and File > Print Breakdown... (Ctrl+P).
 
 ## [0.12.9] - Drill-down: click a column header to sort; Esc closes it
 
