@@ -2,6 +2,8 @@
 // Moved unchanged out of main.cpp in v0.12.10 except that the entries and the Debtor/Cash text are passed in.
 #include "PrintJob.h"
 
+#include <commdlg.h>   // PrintDlgW (explicit: some projects define WIN32_LEAN_AND_MEAN)
+#include <winspool.h>  // GetDefaultPrinterW
 #include <algorithm>
 #include <string>
 
