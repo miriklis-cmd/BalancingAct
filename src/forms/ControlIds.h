@@ -18,6 +18,7 @@ enum {
     // Manage Names popup window controls
     ID_MNG_RADIO_SUPPLIER = 400, ID_MNG_RADIO_SPECIES, ID_MNG_LIST, ID_MNG_NAME_EDIT, ID_MNG_RENAME, ID_MNG_CLOSE,
     ID_MNG_EMAIL_EDIT, ID_MNG_EMAIL_SAVE, ID_MNG_DUP_TICK, ID_MNG_MERGE, ID_MNG_LISTBTN, ID_MNG_UNDO, // v0.13.0
+    ID_MNG_ALIAS_EDIT, ID_MNG_ALIAS_ADD, ID_MNG_ALIAS_REMOVE, // v0.14.0
     // Print Preview popup window controls
     ID_PREVIEW_PREV = 500, ID_PREVIEW_NEXT, ID_PREVIEW_PRINT, ID_PREVIEW_CLOSE,
     // Finalize Day date-prompt popup window controls

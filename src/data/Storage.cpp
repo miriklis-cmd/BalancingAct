@@ -70,12 +70,43 @@ std::wstring GetExeDir() {
     return (pos == std::wstring::npos) ? L"." : p.substr(0, pos);
 }
 
+// v0.14.0: autosave.fbd, backups\ and history\ now live in the shared data folder too (Program Files is not
+// writable). Anything still beside the exe is MOVED across once per run; moved files are gone from the old place,
+// so a deleted autosave can never be "recovered" again from a stale copy. Does nothing when both folders are the same.
+static void MigrateWritableDataOnce() {
+    static bool done = false;
+    if (done) return;
+    done = true;
+    const std::wstring shared = GetSharedDataDir();
+    const std::wstring old = GetExeDir();
+    if (_wcsicmp(shared.c_str(), old.c_str()) == 0) return;
+    MoveFileExW((old + L"\\autosave.fbd").c_str(), (shared + L"\\autosave.fbd").c_str(), MOVEFILE_COPY_ALLOWED);
+    const wchar_t* const subs[] = { L"backups", L"history" };
+    for (const wchar_t* sub : subs) {
+        const std::wstring from = old + L"\\" + sub;
+        const std::wstring to = shared + L"\\" + sub;
+        WIN32_FIND_DATAW fd{};
+        HANDLE h = FindFirstFileW((from + L"\\*.fbd").c_str(), &fd);
+        if (h == INVALID_HANDLE_VALUE) continue;
+        CreateDirectoryW(to.c_str(), nullptr);
+        do {
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+            const std::wstring dest = to + L"\\" + fd.cFileName;
+            if (GetFileAttributesW(dest.c_str()) != INVALID_FILE_ATTRIBUTES) continue; // never overwrite
+            MoveFileExW((from + L"\\" + fd.cFileName).c_str(), dest.c_str(), MOVEFILE_COPY_ALLOWED);
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+        RemoveDirectoryW(from.c_str()); // only succeeds if now empty
+    }
+}
+
 // Phase 1 / F1 follow-up (2026-09-30, post-review): the single canonical
 // path for autosave.fbd, so BuildFbdSaveContent()/SaveToFile() can tell
 // whether a given save IS the autosave write without duplicating this
 // string construction at every call site.
 std::wstring AutosavePath() {
-    return GetExeDir() + L"\\autosave.fbd";
+    MigrateWritableDataOnce();
+    return GetSharedDataDir() + L"\\autosave.fbd";
 }
 
 std::wstring SettingsPath() { return GetSharedDataDir() + L"\\settings.txt"; }
@@ -215,13 +246,13 @@ bool AddSheetNamesToMaster(const std::wstring& dateISO) {
     return changed;
 }
 
-std::wstring BackupDir() { return GetExeDir() + L"\\backups"; }
+std::wstring BackupDir() { MigrateWritableDataOnce(); return GetSharedDataDir() + L"\\backups"; }
 
 // Finalize Day (ROADMAP.md item 3) locked-in snapshots, one per business
 // day, named <date>.fbd (e.g. 2026-09-20.fbd). A separate folder from
 // backups\ - these are deliberate, permanent records, not rolling/pruned
 // safety-net copies.
-std::wstring HistoryDir() { return GetExeDir() + L"\\history"; }
+std::wstring HistoryDir() { MigrateWritableDataOnce(); return GetSharedDataDir() + L"\\history"; }
 
 // Deletes the oldest backup snapshots once there are more than kMaxBackups
 // of them. Filenames embed a sortable YYYYMMDD_HHMMSS timestamp (see

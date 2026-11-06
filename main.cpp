@@ -1649,7 +1649,7 @@ void DoAbout() {
         L"will look before printing, with Next/Previous page navigation. Click 'Print...' from there, "
         L"or use File > Print Breakdown... directly, to print the report. Choose the 'Microsoft Print "
         L"to PDF' printer in that dialog to save it as a PDF file instead.\n\n"
-        L"Data is auto-saved next to the .exe as autosave.fbd, and the title bar shows which named "
+        L"Data is auto-saved in C:\\BalancingAct\\data as autosave.fbd, and the title bar shows which named "
         L"file (if any) is currently open. Use File > Save As... to keep a permanent copy you can "
         L"refer back to later, and File > Open... to load it again (File > Recent Files remembers "
         L"your last few).\n\n"
@@ -2057,11 +2057,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (autosaveExists && !LoadFromFile(autosavePath, &loadErr)) {
                 autosaveLoadFailed = true;
                 MessageBoxW(hwnd,
-                    (L"The autosave file next to this program (autosave.fbd) could not be read: " +
+                    (L"The autosave file (autosave.fbd in C:\\BalancingAct\\data) could not be read: " +
                      loadErr +
                      L".\n\nTo avoid losing that data, it has NOT been overwritten. This session is "
                      L"starting with a blank sheet instead. The unreadable autosave.fbd is still "
-                     L"in this program's folder - make a copy of it before doing anything else if "
+                     L"in that folder - make a copy of it before doing anything else if "
                      L"you need help recovering the data in it.").c_str(),
                     L"Autosave Could Not Be Loaded", MB_OK | MB_ICONWARNING);
             }
@@ -2349,12 +2349,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // (disk I/O frequency, not string-building cost, is the real
         // driver of the write cost this avoids).
         case ID_CMB_SUPPLIER:
-            if (code == CBN_EDITCHANGE) ComboAutoComplete(hCmbSupplier, g_prevSupplierLen);
-            if (code == CBN_KILLFOCUS) AutosaveNow(); // persist the in-progress draft - see SaveToFile's DRAFT_* fields
+            if (code == CBN_EDITCHANGE) { ComboAutoComplete(hCmbSupplier, g_prevSupplierLen); ShowNameHint(hCmbSupplier); }
+            if (code == CBN_KILLFOCUS) { SnapComboToList(hCmbSupplier, g_prevSupplierLen); AutosaveNow(); } // persist the in-progress draft - see SaveToFile's DRAFT_* fields
             return 0;
         case ID_CMB_PRODUCT:
-            if (code == CBN_EDITCHANGE) ComboAutoComplete(hCmbProduct, g_prevProductLen);
-            if (code == CBN_KILLFOCUS) AutosaveNow();
+            if (code == CBN_EDITCHANGE) { ComboAutoComplete(hCmbProduct, g_prevProductLen); ShowNameHint(hCmbProduct); }
+            if (code == CBN_KILLFOCUS) { SnapComboToList(hCmbProduct, g_prevProductLen); AutosaveNow(); }
             return 0;
         case ID_EDIT_KGS:
         case ID_EDIT_PRICE:

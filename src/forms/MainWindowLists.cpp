@@ -71,17 +71,23 @@ void ComboAutoComplete(HWND combo, int& prevLen) {
     SendMessageW(combo, CB_GETEDITSEL, (WPARAM)&selStart, (LPARAM)&selEnd);
     if ((int)selEnd != curLen) return;
 
+    std::wstring fullText;
     LRESULT idx = SendMessageW(combo, CB_FINDSTRING, (WPARAM)-1, (LPARAM)text.c_str());
-    if (idx == CB_ERR) return;
-
-    // CB_GETLBTEXT has no length-limiting parameter - it writes exactly as
-    // much as the item's text needs, so the buffer must be sized to fit via
-    // CB_GETLBTEXTLEN first rather than assumed to fit some fixed size.
-    LRESULT fullLen = SendMessageW(combo, CB_GETLBTEXTLEN, (WPARAM)idx, 0);
-    if (fullLen == CB_ERR || fullLen <= 0) return;
-    std::vector<wchar_t> fullBuf((size_t)fullLen + 1);
-    if (SendMessageW(combo, CB_GETLBTEXT, (WPARAM)idx, (LPARAM)fullBuf.data()) == CB_ERR) return;
-    std::wstring fullText(fullBuf.data());
+    if (idx != CB_ERR) {
+        // CB_GETLBTEXT has no length-limiting parameter - it writes exactly as
+        // much as the item's text needs, so the buffer must be sized to fit via
+        // CB_GETLBTEXTLEN first rather than assumed to fit some fixed size.
+        LRESULT fullLen = SendMessageW(combo, CB_GETLBTEXTLEN, (WPARAM)idx, 0);
+        if (fullLen == CB_ERR || fullLen <= 0) return;
+        std::vector<wchar_t> fullBuf((size_t)fullLen + 1);
+        if (SendMessageW(combo, CB_GETLBTEXT, (WPARAM)idx, (LPARAM)fullBuf.data()) == CB_ERR) return;
+        fullText = fullBuf.data();
+    } else {
+        // v0.13.3: nothing in the list starts with this, but an ALIAS might ("Blk flat" -> "Blk Flathead").
+        // Complete to the alias text; leaving the box (or Add) turns an exact alias into the real name.
+        const NameList& list = (combo == hCmbSupplier) ? g_nameMaster.suppliers : g_nameMaster.species;
+        fullText = FindAliasStartingWith(list, text);
+    }
     if (fullText.size() <= text.size()) return;
 
     g_acBusy = true;
@@ -93,6 +99,50 @@ void ComboAutoComplete(HWND combo, int& prevLen) {
     // otherwise the next keystroke looks like a deletion and autocomplete
     // stops re-triggering (e.g. typing "J" then "e" to disambiguate between
     // "Jcasement" and "Jenkins").
+}
+
+// v0.13.3: when a Supplier / Species box loses focus, an exact alias ("Blk Flathead") or a case/spacing variant
+// is replaced by the list's real name, so the person SEES what will be stored. Near matches are not touched here -
+// they are asked about when the entry is added.
+static bool g_nameHintShown = false;
+
+// Status bar (part 3): tells the person when what they typed is another spelling of a listed name.
+static void SetNameHint(const std::wstring& text) {
+    if (!hStatusBar) return;
+    if (text.empty() && !g_nameHintShown) return;
+    SendMessageW(hStatusBar, SB_SETTEXT, 2, (LPARAM)text.c_str());
+    g_nameHintShown = !text.empty();
+}
+
+void ShowNameHint(HWND combo) {
+    wchar_t buf[256];
+    GetWindowTextW(combo, buf, 256);
+    const std::wstring typed = CollapseNameSpaces(buf);
+    const NameList& list = (combo == hCmbSupplier) ? g_nameMaster.suppliers : g_nameMaster.species;
+    if (!typed.empty()) {
+        const NameResolution r = ResolveName(list, typed);
+        if (r.kind == NameMatch::Alias) {
+            SetNameHint(L"\"" + typed + L"\" is another name for \"" + r.name + L"\"");
+            return;
+        }
+    }
+    SetNameHint(L"");
+}
+
+void SnapComboToList(HWND combo, int& prevLen) {
+    wchar_t buf[256];
+    GetWindowTextW(combo, buf, 256);
+    const std::wstring typed = CollapseNameSpaces(buf);
+    if (typed.empty()) return;
+    const NameList& list = (combo == hCmbSupplier) ? g_nameMaster.suppliers : g_nameMaster.species;
+    const NameResolution r = ResolveName(list, typed);
+    if ((r.kind == NameMatch::Alias || r.kind == NameMatch::Snapped) && r.name != buf) {
+        g_acBusy = true;
+        SetWindowTextW(combo, r.name.c_str());
+        g_acBusy = false;
+        prevLen = (int)r.name.size();
+        if (r.kind == NameMatch::Alias) SetNameHint(L"\"" + typed + L"\" changed to \"" + r.name + L"\"");
+    }
 }
 
 void RefreshEntriesList() {

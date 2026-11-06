@@ -6,6 +6,8 @@
 
 void RefreshCombos();
 void ComboAutoComplete(HWND combo, int& prevLen);
+void SnapComboToList(HWND combo, int& prevLen);
+void ShowNameHint(HWND combo);
 void RefreshEntriesList();
 void SortEntriesBy(int col);
 void RecalcTotals();
