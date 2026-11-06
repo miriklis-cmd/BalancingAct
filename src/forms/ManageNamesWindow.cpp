@@ -301,8 +301,10 @@ typedef HRESULT(WINAPI* TaskDialogIndirectFn)(const TASKDIALOGCONFIG*, int*, int
 // Returns the index (into `names`) of the name to keep, or -1 for Cancel. Uses a Task Dialog with one radio button
 // per name where available (needs the comctl32 v6 manifest, Vista or later); otherwise - or with many names - a
 // plain Yes/No question about the most-used name.
+// `listMerge` (in/out): the "also merge them in the list" tick box. Unticked = only fix the entries on this sheet and
+// leave the names in the master list alone (right when a real name was simply typed by mistake).
 int ChooseKeepName(HWND owner, const std::vector<std::wstring>& names, const std::vector<int>& counts, int defaultIdx,
-                   const std::wstring& extra) {
+                   const std::wstring& extra, bool& listMerge) {
     int total = 0;
     for (int c : counts) total += c;
 
@@ -330,13 +332,15 @@ int ChooseKeepName(HWND owner, const std::vector<std::wstring>& names, const std
         buttons[1].pszButtonText = L"Cancel";
 
         const std::wstring instruction = L"Merge " + std::to_wstring(names.size()) + L" names into one?";
-        const std::wstring content = L"Choose the name to keep. The others are replaced everywhere they appear, "
-                                     L"and the old spellings are corrected automatically from now on." +
+        const std::wstring content = L"Choose the name to keep. Entries on this sheet using the other names are changed "
+                                     L"to it." +
                                      (extra.empty() ? std::wstring() : L"\n\n" + extra);
         TASKDIALOGCONFIG cfg{};
         cfg.cbSize = sizeof(cfg);
         cfg.hwndParent = owner;
-        cfg.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION;
+        cfg.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | (listMerge ? TDF_VERIFICATION_FLAG_CHECKED : 0);
+        cfg.pszVerificationText = L"They are the same thing spelled differently: also remove the other names from the list "
+                                  L"and correct them automatically from now on";
         cfg.pszWindowTitle = L"Merge Names";
         cfg.pszMainInstruction = instruction.c_str();
         cfg.pszContent = content.c_str();
@@ -347,8 +351,10 @@ int ChooseKeepName(HWND owner, const std::vector<std::wstring>& names, const std
         cfg.pRadioButtons = radios.data();
         cfg.nDefaultRadioButton = kRadioBase + defaultIdx;
         int button = 0, radio = 0;
-        if (SUCCEEDED(fn(&cfg, &button, &radio, nullptr))) {
+        BOOL verified = listMerge ? TRUE : FALSE;
+        if (SUCCEEDED(fn(&cfg, &button, &radio, &verified))) {
             if (button != IDOK) return -1;
+            listMerge = verified ? true : false;
             const int idx = radio - kRadioBase;
             return (idx >= 0 && idx < (int)names.size()) ? idx : defaultIdx;
         }
@@ -375,13 +381,15 @@ void TakeUndoSnapshot() {
 }
 
 // Folds `sources` into `target` on the open sheet, in the master list and (suppliers) in the email list.
-void ExecuteMerge(const std::vector<std::wstring>& sources, const std::wstring& target, bool isRename = false) {
+// `alsoList` false = fix the entries only: the names stay in the list, no alias is recorded, emails are untouched.
+void ExecuteMerge(const std::vector<std::wstring>& sources, const std::wstring& target, bool isRename = false,
+                  bool alsoList = true) {
     TakeUndoSnapshot();
 
     // Email: the kept supplier's own address wins; if it has none, the first address found on the others.
     bool emailsChanged = false;
     std::wstring keptEmail;
-    if (g_isSupplier) {
+    if (g_isSupplier && alsoList) {
         auto t = g_supplierEmails.find(target);
         if (t != g_supplierEmails.end()) keptEmail = t->second;
         for (const std::wstring& s : sources) {
@@ -408,7 +416,8 @@ void ExecuteMerge(const std::vector<std::wstring>& sources, const std::wstring& 
         }
     }
 
-    NameListMerge(CurrentList(), sources, target, TodayISO());
+    if (alsoList) NameListMerge(CurrentList(), sources, target, TodayISO());
+    else NameListAdd(CurrentList(), target, TodayISO()); // the kept name must be in the list (no-op if it is)
     const bool masterSaved = SaveNameMaster();
     const bool emailsSaved = emailsChanged ? SaveSupplierEmails() : true;
 
@@ -419,7 +428,10 @@ void ExecuteMerge(const std::vector<std::wstring>& sources, const std::wstring& 
     RefreshAll();
     PopulateList(target);
 
-    std::wstring status = isRename
+    std::wstring status = !alsoList
+        ? L"Changed " + std::to_wstring(changed) + (changed == 1 ? L" entry" : L" entries") + L" to \"" + target +
+          L"\". The other names are still in the list."
+        : isRename
         ? L"Renamed \"" + sources[0] + L"\" to \"" + target + L"\". " + EntriesText(changed) + L" updated."
         : L"Merged " + std::to_wstring(sources.size()) + L" names into \"" + target + L"\". " + EntriesText(changed) + L" updated.";
     SetStatus(status);
@@ -460,9 +472,16 @@ void DoMergeTicked() {
                     L"change it afterwards.";
         }
     }
-    const int keep = ChooseKeepName(g_hManageWnd, names, counts, best, extra);
+    // Default for the tick box: ticked unless two or more of the names are genuinely different names in the list
+    // (capitals/spacing/punctuation ignored) - then it is most likely a real name typed by mistake, so only the entries
+    // are fixed. A name that is not in the list at all (a stray typo from this sheet) never prevents the tick.
+    bool listMerge = true;
+    for (int ri : ticked) {
+        if (g_rows[ri].inMaster && NameKey(g_rows[ri].name) != NameKey(g_rows[ticked[0]].name)) listMerge = false;
+    }
+    const int keep = ChooseKeepName(g_hManageWnd, names, counts, best, extra, listMerge);
     if (keep < 0) return; // cancelled - nothing has changed
-    ExecuteMerge(names, names[keep]);
+    ExecuteMerge(names, names[keep], false, listMerge);
 }
 
 void DoTickDuplicates() {

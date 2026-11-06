@@ -20,6 +20,11 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.14.2] - 2026-11-07
+
+### Changed
+- Merge ticked now has a tick box: "They are the same thing spelled differently: also remove the other names from the list and correct them automatically". Unticked, only the entries on this sheet are changed - the other names stay in the master list, no alias is recorded and emails are left alone (for a real species/supplier typed by mistake). It starts ticked only when the names are spellings of each other (or the others are not in the list); otherwise unticked. Rename is unchanged.
+
 ## [0.14.1] - 2026-11-07
 
 ### Fixed
