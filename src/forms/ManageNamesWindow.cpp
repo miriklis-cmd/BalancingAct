@@ -215,6 +215,13 @@ void RefreshControls() {
 
     // Aliases: only for a name that is in the list. Add needs a typed alias; Remove needs a name that has aliases.
     const bool aliasOk = sel >= 0 && g_rows[sel].inMaster;
+    SendMessageW(g_hAliasEdit, CB_RESETCONTENT, 0, 0);
+    SetWindowTextW(g_hAliasEdit, L"");
+    if (aliasOk) {
+        for (const std::wstring& a : AliasesOf(CurrentList(), g_rows[sel].name)) {
+            SendMessageW(g_hAliasEdit, CB_ADDSTRING, 0, (LPARAM)a.c_str());
+        }
+    }
     EnableWindow(g_hAliasEdit, aliasOk ? TRUE : FALSE);
     EnableWindow(g_hAliasAddBtn, aliasOk ? TRUE : FALSE);
     EnableWindow(g_hAliasRemBtn, (aliasOk && !g_rows[sel].aliases.empty()) ? TRUE : FALSE);
@@ -611,7 +618,7 @@ void DoRemoveAlias() {
     std::wstring target;
     if (typed.empty()) {
         if (mine.size() == 1) target = mine[0];
-        else { SetStatus(L"Type which one to remove (" + g_rows[sel].aliases + L")."); return; }
+        else { SetStatus(L"Pick which one to remove from the drop-down box (" + g_rows[sel].aliases + L")."); return; }
     } else {
         for (const std::wstring& a : mine) {
             if (NameKey(a) == NameKey(typed)) target = a;
@@ -661,9 +668,8 @@ LRESULT CALLBACK ManageChildSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         if (msg == WM_KEYDOWN) {
             if (id == ID_MNG_NAME_EDIT) PostMessageW(GetParent(hwnd), WM_COMMAND, MAKEWPARAM(ID_MNG_RENAME, BN_CLICKED), (LPARAM)g_hRenameBtn);
             if (id == ID_MNG_EMAIL_EDIT) PostMessageW(GetParent(hwnd), WM_COMMAND, MAKEWPARAM(ID_MNG_EMAIL_SAVE, BN_CLICKED), (LPARAM)g_hEmailBtn);
-            if (id == ID_MNG_ALIAS_EDIT) PostMessageW(GetParent(hwnd), WM_COMMAND, MAKEWPARAM(ID_MNG_ALIAS_ADD, BN_CLICKED), (LPARAM)g_hAliasAddBtn);
         }
-        if (id == ID_MNG_NAME_EDIT || id == ID_MNG_EMAIL_EDIT || id == ID_MNG_ALIAS_EDIT) return 0; // swallow the Enter so there is no beep
+        if (id == ID_MNG_NAME_EDIT || id == ID_MNG_EMAIL_EDIT) return 0; // swallow the Enter so there is no beep
     }
     if (msg == WM_NCDESTROY) RemoveWindowSubclass(hwnd, ManageChildSubclassProc, 1);
     return DefSubclassProc(hwnd, msg, wParam, lParam);
@@ -691,8 +697,9 @@ LRESULT CALLBACK ManageWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         g_hEmailLbl = MakeControl(L"STATIC", L"Email:", WS_VISIBLE, 0, hwnd);
         g_hEmailEdit = MakeControl(L"EDIT", L"", WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, ID_MNG_EMAIL_EDIT, hwnd);
         g_hEmailBtn = MakeControl(L"BUTTON", L"Save Email", WS_VISIBLE | WS_TABSTOP, ID_MNG_EMAIL_SAVE, hwnd);
-        g_hAliasLbl = MakeControl(L"STATIC", L"Also known as:", WS_VISIBLE, 0, hwnd);
-        g_hAliasEdit = MakeControl(L"EDIT", L"", WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, ID_MNG_ALIAS_EDIT, hwnd);
+        g_hAliasLbl = MakeControl(L"STATIC", L"Also known as:", WS_VISIBLE | SS_NOPREFIX, 0, hwnd);
+        // A drop-down box: pick one of the name's existing aliases (to remove it) or type a new one (to add it).
+        g_hAliasEdit = MakeControl(L"COMBOBOX", L"", WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWN | CBS_AUTOHSCROLL, ID_MNG_ALIAS_EDIT, hwnd);
         g_hAliasAddBtn = MakeControl(L"BUTTON", L"Add alias", WS_VISIBLE | WS_TABSTOP, ID_MNG_ALIAS_ADD, hwnd);
         g_hAliasRemBtn = MakeControl(L"BUTTON", L"Remove alias", WS_VISIBLE | WS_TABSTOP, ID_MNG_ALIAS_REMOVE, hwnd);
         g_hStatus = MakeControl(L"STATIC", L"", WS_VISIBLE | SS_NOPREFIX | SS_ENDELLIPSIS, 0, hwnd);
@@ -710,7 +717,7 @@ LRESULT CALLBACK ManageWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
             FieldLengthLimitTargets limits;
             limits.manageTargetEdit = g_hNameEdit;
             limits.manageEmailEdit = g_hEmailEdit;
-            SendMessageW(g_hAliasEdit, EM_LIMITTEXT, (WPARAM)kMaxSupplierSpeciesLength, 0);
+            SendMessageW(g_hAliasEdit, CB_LIMITTEXT, (WPARAM)kMaxSupplierSpeciesLength, 0);
             ApplyFieldLengthLimits(limits);
         }
 
@@ -724,7 +731,6 @@ LRESULT CALLBACK ManageWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         SetWindowSubclass(g_hList, ManageChildSubclassProc, 1, 0);
         SetWindowSubclass(g_hNameEdit, ManageChildSubclassProc, 1, 0);
         SetWindowSubclass(g_hEmailEdit, ManageChildSubclassProc, 1, 0);
-        SetWindowSubclass(g_hAliasEdit, ManageChildSubclassProc, 1, 0);
         SetWindowSubclass(g_hCloseBtn, ManageChildSubclassProc, 1, 0);
 
         g_isSupplier = true;
@@ -753,16 +759,16 @@ LRESULT CALLBACK ManageWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         MoveWindow(g_hNameLbl, S(15), y1 + S(3), S(50), S(22), TRUE);
         MoveWindow(g_hListBtn, btnRight - S(120), y1 - S(1), S(120), S(28), TRUE);
         MoveWindow(g_hRenameBtn, btnRight - S(120) - S(8) - S(85), y1 - S(1), S(85), S(28), TRUE);
-        MoveWindow(g_hNameEdit, S(70), y1, btnRight - S(120) - S(8) - S(85) - S(8) - S(70), S(24), TRUE);
+        MoveWindow(g_hNameEdit, S(115), y1, btnRight - S(120) - S(8) - S(85) - S(8) - S(115), S(24), TRUE);
         const int y2 = y1 + S(38);
         MoveWindow(g_hEmailLbl, S(15), y2 + S(3), S(50), S(22), TRUE);
         MoveWindow(g_hEmailBtn, btnRight - S(120), y2 - S(1), S(120), S(28), TRUE);
-        MoveWindow(g_hEmailEdit, S(70), y2, btnRight - S(120) - S(8) - S(70), S(24), TRUE);
+        MoveWindow(g_hEmailEdit, S(115), y2, btnRight - S(120) - S(8) - S(115), S(24), TRUE);
         const int y3 = y2 + S(38);
-        MoveWindow(g_hAliasLbl, S(15), y3 + S(3), S(55), S(22), TRUE);
+        MoveWindow(g_hAliasLbl, S(15), y3 + S(3), S(100), S(22), TRUE);
         MoveWindow(g_hAliasRemBtn, btnRight - S(120), y3 - S(1), S(120), S(28), TRUE);
         MoveWindow(g_hAliasAddBtn, btnRight - S(120) - S(8) - S(85), y3 - S(1), S(85), S(28), TRUE);
-        MoveWindow(g_hAliasEdit, S(70), y3, btnRight - S(120) - S(8) - S(85) - S(8) - S(70), S(24), TRUE);
+        MoveWindow(g_hAliasEdit, S(115), y3, btnRight - S(120) - S(8) - S(85) - S(8) - S(115), S(220), TRUE); // height = dropdown list
 
         MoveWindow(g_hStatus, S(15), rc.bottom - S(46), w - S(30) - S(190), S(22), TRUE);
         MoveWindow(g_hUndoBtn, w - S(15) - S(85) - S(8) - S(85), rc.bottom - S(50), S(85), S(30), TRUE);
