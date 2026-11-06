@@ -93,6 +93,49 @@ inline bool NameListAdd(NameList& list, const std::wstring& name, const std::wst
     return true;
 }
 
+// v0.14.0: alias editing from Manage Names.
+enum class AliasAddResult { Added, Empty, SameAsName, IsAName, NoSuchName };
+
+// Makes `alias` another spelling of `canonical`. Refuses an empty alias, one that is just the name again (same key),
+// or one that is already a real name in the list (merge those instead). An existing alias with the same key is
+// replaced, so this also re-points an alias.
+inline AliasAddResult NameListAddAlias(NameList& list, const std::wstring& aliasText, const std::wstring& canonical) {
+    const std::wstring alias = CollapseNameSpaces(aliasText);
+    const std::wstring key = NameKey(alias);
+    if (key.empty()) return AliasAddResult::Empty;
+    if (!NameListHas(list, canonical)) return AliasAddResult::NoSuchName;
+    if (key == NameKey(canonical)) return AliasAddResult::SameAsName;
+    for (const std::wstring& n : list.names) {
+        if (NameKey(n) == key) return AliasAddResult::IsAName;
+    }
+    for (auto it = list.aliases.begin(); it != list.aliases.end();) {
+        if (NameKey(it->first) == key) it = list.aliases.erase(it); else ++it;
+    }
+    list.aliases[alias] = canonical;
+    return AliasAddResult::Added;
+}
+
+// Removes the alias with this spelling (compared by key). Returns true if one was removed.
+inline bool NameListRemoveAlias(NameList& list, const std::wstring& aliasText) {
+    const std::wstring key = NameKey(aliasText);
+    bool removed = false;
+    for (auto it = list.aliases.begin(); it != list.aliases.end();) {
+        if (!key.empty() && NameKey(it->first) == key) { it = list.aliases.erase(it); removed = true; }
+        else ++it;
+    }
+    return removed;
+}
+
+// The aliases that point at `canonical`, in alphabetical order.
+inline std::vector<std::wstring> AliasesOf(const NameList& list, const std::wstring& canonical) {
+    std::vector<std::wstring> out;
+    for (const auto& kv : list.aliases) {
+        if (kv.second == canonical) out.push_back(kv.first);
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
 // Removes a canonical name and any alias that pointed at it.
 inline void NameListRemove(NameList& list, const std::wstring& name) {
     list.names.erase(std::remove(list.names.begin(), list.names.end(), name), list.names.end());
@@ -139,6 +182,7 @@ struct NameResolution {
     NameMatch kind = NameMatch::New;
     std::wstring name;                // what to use (the cleaned input for Near/New/Exact)
     std::vector<std::wstring> similar;   // Near only: the closest existing names, best first (at most 3)
+    std::vector<std::wstring> similarVia; // parallel to `similar`: the alias that matched ("" if the name itself matched)
 };
 
 // Decides what a typed name means against the list. Never modifies the list.
@@ -162,10 +206,12 @@ inline NameResolution ResolveName(const NameList& list, const std::wstring& type
 
     // Near: one is the start of the other (Barra / Barramundi), or only a letter or two apart.
     const int maxDist = key.size() >= 6 ? 2 : (key.size() >= 4 ? 1 : 0);
-    std::vector<std::pair<int, std::wstring>> hits;
-    for (const std::wstring& n : list.names) {
-        const std::wstring nk = NameKey(n);
-        if (nk.empty()) continue;
+    // Aliases count too: "Blk flat" is the start of the alias "Blk Flathead", so it means Black Flathead.
+    struct Hit { int score; int viaRank; std::wstring name; std::wstring via; };
+    std::vector<Hit> hits;
+    auto consider = [&](const std::wstring& candidateText, const std::wstring& canonical, const std::wstring& via) {
+        const std::wstring nk = NameKey(candidateText);
+        if (nk.empty()) return;
         int score = -1;
         const size_t shorter = std::min(nk.size(), key.size());
         if (shorter >= 3 && (nk.compare(0, key.size(), key) == 0 || key.compare(0, nk.size(), nk) == 0)) {
@@ -174,14 +220,47 @@ inline NameResolution ResolveName(const NameList& list, const std::wstring& type
             const int dist = NameEditDistance(key, nk);
             if (dist <= maxDist) score = dist;
         }
-        if (score >= 0) hits.push_back({ score, n });
+        if (score >= 0) hits.push_back({ score, via.empty() ? 0 : 1, canonical, via });
+    };
+    for (const std::wstring& n : list.names) consider(n, n, std::wstring());
+    for (const auto& kv : list.aliases) {
+        if (NameListHas(list, kv.second)) consider(kv.first, kv.second, kv.first);
     }
     if (!hits.empty()) {
-        std::sort(hits.begin(), hits.end());
+        std::sort(hits.begin(), hits.end(), [](const Hit& a, const Hit& b) {
+            if (a.score != b.score) return a.score < b.score;
+            if (a.viaRank != b.viaRank) return a.viaRank < b.viaRank;
+            return a.name < b.name;
+        });
         r.kind = NameMatch::Near;
-        for (size_t i = 0; i < hits.size() && i < 3; i++) r.similar.push_back(hits[i].second);
+        for (const Hit& h : hits) {
+            if (r.similar.size() >= 3) break;
+            if (std::find(r.similar.begin(), r.similar.end(), h.name) != r.similar.end()) continue; // one entry per name
+            r.similar.push_back(h.name);
+            r.similarVia.push_back(h.via);
+        }
     }
     return r;
+}
+
+// Auto-complete helper: the first alias (alphabetically, ignoring case) that starts with what has been typed, or
+// "" if none. Only aliases whose target is still in the list count.
+inline std::wstring FindAliasStartingWith(const NameList& list, const std::wstring& typed) {
+    const std::wstring t = CollapseNameSpaces(typed);
+    if (t.empty()) return std::wstring();
+    std::wstring tl;
+    for (wchar_t c : t) tl += (wchar_t)std::towlower((wint_t)c);
+    std::wstring best, bestLower;
+    for (const auto& kv : list.aliases) {
+        if (!NameListHas(list, kv.second)) continue;
+        std::wstring al;
+        for (wchar_t c : kv.first) al += (wchar_t)std::towlower((wint_t)c);
+        if (al.size() > tl.size() && al.compare(0, tl.size(), tl) == 0 && (best.empty() || al < bestLower)) {
+            best = kv.first;
+            bestLower = al;
+        }
+    }
+    return best;
 }
 
 // Groups of names that differ only by case, spacing or punctuation (each group has 2+ names, sorted).

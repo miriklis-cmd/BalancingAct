@@ -63,6 +63,58 @@ TEST_CASE("ResolveName: Near for prefixes and small typos, New otherwise") {
     CHECK(ResolveName(l, L"Cod").kind == NameMatch::New);
 }
 
+TEST_CASE("ResolveName: the start of an alias is a Near match for what it means") {
+    NameList l = MakeList({ L"Black Flathead", L"Snapper" });
+    NameListMerge(l, { L"Blk Flathead" }, L"Black Flathead", L"d");
+    NameResolution r = ResolveName(l, L"Blk flat");
+    CHECK(r.kind == NameMatch::Near);
+    REQUIRE(r.similar.size() == 1);
+    CHECK(r.similar[0] == L"Black Flathead");
+    REQUIRE(r.similarVia.size() == 1);
+    CHECK(r.similarVia[0] == L"Blk Flathead");
+}
+
+TEST_CASE("Near lists each name once even if the name and an alias both match") {
+    NameList l = MakeList({ L"Black Flathead" });
+    NameListMerge(l, { L"Black Flat" }, L"Black Flathead", L"d");
+    NameResolution r = ResolveName(l, L"Black Fla");
+    CHECK(r.kind == NameMatch::Near);
+    CHECK(r.similar.size() == 1);
+}
+
+TEST_CASE("FindAliasStartingWith completes from aliases only, ignoring case") {
+    NameList l = MakeList({ L"Black Flathead", L"Gummy Shark" });
+    NameListMerge(l, { L"Blk Flathead" }, L"Black Flathead", L"d");
+    NameListMerge(l, { L"Blk Flat" }, L"Black Flathead", L"d");
+    CHECK(FindAliasStartingWith(l, L"blk fl") == L"Blk Flat");     // alphabetical: "blk flat" < "blk flathead"
+    CHECK(FindAliasStartingWith(l, L"Blk Flath") == L"Blk Flathead");
+    CHECK(FindAliasStartingWith(l, L"Blk Flathead").empty());        // nothing longer to complete to
+    CHECK(FindAliasStartingWith(l, L"Gum").empty());                 // that is a name, not an alias
+    CHECK(FindAliasStartingWith(l, L"").empty());
+}
+
+TEST_CASE("NameListAddAlias / RemoveAlias / AliasesOf") {
+    NameList l = MakeList({ L"Black Flathead", L"Snapper" });
+    CHECK(NameListAddAlias(l, L"  Blk   Flat ", L"Black Flathead") == AliasAddResult::Added);
+    CHECK(NameListAddAlias(l, L"Dusky Flathead", L"Black Flathead") == AliasAddResult::Added);
+    auto a = AliasesOf(l, L"Black Flathead");
+    REQUIRE(a.size() == 2);
+    CHECK(a[0] == L"Blk Flat");
+    CHECK(AliasesOf(l, L"Snapper").empty());
+    CHECK(ResolveName(l, L"blk flat").kind == NameMatch::Alias);
+    CHECK(NameListAddAlias(l, L"", L"Snapper") == AliasAddResult::Empty);
+    CHECK(NameListAddAlias(l, L"black-flathead", L"Black Flathead") == AliasAddResult::SameAsName);
+    CHECK(NameListAddAlias(l, L"snapper", L"Black Flathead") == AliasAddResult::IsAName);
+    CHECK(NameListAddAlias(l, L"X", L"Missing") == AliasAddResult::NoSuchName);
+    // re-pointing replaces rather than duplicating
+    CHECK(NameListAddAlias(l, L"BLK FLAT", L"Snapper") == AliasAddResult::Added);
+    CHECK(l.aliases.size() == 2);
+    CHECK(AliasesOf(l, L"Snapper").size() == 1);
+    CHECK(NameListRemoveAlias(l, L"blk flat"));
+    CHECK_FALSE(NameListRemoveAlias(l, L"blk flat"));
+    CHECK_FALSE(NameListRemoveAlias(l, L""));
+}
+
 TEST_CASE("ResolveName on an empty list is always New") {
     NameList l;
     NameResolution r = ResolveName(l, L"Anything");

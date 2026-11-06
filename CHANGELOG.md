@@ -20,6 +20,28 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.14.0] - 2026-11-07
+
+### Added
+- Manage Names: "Also known as" column, plus an alias box with Add alias / Remove alias (Undo-able). Refuses an alias that is just the name again or is already a real name (merge those).
+- Entry form: the status bar says when what you typed is another name for a listed one, and when leaving the box changed it.
+
+### Changed
+- autosave.fbd, backups\ and history\ now live in C:\BalancingAct\data with the other files. Anything still beside the exe is moved there on first run (never overwriting), so a stale autosave cannot be recovered twice.
+- Manage Names window is larger to fit the alias row.
+
+### Tests
+- 1 new test (alias add/remove/list); 307 tests.
+
+## [0.13.3] - 2026-11-06
+
+### Changed
+- Aliases now take part in name matching. Typing the start of an alias (e.g. "Blk flat" when "Blk Flathead" is an alias of the real name) is treated as a near match for the real name, so you are asked instead of it being added silently as a new name. The prompt says which alias matched.
+- Supplier / Species boxes auto-complete from aliases when nothing in the list starts with what you typed; leaving the box turns an exact alias or case variant into the real name, so you see what will be stored.
+
+### Tests
+- 3 new tests in test_name_master.cpp (306 tests).
+
 ## [0.13.2] - settings.txt and recent.txt move to the shared data folder too
 
 Jack: "put all the txt files there". `settings.txt` (window position/size, last file) and `recent.txt` (Recent Files menu) now live in

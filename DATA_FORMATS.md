@@ -217,8 +217,8 @@ added to the list again on purpose. Supplier email addresses stay in `emails.txt
 
 ## Where the small text files live (v0.13.2)
 
-`emails.txt`, `names.txt`, `settings.txt` and `recent.txt` are all in `C:\BalancingAct\data\` (created on first use; falls back to the exe folder if it cannot
-be created). `autosave.fbd`, `backups\` and `history\` are still beside the exe.
+`emails.txt`, `names.txt`, `settings.txt`, `recent.txt`, `autosave.fbd`, `backups\` and `history\` are all in `C:\BalancingAct\data\` (created on first use; falls back to the exe folder if it cannot
+be created). Since v0.14.0 autosave/backups/history are there too: on the first run any that still sit beside the exe are MOVED across (never overwriting a file already there).
 
 ## `emails.txt` — supplier email addresses
 

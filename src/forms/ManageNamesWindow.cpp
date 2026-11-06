@@ -72,6 +72,7 @@ struct ManageRow {
     std::wstring name;
     int entries = 0;          // how many entries on the OPEN sheet use it
     std::wstring email;       // suppliers only
+    std::wstring aliases;     // "Blk Flat, Dusky Flathead" - other spellings that mean this name
     bool inMaster = false;
     bool recent = false;      // added to the master list in the last 7 days
 };
@@ -90,6 +91,7 @@ HWND g_hList = nullptr;
 HWND g_hTickLbl = nullptr, g_hMergeBtn = nullptr;
 HWND g_hNameLbl = nullptr, g_hNameEdit = nullptr, g_hRenameBtn = nullptr, g_hListBtn = nullptr;
 HWND g_hEmailLbl = nullptr, g_hEmailEdit = nullptr, g_hEmailBtn = nullptr;
+HWND g_hAliasLbl = nullptr, g_hAliasEdit = nullptr, g_hAliasAddBtn = nullptr, g_hAliasRemBtn = nullptr;
 HWND g_hStatus = nullptr, g_hUndoBtn = nullptr, g_hCloseBtn = nullptr;
 
 bool g_isSupplier = true;
@@ -125,6 +127,10 @@ void BuildRows() {
             if (em != g_supplierEmails.end()) r.email = em->second;
         }
         r.inMaster = inMaster;
+        {
+            const std::vector<std::wstring> al = AliasesOf(list, name);
+            for (size_t i = 0; i < al.size(); i++) r.aliases += (i ? L", " : L"") + al[i];
+        }
         if (inMaster) {
             auto a = list.added.find(name);
             r.recent = a != list.added.end() && NameAddedRecently(a->second, today, 7);
@@ -207,6 +213,12 @@ void RefreshControls() {
     }
     EnableWindow(g_hUndoBtn, g_undo.valid ? TRUE : FALSE);
 
+    // Aliases: only for a name that is in the list. Add needs a typed alias; Remove needs a name that has aliases.
+    const bool aliasOk = sel >= 0 && g_rows[sel].inMaster;
+    EnableWindow(g_hAliasEdit, aliasOk ? TRUE : FALSE);
+    EnableWindow(g_hAliasAddBtn, aliasOk ? TRUE : FALSE);
+    EnableWindow(g_hAliasRemBtn, (aliasOk && !g_rows[sel].aliases.empty()) ? TRUE : FALSE);
+
     // Rename is available once the box holds a different, non-empty name
     bool canRename = false;
     if (sel >= 0) {
@@ -239,7 +251,7 @@ void RefreshControls() {
 
 void SetColumnWidths() {
     // Species has no email, so that column collapses to nothing.
-    ListView_SetColumnWidth(g_hList, 2, g_isSupplier ? S(210) : 0);
+    ListView_SetColumnWidth(g_hList, 2, g_isSupplier ? S(190) : 0);
 }
 
 // Rebuilds the list. `selectName` (if still present) stays selected so the boxes below keep showing it.
@@ -260,7 +272,8 @@ void PopulateList(const std::wstring& selectName) {
         std::wstring email = r.email.empty() && g_isSupplier ? L"no email saved" : r.email;
         ListView_SetItemText(g_hList, (int)i, 2, const_cast<LPWSTR>(email.c_str()));
         std::wstring note = !r.inMaster ? L"not in list" : (r.recent ? L"new" : L"");
-        ListView_SetItemText(g_hList, (int)i, 3, const_cast<LPWSTR>(note.c_str()));
+        ListView_SetItemText(g_hList, (int)i, 3, const_cast<LPWSTR>(r.aliases.c_str()));
+        ListView_SetItemText(g_hList, (int)i, 4, const_cast<LPWSTR>(note.c_str()));
     }
     SetColumnWidths();
     int idx = selectName.empty() ? -1 : FindRow(selectName);
@@ -545,6 +558,77 @@ void DoAddRemoveListName() {
     }
 }
 
+void DoAddAlias() {
+    const int sel = SelectedRow();
+    if (sel < 0 || !g_rows[sel].inMaster) return;
+    const std::wstring name = g_rows[sel].name;
+    wchar_t buf[kMaxSupplierSpeciesLength + 2];
+    GetWindowTextW(g_hAliasEdit, buf, (int)(kMaxSupplierSpeciesLength + 2));
+    const std::wstring typed = CollapseNameSpaces(buf);
+    // Would this replace an alias that points somewhere else? Say so in the status line afterwards.
+    std::wstring movedFrom;
+    {
+        const NameList& cur = CurrentList();
+        for (const auto& kv : cur.aliases) {
+            if (NameKey(kv.first) == NameKey(typed) && kv.second != name) movedFrom = kv.second;
+        }
+    }
+    const UndoSnapshot previousUndo = g_undo;
+    TakeUndoSnapshot();
+    const AliasAddResult res = NameListAddAlias(CurrentList(), typed, name);
+    if (res != AliasAddResult::Added) {
+        g_undo = previousUndo; // nothing changed - keep whatever Undo was there before
+        switch (res) {
+        case AliasAddResult::Empty: SetStatus(L"Type the other spelling first, then press Add alias."); break;
+        case AliasAddResult::SameAsName: SetStatus(L"\"" + typed + L"\" is already this name (capitals and spacing are matched automatically)."); break;
+        case AliasAddResult::IsAName: SetStatus(L"\"" + typed + L"\" is already a name in the list - tick both and use Merge instead."); break;
+        default: SetStatus(L"That name is not in the list."); break;
+        }
+        RefreshControls();
+        return;
+    }
+    const bool saved = SaveNameMaster();
+    PopulateList(name);
+    SetStatus(L"\"" + typed + L"\" will now be read as \"" + name + L"\"." +
+              (movedFrom.empty() ? L"" : L" (It used to mean \"" + movedFrom + L"\".)"));
+    if (!saved) {
+        MessageBoxW(g_hManageWnd, L"Could not save names.txt. The change is in memory only until a later save succeeds.",
+                    L"Save Failed", MB_OK | MB_ICONWARNING);
+    }
+}
+
+// Removes the alias typed in the box if it belongs to the selected name; with an empty box, removes the name's only
+// alias, or asks which one when there are several.
+void DoRemoveAlias() {
+    const int sel = SelectedRow();
+    if (sel < 0 || !g_rows[sel].inMaster) return;
+    const std::wstring name = g_rows[sel].name;
+    const std::vector<std::wstring> mine = AliasesOf(CurrentList(), name);
+    if (mine.empty()) return;
+    wchar_t buf[kMaxSupplierSpeciesLength + 2];
+    GetWindowTextW(g_hAliasEdit, buf, (int)(kMaxSupplierSpeciesLength + 2));
+    const std::wstring typed = CollapseNameSpaces(buf);
+    std::wstring target;
+    if (typed.empty()) {
+        if (mine.size() == 1) target = mine[0];
+        else { SetStatus(L"Type which one to remove (" + g_rows[sel].aliases + L")."); return; }
+    } else {
+        for (const std::wstring& a : mine) {
+            if (NameKey(a) == NameKey(typed)) target = a;
+        }
+        if (target.empty()) { SetStatus(L"\"" + typed + L"\" is not one of this name's other spellings (" + g_rows[sel].aliases + L")."); return; }
+    }
+    TakeUndoSnapshot();
+    NameListRemoveAlias(CurrentList(), target);
+    const bool saved = SaveNameMaster();
+    PopulateList(name);
+    SetStatus(L"\"" + target + L"\" is no longer read as \"" + name + L"\".");
+    if (!saved) {
+        MessageBoxW(g_hManageWnd, L"Could not save names.txt. The change is in memory only until a later save succeeds.",
+                    L"Save Failed", MB_OK | MB_ICONWARNING);
+    }
+}
+
 void DoUndo() {
     if (!g_undo.valid) return;
     if (g_editIndex != -1) CancelEdit();
@@ -577,8 +661,9 @@ LRESULT CALLBACK ManageChildSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
         if (msg == WM_KEYDOWN) {
             if (id == ID_MNG_NAME_EDIT) PostMessageW(GetParent(hwnd), WM_COMMAND, MAKEWPARAM(ID_MNG_RENAME, BN_CLICKED), (LPARAM)g_hRenameBtn);
             if (id == ID_MNG_EMAIL_EDIT) PostMessageW(GetParent(hwnd), WM_COMMAND, MAKEWPARAM(ID_MNG_EMAIL_SAVE, BN_CLICKED), (LPARAM)g_hEmailBtn);
+            if (id == ID_MNG_ALIAS_EDIT) PostMessageW(GetParent(hwnd), WM_COMMAND, MAKEWPARAM(ID_MNG_ALIAS_ADD, BN_CLICKED), (LPARAM)g_hAliasAddBtn);
         }
-        if (id == ID_MNG_NAME_EDIT || id == ID_MNG_EMAIL_EDIT) return 0; // swallow the Enter so there is no beep
+        if (id == ID_MNG_NAME_EDIT || id == ID_MNG_EMAIL_EDIT || id == ID_MNG_ALIAS_EDIT) return 0; // swallow the Enter so there is no beep
     }
     if (msg == WM_NCDESTROY) RemoveWindowSubclass(hwnd, ManageChildSubclassProc, 1);
     return DefSubclassProc(hwnd, msg, wParam, lParam);
@@ -606,12 +691,16 @@ LRESULT CALLBACK ManageWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         g_hEmailLbl = MakeControl(L"STATIC", L"Email:", WS_VISIBLE, 0, hwnd);
         g_hEmailEdit = MakeControl(L"EDIT", L"", WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, ID_MNG_EMAIL_EDIT, hwnd);
         g_hEmailBtn = MakeControl(L"BUTTON", L"Save Email", WS_VISIBLE | WS_TABSTOP, ID_MNG_EMAIL_SAVE, hwnd);
+        g_hAliasLbl = MakeControl(L"STATIC", L"Also known as:", WS_VISIBLE, 0, hwnd);
+        g_hAliasEdit = MakeControl(L"EDIT", L"", WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, ID_MNG_ALIAS_EDIT, hwnd);
+        g_hAliasAddBtn = MakeControl(L"BUTTON", L"Add alias", WS_VISIBLE | WS_TABSTOP, ID_MNG_ALIAS_ADD, hwnd);
+        g_hAliasRemBtn = MakeControl(L"BUTTON", L"Remove alias", WS_VISIBLE | WS_TABSTOP, ID_MNG_ALIAS_REMOVE, hwnd);
         g_hStatus = MakeControl(L"STATIC", L"", WS_VISIBLE | SS_NOPREFIX | SS_ENDELLIPSIS, 0, hwnd);
         g_hUndoBtn = MakeControl(L"BUTTON", L"Undo", WS_VISIBLE | WS_TABSTOP, ID_MNG_UNDO, hwnd);
         g_hCloseBtn = MakeControl(L"BUTTON", L"Close", WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, ID_MNG_CLOSE, hwnd);
         if (!g_hRadioSupplier || !g_hRadioSpecies || !g_hDupLbl || !g_hDupBtn || !g_hHint || !g_hList || !g_hTickLbl ||
             !g_hMergeBtn || !g_hNameLbl || !g_hNameEdit || !g_hRenameBtn || !g_hListBtn || !g_hEmailLbl ||
-            !g_hEmailEdit || !g_hEmailBtn || !g_hStatus || !g_hUndoBtn || !g_hCloseBtn) {
+            !g_hEmailEdit || !g_hEmailBtn || !g_hAliasLbl || !g_hAliasEdit || !g_hAliasAddBtn || !g_hAliasRemBtn || !g_hStatus || !g_hUndoBtn || !g_hCloseBtn) {
             SetLastError(ERROR_INVALID_WINDOW_HANDLE);
             return -1;
         }
@@ -621,6 +710,7 @@ LRESULT CALLBACK ManageWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
             FieldLengthLimitTargets limits;
             limits.manageTargetEdit = g_hNameEdit;
             limits.manageEmailEdit = g_hEmailEdit;
+            SendMessageW(g_hAliasEdit, EM_LIMITTEXT, (WPARAM)kMaxSupplierSpeciesLength, 0);
             ApplyFieldLengthLimits(limits);
         }
 
@@ -628,11 +718,13 @@ LRESULT CALLBACK ManageWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         AddColumn(g_hList, 0, L"Name", 230);
         AddColumn(g_hList, 1, L"Entries", 65);
         AddColumn(g_hList, 2, L"Email", 210);
-        AddColumn(g_hList, 3, L"", 85);
+        AddColumn(g_hList, 3, L"Also known as", 170);
+        AddColumn(g_hList, 4, L"", 75);
 
         SetWindowSubclass(g_hList, ManageChildSubclassProc, 1, 0);
         SetWindowSubclass(g_hNameEdit, ManageChildSubclassProc, 1, 0);
         SetWindowSubclass(g_hEmailEdit, ManageChildSubclassProc, 1, 0);
+        SetWindowSubclass(g_hAliasEdit, ManageChildSubclassProc, 1, 0);
         SetWindowSubclass(g_hCloseBtn, ManageChildSubclassProc, 1, 0);
 
         g_isSupplier = true;
@@ -651,7 +743,7 @@ LRESULT CALLBACK ManageWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         MoveWindow(g_hDupLbl, S(15), S(48), w - S(30) - S(115), S(22), TRUE);
         MoveWindow(g_hDupBtn, w - S(15) - S(105), S(46), S(105), S(26), TRUE);
         MoveWindow(g_hHint, S(15), S(76), w - S(30), S(20), TRUE);
-        const int listBottom = std::max((int)rc.bottom - S(225), S(160));
+        const int listBottom = std::max((int)rc.bottom - S(263), S(160));
         MoveWindow(g_hList, S(15), S(100), w - S(30), listBottom - S(100), TRUE);
         MoveWindow(g_hTickLbl, S(15), listBottom + S(12), S(200), S(22), TRUE);
         MoveWindow(g_hMergeBtn, w - S(15) - S(150), listBottom + S(8), S(150), S(28), TRUE);
@@ -666,6 +758,11 @@ LRESULT CALLBACK ManageWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         MoveWindow(g_hEmailLbl, S(15), y2 + S(3), S(50), S(22), TRUE);
         MoveWindow(g_hEmailBtn, btnRight - S(120), y2 - S(1), S(120), S(28), TRUE);
         MoveWindow(g_hEmailEdit, S(70), y2, btnRight - S(120) - S(8) - S(70), S(24), TRUE);
+        const int y3 = y2 + S(38);
+        MoveWindow(g_hAliasLbl, S(15), y3 + S(3), S(55), S(22), TRUE);
+        MoveWindow(g_hAliasRemBtn, btnRight - S(120), y3 - S(1), S(120), S(28), TRUE);
+        MoveWindow(g_hAliasAddBtn, btnRight - S(120) - S(8) - S(85), y3 - S(1), S(85), S(28), TRUE);
+        MoveWindow(g_hAliasEdit, S(70), y3, btnRight - S(120) - S(8) - S(85) - S(8) - S(70), S(24), TRUE);
 
         MoveWindow(g_hStatus, S(15), rc.bottom - S(46), w - S(30) - S(190), S(22), TRUE);
         MoveWindow(g_hUndoBtn, w - S(15) - S(85) - S(8) - S(85), rc.bottom - S(50), S(85), S(30), TRUE);
@@ -713,6 +810,8 @@ LRESULT CALLBACK ManageWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
             if (id == ID_MNG_EMAIL_SAVE) { DoSaveEmail(); return 0; }
             if (id == ID_MNG_LISTBTN) { DoAddRemoveListName(); return 0; }
             if (id == ID_MNG_UNDO) { DoUndo(); return 0; }
+            if (id == ID_MNG_ALIAS_ADD) { DoAddAlias(); return 0; }
+            if (id == ID_MNG_ALIAS_REMOVE) { DoRemoveAlias(); return 0; }
             if (id == ID_MNG_CLOSE) { DestroyWindow(hwnd); return 0; }
         }
         break;
@@ -761,6 +860,9 @@ bool ResolveOneName(HWND owner, const wchar_t* kindLower, const wchar_t* kindTit
                 msg += L"\"" + r.similar[i] + L"\"";
             }
             msg += L")";
+        }
+        if (!r.similarVia.empty() && !r.similarVia[0].empty()) {
+            msg += L"\n\n(\"" + r.similarVia[0] + L"\" is another name for it.)";
         }
         msg += L"\n\nYes = use \"" + r.similar[0] + L"\"\nNo = add \"" + r.name + L"\" as a new " + kindLower +
                L"\nCancel = go back and edit";
@@ -844,7 +946,7 @@ void OpenManageNamesWindow() {
 
     RECT mrc;
     GetWindowRect(g_hMainWnd, &mrc);
-    int w = S(680), h = S(640);
+    int w = S(760), h = S(690);
     int x = mrc.left + ((mrc.right - mrc.left) - w) / 2;
     int y = mrc.top + ((mrc.bottom - mrc.top) - h) / 2;
     FitPopupToWorkArea(g_hMainWnd, x, y, w, h); // never taller/wider than the screen
