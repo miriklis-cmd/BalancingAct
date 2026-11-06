@@ -4,7 +4,7 @@ This is the current plan: where we are, what is next, what is not built, and wha
 (every version's test checklist, the 0.9.x status notes) is frozen in `ROADMAP_ARCHIVE.md`; version-by-version detail
 is in `CHANGELOG.md`; manual checks still to do are in `Testing.md`.
 
-## Where we are (v0.14.0, 2026-11-07)
+## Where we are (v0.14.1, 2026-11-07)
 
 **v0.14.0 written (strict build + 307 tests pass), NOT yet run by Jack:** Manage Names shows an "Also known as" column and has Add alias / Remove alias (with Undo); the entry form's status bar says when a typed name is an alias; autosave.fbd, backups\ and history\ moved into `C:\BalancingAct\data` (existing files moved across on first run). Checks: Testing.md.
 

@@ -20,6 +20,11 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.14.1] - 2026-11-07
+
+### Fixed
+- Manage Names: the alias box is now a drop-down that lists the selected name's aliases - pick one and press Remove alias, or type a new one and press Add alias. Previously there was no way to choose which alias to remove. Label now reads "Also known as:" and is no longer clipped.
+
 ## [0.14.0] - 2026-11-07
 
 ### Added
