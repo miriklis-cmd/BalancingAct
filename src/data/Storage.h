@@ -17,11 +17,16 @@
 // Folder the exe lives in (or the test override); every data file is built from it.
 void SetExeDirOverrideForTests(const std::wstring& dir);
 std::wstring GetExeDir();
+// v0.13.1: folder for the small lists shared by the Win32 and WinUI apps (emails.txt, names.txt):
+// C:\BalancingAct\data, created on first use. If it cannot be created it falls back to the exe folder so
+// the app still works. With a test override set, that override is used (tests never touch real data).
+std::wstring GetSharedDataDir();
 
 std::wstring AutosavePath();
 std::wstring SettingsPath();
 std::wstring RecentFilesPath();
 std::wstring EmailsPath();
+std::wstring NamesPath();
 std::wstring BackupDir();
 std::wstring HistoryDir();
 
@@ -33,6 +38,13 @@ void LoadRecentFiles();
 
 void LoadSupplierEmails();
 bool SaveSupplierEmails();
+
+// v0.13.0 master name lists (names.txt). Load sets g_nameMaster.fileExisted from whether the file was there.
+void LoadNameMaster();
+bool SaveNameMaster();
+// Adds every distinct Supplier / Species in g_entries that is not already in the lists (dateISO "" = unknown).
+// Returns true if anything was added.
+bool AddSheetNamesToMaster(const std::wstring& dateISO);
 
 void PruneOldBackups();
 std::wstring CurrentFileLabelForBackup();

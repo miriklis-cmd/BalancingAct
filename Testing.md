@@ -231,6 +231,20 @@ Tick as you do them. Items marked (done) were confirmed by Jack in chat on the d
 - [ ] Rolling backup: edit, wait over 3 minutes, a new `backup_...fbd` appears in `backups\`; wait again without editing - no new file.
 - [ ] After any File > New / Open / Restore, the next edit marks the sheet unsaved again.
 
+## v0.13.0 checks (master name lists, tick-box Manage Names)
+Back up `emails.txt` and your working folder first. Start with a real day open. (v0.13.1: both files now live in `C:\BalancingAct\data` - put your hand-made `names.txt` THERE before the first run; an `emails.txt`/`names.txt` beside the exe is copied across once if that folder has none.)
+1. First open of Tools > Manage Supplier / Species Names creates `names.txt` beside the exe and fills it from the open sheet. Suppliers/Species buttons switch lists; the Email column disappears for Species.
+2. Click one supplier, then another: only the second stays selected; the Name and Email boxes show it; NOTHING gets ticked. Click a tick box: only that box changes. "Merge ticked" stays grey until two are ticked.
+3. Duplicates strip: if two names differ only by case/spaces/punctuation, it names them; "Tick these" ticks exactly those.
+4. Tick two suppliers, Merge ticked: a dialog with a radio per name (most-used selected) and "N entries change". Pick one, Merge: entries on the Entries tab show the kept name, the status line says how many; the kept supplier has an email if either had one. Cancel changes nothing.
+5. Undo (in the window) puts entries, names and emails back. Closing the window and reopening: Undo is greyed.
+6. Rename: type a new name, Rename (or Enter): entries change. Type an existing name (even different capitals): asks to merge.
+7. Email: edit and Save Email; a bad address is refused; clearing the box removes it. Email All Suppliers still uses it.
+8. Add Entry: type `barramundi` when `Barramundi` is in the list - it becomes `Barramundi` in the row and the form. Type a name that is a prefix or one slip from an existing one: Yes/No/Cancel question, Cancel keeps the form as typed, nothing added. A genuinely new species goes in with a status-bar note and shows in the drop-down next time.
+9. After merging Barra into Barramundi, typing `Barra` on Add Entry is corrected to `Barramundi` (status bar says so).
+10. A species in Manage Names with 0 entries on this sheet can be removed with Remove from list; one the sheet uses cannot.
+11. Esc closes the window from the list, the boxes and the Close button. Check at your usual 150% scaling that nothing is cut off.
+
 ## v0.12.10 checks (printing code moved)
 Nothing should have changed - these confirm it. Open a file with a few suppliers, then:
 1. File > Print Preview: the same pages as before (title, book summary, supplier column), Previous / Next work, Close closes.

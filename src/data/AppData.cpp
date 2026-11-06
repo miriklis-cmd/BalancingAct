@@ -17,4 +17,5 @@ Entry g_undoEntry;
 int g_undoIndex = -1;
 std::vector<std::wstring> g_recentFiles;
 std::map<std::wstring, std::wstring> g_supplierEmails;
+NameMasterData g_nameMaster;
 AppSettings g_settings;

@@ -89,12 +89,7 @@ extern HMENU g_hRecentMenu;
 
 // Manage Supplier/Species Names popup window.
 extern HWND g_hManageWnd;
-extern HWND g_hManageList, g_hManageTarget;
-extern HWND g_hManageRadioSupplier, g_hManageRadioSpecies;
-extern HWND g_hManageHint, g_hManageTargetLbl, g_hManageApplyBtn, g_hManageCloseBtn;
-extern HWND g_hManageEmailLbl, g_hManageEmailEdit, g_hManageEmailBtn;
-extern bool g_manageIsSupplier;
-extern std::vector<std::wstring> g_manageValues;
+// (v0.13.0: the window's other handles and state are file-local to ManageNamesWindow.cpp.)
 
 // A rendered report page: a device-independent bitmap (DIB), so the exact
 // same rendering can be shown on screen (Print Preview) and sent to a real

@@ -32,7 +32,7 @@ There are five top-level windows, each with its own `WndProc`. The main window a
    Overview, Breakdown, By Species). Controls for all four tabs are
    created once at startup and shown/hidden via `ShowTab()` rather than
    being created/destroyed per tab switch.
-2. **Manage Names popup** (`ManageWndProc`, `src/forms/ManageNamesWindow.cpp`) — a plain owned window (not a
+2. **Manage Names popup** (`ManageWndProc`, `src/forms/ManageNamesWindow.cpp`; rewritten v0.13.0: single-select list with tick boxes, master lists in `names.txt`, merge confirmation via Task Dialog loaded with `GetProcAddress` so a missing comctl32 v6 falls back to a MessageBox; the same file holds the entry-time checks `ResolveEntryNames` / `RecordEntryNames` that `CommitEntryForm` calls; its handles are file-local) — a plain owned window (not a
    real Win32 dialog resource), disables the main window while open.
 3. **Print Preview popup** (`PreviewWndProc`, `src/forms/PrintPreviewWindow.cpp`) — same pattern as Manage
    Names.
@@ -157,6 +157,10 @@ Adding `WS_CLIPCHILDREN` to the main window and `WS_CLIPSIBLINGS` to the Supplie
 first-paint glitch made both combos vanish entirely on Jack's machine. Don't retry either flag without a
 diagnostic first (e.g. logging what paints over the combo). The combo's window is created S(200) tall (its
 drop-down height) and overlaps controls created after it, which may be why clipping hid it - untested theory.
+
+### `near` (and `far`) are macros in `<windows.h>`
+Don't use `near` as a member or variable name in any header that can be included next to `<windows.h>` (it broke `NameMaster.h` with a baffling
+"declaration does not declare anything"). The member is called `similar`.
 
 ### Forward declarations and shared declarations
 Functions are used before they're textually defined in a few places. `main.cpp` has a "Forward declarations"

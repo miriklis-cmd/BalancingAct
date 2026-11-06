@@ -21,6 +21,36 @@
 static std::wstring g_exeDirOverrideForTests;
 void SetExeDirOverrideForTests(const std::wstring& dir) { g_exeDirOverrideForTests = dir; }
 
+std::wstring GetExeDir();
+
+// v0.13.1 (Jack, 2026-11-06): emails.txt and names.txt are shared reference data, not per-exe settings, so they live
+// in one fixed folder both apps (and later other machines) can use, outside the repo and outside Program Files.
+std::wstring GetSharedDataDir() {
+    if (!g_exeDirOverrideForTests.empty()) return g_exeDirOverrideForTests;
+    static std::wstring cached;
+    static bool tried = false;
+    if (!tried) {
+        tried = true;
+        const wchar_t* const kDir = L"C:\\BalancingAct\\data";
+        CreateDirectoryW(L"C:\\BalancingAct", nullptr); // already existing is fine
+        CreateDirectoryW(kDir, nullptr);
+        const DWORD attrs = GetFileAttributesW(kDir);
+        if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY)) cached = kDir;
+    }
+    return cached.empty() ? GetExeDir() : cached;
+}
+
+// One-time upgrade help: a list file that still sits beside the exe (from v0.13.0 or earlier) is COPIED into the
+// shared folder if the shared folder has none yet. The old file is left where it is.
+static void CopyFromExeDirIfMissing(const wchar_t* fileName) {
+    const std::wstring shared = GetSharedDataDir() + L"\\" + fileName;
+    const std::wstring old = GetExeDir() + L"\\" + fileName;
+    if (_wcsicmp(shared.c_str(), old.c_str()) == 0) return;
+    if (GetFileAttributesW(shared.c_str()) != INVALID_FILE_ATTRIBUTES) return;
+    if (GetFileAttributesW(old.c_str()) == INVALID_FILE_ATTRIBUTES) return;
+    CopyFileW(old.c_str(), shared.c_str(), TRUE);
+}
+
 std::wstring GetExeDir() {
     if (!g_exeDirOverrideForTests.empty()) return g_exeDirOverrideForTests;
     // v0.9.66 (audit F23): the old fixed MAX_PATH buffer silently truncated
@@ -116,9 +146,10 @@ void LoadRecentFiles() {
     for (auto& l : lines) if (!l.empty()) g_recentFiles.push_back(l);
 }
 
-std::wstring EmailsPath() { return GetExeDir() + L"\\emails.txt"; }
+std::wstring EmailsPath() { return GetSharedDataDir() + L"\\emails.txt"; }
 
 void LoadSupplierEmails() {
+    CopyFromExeDirIfMissing(L"emails.txt");
     std::vector<std::wstring> lines;
     ReadAllLines(EmailsPath(), lines);
     g_supplierEmails.clear();
@@ -152,6 +183,34 @@ bool SaveSupplierEmails() {
     std::string content;
     for (auto& kv : g_supplierEmails) content += WToUtf8(kv.first + L"|" + kv.second) + "\n";
     return WriteFileAtomicUtf8(EmailsPath(), content);
+}
+
+std::wstring NamesPath() { return GetSharedDataDir() + L"\\names.txt"; }
+
+void LoadNameMaster() {
+    CopyFromExeDirIfMissing(L"names.txt");
+    std::vector<std::wstring> lines;
+    const bool found = ReadAllLines(NamesPath(), lines);
+    g_nameMaster = NameMasterData();
+    if (found) ParseNameMasterLines(lines, g_nameMaster);
+    g_nameMaster.fileExisted = found;
+}
+
+bool SaveNameMaster() {
+    std::string content;
+    for (const std::wstring& l : BuildNameMasterLines(g_nameMaster)) content += WToUtf8(l) + "\n";
+    const bool ok = WriteFileAtomicUtf8(NamesPath(), content);
+    if (ok) g_nameMaster.fileExisted = true;
+    return ok;
+}
+
+bool AddSheetNamesToMaster(const std::wstring& dateISO) {
+    bool changed = false;
+    for (const Entry& e : g_entries) {
+        if (NameListAdd(g_nameMaster.suppliers, e.supplier, dateISO)) changed = true;
+        if (NameListAdd(g_nameMaster.species, e.product, dateISO)) changed = true;
+    }
+    return changed;
 }
 
 std::wstring BackupDir() { return GetExeDir() + L"\\backups"; }
