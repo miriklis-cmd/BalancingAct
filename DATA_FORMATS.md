@@ -200,6 +200,21 @@ LASTFILE=C:\Users\jack\Documents\august-week1.fbd
 Plain UTF-8, one file path per line, most-recent-first, capped at 8
 entries (`kMaxRecentFiles`).
 
+## `names.txt` — master Supplier / Species lists (v0.13.0)
+
+Plain UTF-8, one record per line, `|` separated (names can never contain `|`). Lives in `C:\BalancingAct\data\` (v0.13.1; same folder as `emails.txt`), written atomically; created the first time it is
+needed, from the names on the open sheet. A line this app could not have written is skipped, not fatal. Tags:
+
+```
+S|Port Fish Co.|2026-11-06        supplier, date added (may be empty)
+P|Barramundi|2026-11-06           species, date added
+AS|Port Fish|Port Fish Co.        alias: this old supplier spelling means that supplier
+AP|Barra|Barramundi               alias for a species
+```
+
+An alias whose target is not in the list is dropped on load. Aliases are created by merge/rename in Manage Names and removed if that spelling is
+added to the list again on purpose. Supplier email addresses stay in `emails.txt`, keyed by the supplier name.
+
 ## `emails.txt` — supplier email addresses
 
 Plain UTF-8, pipe-delimited, one supplier per line:

@@ -651,6 +651,13 @@ void CommitEntryForm() {
         return;
     }
 
+    // v0.13.0: check Supplier and Species against the master name lists. Case/spacing differences snap to the
+    // list's spelling, an old merged-away spelling is corrected, and a near miss ("Barra" vs "Barramundi") asks
+    // first. Cancel there means go back and edit, so nothing has been changed yet. After every other check on
+    // purpose, so a typo in Kgs doesn't make the user answer a name question first.
+    std::wstring nameNote;
+    if (!ResolveEntryNames(supplier, product, nameNote)) return;
+
     SYSTEMTIME dtpVal{};
     DateTime_GetSystemtime(hDtpDate, &dtpVal);
     std::wstring date = FormatDateISO(dtpVal);
@@ -741,6 +748,8 @@ void CommitEntryForm() {
 
     g_dirty = true; // v0.9.30 - an add/update means there's something to lose again
 
+    RecordEntryNames(supplier, product, nameNote); // v0.13.0: a genuinely new name joins the master list, silently
+
     SetWindowTextW(hEditKgs, L"");
     SetWindowTextW(hEditPrice, L"");
     SetWindowTextW(hEditNotes, L"");
@@ -755,6 +764,11 @@ void CommitEntryForm() {
     SetFocus(hCmbSupplier);
 
     RefreshAll();
+    // RefreshAll clears the status bar's third part (selected-rows total); show what the name check did there.
+    if (hStatusBar && !nameNote.empty()) {
+        std::wstring shown = TrimW(nameNote);
+        SendMessageW(hStatusBar, SB_SETTEXT, 2, (LPARAM)shown.c_str());
+    }
 }
 
 // Pre-fills the form from the most recently added entry, staying in "add
@@ -2024,6 +2038,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         LoadRecentFiles();
         RebuildRecentMenu();
         LoadSupplierEmails();
+        LoadNameMaster(); // v0.13.0: master Supplier / Species lists (names.txt)
         if (g_hEditMenu) EnableMenuItem(g_hEditMenu, ID_EDIT_UNDO_DELETE, MF_BYCOMMAND | MF_GRAYED);
 
         // Silently reload whatever was last auto-saved next to the exe. If
@@ -2736,6 +2751,7 @@ void ResetApplicationStateForTest() {
     g_settings = AppSettings{};
     g_recentFiles.clear();
     g_supplierEmails.clear();
+    g_nameMaster = NameMasterData();
     g_filteredIndices.clear();
     g_sortColumn = -1;
     g_sortAscending = true;

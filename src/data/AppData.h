@@ -14,6 +14,7 @@
 #include <vector>
 #include <map>
 #include "../core/FishBalanceCore.h"
+#include "../core/NameMaster.h"
 
 extern std::vector<Entry> g_entries;
 extern bool g_autosaveFailWarned; // avoid repeating the same warning on every single autosave attempt while a problem persists (e.g. disk full) - reset once a save succeeds again
@@ -74,6 +75,7 @@ static const size_t kMaxRecentFiles = 8;
 
 // Supplier -> email address, persisted to emails.txt, used by Email Suppliers.
 extern std::map<std::wstring, std::wstring> g_supplierEmails;
+extern NameMasterData g_nameMaster; // v0.13.0: master Supplier / Species lists (names.txt)
 
 // Window size/position and last-file association, persisted between runs.
 struct AppSettings {

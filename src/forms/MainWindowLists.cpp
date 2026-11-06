@@ -32,7 +32,9 @@ void RefreshCombos() {
     SendMessageW(hCmbSupplier, CB_RESETCONTENT, 0, 0);
     SendMessageW(hCmbProduct, CB_RESETCONTENT, 0, 0);
 
-    std::vector<std::wstring> sups, prods;
+    // v0.13.0: the drop-downs offer the master lists (names.txt) as well as whatever is on the open sheet, so a
+    // new sheet no longer starts with empty lists. Sheet names not (yet) in the lists are still offered.
+    std::vector<std::wstring> sups = g_nameMaster.suppliers.names, prods = g_nameMaster.species.names;
     for (auto& e : g_entries) {
         if (std::find(sups.begin(), sups.end(), e.supplier) == sups.end()) sups.push_back(e.supplier);
         if (std::find(prods.begin(), prods.end(), e.product) == prods.end()) prods.push_back(e.product);

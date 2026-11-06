@@ -20,6 +20,43 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.13.1] - Shared data folder for the lists
+
+Jack's decision (2026-11-06): the lists are shared reference data, not per-exe settings, and must not sit beside the exe (they would end up in the repo
+folder; under Program Files they could not be written at all).
+- `emails.txt` and `names.txt` now live in `C:\BalancingAct\data` (created on first use). If that folder cannot be created the app falls back to the exe
+  folder so nothing is lost. `GetSharedDataDir()` in `Storage.cpp`; the tests' temp-folder override still redirects it, so tests never touch real data.
+- Upgrade: an `emails.txt` / `names.txt` still beside the exe is COPIED into the new folder once, if the new folder has none; the old file is left alone.
+- Everything else (autosave, settings, recent files, backups, history) stays beside the exe for now; moving those is part of the installer work (ROADMAP.md).
+- WinUI prototype: its Manage Names / Email All now read and write the same `C:\BalancingAct\data\emails.txt`.
+- Checked: strict MinGW build of the whole app. NOT checked: MSVC, running it, or WinUI.
+
+## [0.13.0] - Master name lists, "did you mean...?" at entry, tick-box Manage Names
+
+Jack's redesign (2026-11-06) after finding Manage Names clunky: clicking a second supplier to look at it selected both, and
+the next Apply merged them. Spelling variants (Barra / barra / Barramundi) also kept coming back because the Supplier and
+Species lists were rebuilt from the open sheet only.
+- **Master lists (`names.txt`, beside the exe).** Suppliers and species are kept between sheets. The drop-downs and autocomplete offer the master
+  list plus whatever is on the open sheet. First run: the list is started from the sheet that is open (once); after that the sheet no longer
+  decides what is in it. Format in DATA_FORMATS.md. New pure code `src/core/NameMaster.h` (tests: `tests/test_name_master.cpp`, 16 cases).
+- **Add Entry checks the names** (after every other check, so a Kgs typo never asks a name question first):
+  same name apart from case/spacing/punctuation -> silently uses the list's spelling; an old merged-away spelling (alias) -> silently corrected;
+  a close match (one is the start of the other, or a letter or two off, e.g. "Barra"/"Barramundi", "Snpaer"/"Snapper") -> asks
+  Yes = use the list's name / No = add as new / Cancel = go back; anything else is added to the list silently. The status bar (right) says what happened.
+- **Manage Names rewritten.** Suppliers / Species buttons; the list is single-select (a click only selects, and shows the name and email below);
+  merging is a separate act: tick boxes, then "Merge ticked (n)..." opens a confirmation with a radio button per name (most-used pre-picked) saying how
+  many entries change. Rename edits the selected name (typing an existing name offers to merge). A merge/rename is remembered as an alias.
+  "Possible duplicates" strip with a Tick these button. Names only on the open sheet are marked "not in list" (Add to list); unused list names can be
+  removed. Names added in the last 7 days are marked "new". One-level Undo while the window is open. Email edits via Save Email (Enter works too).
+  Changed from before: if merged suppliers have different emails, the kept supplier's address is used (the confirmation lists them first) instead of a
+  separate Yes/No/Cancel question.
+- `names.txt` added to `.gitignore` (it is written next to the exe, which builds into the repo folder, so `git add -A` would otherwise have committed it).
+- Gotcha recorded: `near` is a macro in `<windows.h>`, so it cannot be used as a member name in headers shared with Windows code.
+- Checked: strict MinGW build (`-Wall -Wextra -Wpedantic -Werror`) of the whole app; all 303 unit tests (1208 assertions) pass. NOT checked: MSVC `/W4 /WX`,
+  the Windows integration tests (no Windows here), and the new window itself - never seen on screen. See Testing.md "v0.13.0 checks".
+- WinUI prototype (not part of the Win32 build): step 8 adds Tools > Manage Supplier / Species Names... in the OLD form (multi-select); it is to be
+  rebuilt to match this once the Win32 version is confirmed.
+
 ## [0.12.10] - Printing code made shareable (no change you should see)
 
 Prepares the WinUI prototype's File > Print Preview / Print Breakdown, which run the SAME code as the Win32 app.
@@ -31,7 +68,7 @@ Prepares the WinUI prototype's File > Print Preview / Print Breakdown, which run
 - Nothing should look or behave differently in the Win32 app: Print Preview and Print Breakdown must still work exactly as before.
 - Checked: strict MinGW build (`-Wall -Wextra -Wpedantic -Werror`, nothing suppressed) of the whole app; `ReportRender.o` and `PrintJob.o` have no
   undefined `g_` symbols. Not checked: MSVC `/W4 /WX`, an actual print or preview (no printer/screen here).
-- WinUI prototype (not part of the Win32 build): step 7 adds File > Print Preview... and File > Print Breakdown... (Ctrl+P).
+- WinUI prototype (not part of the Win32 build): step 7 adds File > Print Preview... and File > Print Breakdown... (Ctrl+P); step 7b adds the Breakdown tab's three buttons (Print Preview..., Print / Save as PDF..., Email All Suppliers...). Email uses the Win32 app's own `EmailSupplier` and flow; addresses are read from an `emails.txt` beside the WinUI exe until Manage Names exists. Step 8 adds Tools > Manage Supplier / Species Names... (rename/merge across all entries, supplier email editing saved to `emails.txt`, same conflict prompts as Win32).
 
 ## [0.12.9] - Drill-down: click a column header to sort; Esc closes it
 

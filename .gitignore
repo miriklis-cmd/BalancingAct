@@ -18,6 +18,8 @@ autosave.fbd
 settings.txt
 recent.txt
 emails.txt
+# v0.13.0: master Supplier / Species lists (supplier names are business data, like emails.txt)
+names.txt
 backups/
 # history/ added v0.9.40 (Finalize Day, ROADMAP.md item 3) - real business
 # data (supplier names, prices) written next to the exe, same as backups/

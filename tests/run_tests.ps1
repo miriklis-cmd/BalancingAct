@@ -29,7 +29,8 @@ $sources = @(
     "test_email.cpp",
     "test_recovery_and_finalize.cpp",
     "test_phase2_numeric_and_layout.cpp",
-    "test_drilldown.cpp"
+    "test_drilldown.cpp",
+    "test_name_master.cpp"
 )
 
 Write-Host "Compiling FishBalanceTests.exe..." -ForegroundColor Cyan

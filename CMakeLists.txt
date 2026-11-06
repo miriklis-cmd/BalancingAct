@@ -91,6 +91,7 @@ add_executable(FishBalanceTests
     tests/test_recovery_and_finalize.cpp
     tests/test_phase2_numeric_and_layout.cpp
     tests/test_drilldown.cpp
+    tests/test_name_master.cpp
 )
 if (MSVC)
     target_compile_options(FishBalanceTests PRIVATE /W4 /WX /EHsc)
