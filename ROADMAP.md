@@ -4,7 +4,7 @@ This is the current plan: where we are, what is next, what is not built, and wha
 (every version's test checklist, the 0.9.x status notes) is frozen in `ROADMAP_ARCHIVE.md`; version-by-version detail
 is in `CHANGELOG.md`; manual checks still to do are in `Testing.md`.
 
-## Where we are (v0.13.1, 2026-11-06)
+## Where we are (v0.13.2, 2026-11-06)
 
 **v0.13.0 written, strict MinGW build and 303 unit tests pass, NOT yet seen or run by Jack** (master Supplier/Species name lists in `names.txt`; Add Entry
 snaps case/spacing, corrects remembered aliases, asks "did you mean...?" for near matches, adds genuinely new names silently; Manage Names rewritten with
@@ -14,7 +14,7 @@ machine has its own copy) - decide with the networking work. WinUI Manage Names 
 
 **Design note to settle with the shared-repository (Postgres) work - names, aliases and emails are reference data (Jack, 2026-11-06; no actual lists belong in this file or the repo):**
 - Eventually shared tables (suppliers with email, species, aliases) read by every machine and by the analysis side; `names.txt` / `emails.txt` are the simple version of the same data.
-- Put all reading/writing of them behind one small data-layer interface (file today, database later) so the location becomes a setting; both apps already share `src/data`. DECIDED (Jack, 2026-11-06): `names.txt` and `emails.txt` live in `C:\BalancingAct\data` (v0.13.1, Win32; WinUI reads the same `emails.txt`, does not read `names.txt` yet).
+- Put all reading/writing of them behind one small data-layer interface (file today, database later) so the location becomes a setting; both apps already share `src/data`. DECIDED (Jack, 2026-11-06): `names.txt`, `emails.txt`, `settings.txt` and `recent.txt` live in `C:\BalancingAct\data` (v0.13.1, Win32; WinUI reads the same `emails.txt`, does not read `names.txt` yet).
 - Keep a local cached copy per PC so a machine still works when the share/server is down (the Win 7 box especially).
 - Several machines: adding a name should read-merge-write atomically (adds combine); rename/merge is riskier, so allow Manage Names on one PC only.
 - Installed under Program Files, nothing may be written beside the exe: autosave, settings, recent files, backups, history and these lists all move to a ProgramData (or AppData) folder at install time - separate roadmap item.

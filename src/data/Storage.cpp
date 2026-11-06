@@ -78,9 +78,10 @@ std::wstring AutosavePath() {
     return GetExeDir() + L"\\autosave.fbd";
 }
 
-std::wstring SettingsPath() { return GetExeDir() + L"\\settings.txt"; }
+std::wstring SettingsPath() { return GetSharedDataDir() + L"\\settings.txt"; }
 
 void LoadSettings(int dpi) {
+    CopyFromExeDirIfMissing(L"settings.txt"); // v0.13.2: moved to the shared data folder
     std::vector<std::wstring> lines;
     bool foundFile = ReadAllLines(SettingsPath(), lines);
     for (auto& line : lines) {
@@ -128,7 +129,7 @@ void SaveSettingsFile(int x, int y, int w, int h, bool maximized, const std::wst
     WriteFileAtomicUtf8(SettingsPath(), content);
 }
 
-std::wstring RecentFilesPath() { return GetExeDir() + L"\\recent.txt"; }
+std::wstring RecentFilesPath() { return GetSharedDataDir() + L"\\recent.txt"; }
 
 void SaveRecentFiles() {
     std::string content;
@@ -140,6 +141,7 @@ void SaveRecentFiles() {
 }
 
 void LoadRecentFiles() {
+    CopyFromExeDirIfMissing(L"recent.txt"); // v0.13.2: moved to the shared data folder
     std::vector<std::wstring> lines;
     ReadAllLines(RecentFilesPath(), lines);
     g_recentFiles.clear();

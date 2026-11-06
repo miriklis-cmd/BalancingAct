@@ -20,6 +20,14 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.13.2] - settings.txt and recent.txt move to the shared data folder too
+
+Jack: "put all the txt files there". `settings.txt` (window position/size, last file) and `recent.txt` (Recent Files menu) now live in
+`C:\BalancingAct\data` with `emails.txt` and `names.txt`, copied across once from beside the exe if the new folder has none. Still beside the exe:
+`autosave.fbd`, `backups\`, `history\` (not .txt; moving business data is a separate decision - ROADMAP.md). The WinUI prototype has no settings or
+recent-files feature yet, so it has nothing to move; when it gets them it must use the same folder. Note for then: the window-position keys in
+`settings.txt` belong to one app each, so WinUI will need its own keys (or file) for geometry rather than sharing the Win32 ones.
+
 ## [0.13.1] - Shared data folder for the lists
 
 Jack's decision (2026-11-06): the lists are shared reference data, not per-exe settings, and must not sit beside the exe (they would end up in the repo

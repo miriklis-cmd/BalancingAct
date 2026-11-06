@@ -232,7 +232,7 @@ Tick as you do them. Items marked (done) were confirmed by Jack in chat on the d
 - [ ] After any File > New / Open / Restore, the next edit marks the sheet unsaved again.
 
 ## v0.13.0 checks (master name lists, tick-box Manage Names)
-Back up `emails.txt` and your working folder first. Start with a real day open. (v0.13.1: both files now live in `C:\BalancingAct\data` - put your hand-made `names.txt` THERE before the first run; an `emails.txt`/`names.txt` beside the exe is copied across once if that folder has none.)
+Back up `emails.txt` and your working folder first. Start with a real day open. (v0.13.2: `settings.txt` and `recent.txt` move there too - after the first run the window should reopen where it was and Recent Files should still be listed; v0.13.1: both files now live in `C:\BalancingAct\data` - put your hand-made `names.txt` THERE before the first run; an `emails.txt`/`names.txt` beside the exe is copied across once if that folder has none.)
 1. First open of Tools > Manage Supplier / Species Names creates `names.txt` beside the exe and fills it from the open sheet. Suppliers/Species buttons switch lists; the Email column disappears for Species.
 2. Click one supplier, then another: only the second stays selected; the Name and Email boxes show it; NOTHING gets ticked. Click a tick box: only that box changes. "Merge ticked" stays grey until two are ticked.
 3. Duplicates strip: if two names differ only by case/spaces/punctuation, it names them; "Tick these" ticks exactly those.

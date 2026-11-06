@@ -215,6 +215,11 @@ AP|Barra|Barramundi               alias for a species
 An alias whose target is not in the list is dropped on load. Aliases are created by merge/rename in Manage Names and removed if that spelling is
 added to the list again on purpose. Supplier email addresses stay in `emails.txt`, keyed by the supplier name.
 
+## Where the small text files live (v0.13.2)
+
+`emails.txt`, `names.txt`, `settings.txt` and `recent.txt` are all in `C:\BalancingAct\data\` (created on first use; falls back to the exe folder if it cannot
+be created). `autosave.fbd`, `backups\` and `history\` are still beside the exe.
+
 ## `emails.txt` — supplier email addresses
 
 Plain UTF-8, pipe-delimited, one supplier per line:
