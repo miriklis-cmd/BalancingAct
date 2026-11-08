@@ -762,6 +762,10 @@ void CommitEntryForm() {
     SetWindowTextW(hCmbProduct, L"");
     g_prevProductLen = 0;
     SetFocus(hCmbSupplier);
+    // v0.14.3: the kept supplier is fully selected, so typing a different one simply overwrites it (Tab/Enter keeps
+    // it). prevLen 0 lets the first typed letter auto-complete too.
+    SendMessageW(hCmbSupplier, CB_SETEDITSEL, 0, MAKELPARAM(0, -1));
+    g_prevSupplierLen = 0;
 
     RefreshAll();
     // RefreshAll clears the status bar's third part (selected-rows total); show what the name check did there.

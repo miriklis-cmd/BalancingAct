@@ -170,3 +170,7 @@ binary icon file - a guess would just ship a different icon than the
 real one). **Added to the project 2026-09-21** — all three now ship at
 the project root in every zip, alongside `main.cpp`, matching
 `CMakeLists.txt`'s references to them.
+
+## Line endings (why git warns "LF will be replaced by CRLF")
+
+Jack's git has `core.autocrlf=true`, so any text file that reaches his working copy with LF endings triggers that warning on `git add`. Every delivered zip must therefore have CRLF in EVERY text file (.cpp .h .md .txt .ps1 .bat .rc .json .py .manifest .gitignore): convert after the last edit and before zipping - editing tools and scripts write LF for new or rewritten files. Binary files (.ico, .aps) are left alone. One-off silence on his side: `git config core.safecrlf false`.
