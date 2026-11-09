@@ -20,6 +20,11 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.14.4] - 2026-11-09
+
+### Fixed
+- The Supplier highlight after Add Entry (v0.14.3) was wiped a moment later: the screen refresh rewrote the Supplier / Species box text and reset the caret to the start. RefreshCombos now keeps each box's selection across the refresh.
+
 ## [0.14.3] - 2026-11-09
 
 ### Changed

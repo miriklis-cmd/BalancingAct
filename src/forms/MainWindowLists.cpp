@@ -28,6 +28,10 @@ void RefreshCombos() {
     std::wstring curSup = buf;
     GetWindowTextW(hCmbProduct, buf, 256);
     std::wstring curProd = buf;
+    // v0.14.4: rewriting the text below cleared the highlight/caret, so keep each box's selection across the refresh.
+    DWORD supSelStart = 0, supSelEnd = 0, prodSelStart = 0, prodSelEnd = 0;
+    SendMessageW(hCmbSupplier, CB_GETEDITSEL, (WPARAM)&supSelStart, (LPARAM)&supSelEnd);
+    SendMessageW(hCmbProduct, CB_GETEDITSEL, (WPARAM)&prodSelStart, (LPARAM)&prodSelEnd);
 
     SendMessageW(hCmbSupplier, CB_RESETCONTENT, 0, 0);
     SendMessageW(hCmbProduct, CB_RESETCONTENT, 0, 0);
@@ -46,6 +50,8 @@ void RefreshCombos() {
 
     SetWindowTextW(hCmbSupplier, curSup.c_str());
     SetWindowTextW(hCmbProduct, curProd.c_str());
+    SendMessageW(hCmbSupplier, CB_SETEDITSEL, 0, MAKELPARAM(supSelStart, supSelEnd));
+    SendMessageW(hCmbProduct, CB_SETEDITSEL, 0, MAKELPARAM(prodSelStart, prodSelEnd));
 }
 
 // Simple autocomplete for the Supplier / Species combo boxes: as the user
