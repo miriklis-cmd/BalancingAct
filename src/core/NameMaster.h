@@ -25,6 +25,7 @@ struct NameList {
     std::vector<std::wstring> names;               // canonical spellings, in the order they were added
     std::map<std::wstring, std::wstring> aliases;  // old spelling -> canonical name it was merged into
     std::map<std::wstring, std::wstring> added;    // canonical name -> "YYYY-MM-DD" (missing/empty = unknown)
+    std::map<std::wstring, std::wstring> emails;   // v0.15.0, suppliers only: canonical name -> email address
 };
 
 struct NameMasterData {
@@ -140,6 +141,7 @@ inline std::vector<std::wstring> AliasesOf(const NameList& list, const std::wstr
 inline void NameListRemove(NameList& list, const std::wstring& name) {
     list.names.erase(std::remove(list.names.begin(), list.names.end(), name), list.names.end());
     list.added.erase(name);
+    list.emails.erase(name);
     for (auto it = list.aliases.begin(); it != list.aliases.end();) {
         if (it->second == name) it = list.aliases.erase(it); else ++it;
     }
@@ -151,8 +153,19 @@ inline void NameListRemove(NameList& list, const std::wstring& name) {
 inline void NameListMerge(NameList& list, const std::vector<std::wstring>& sources, const std::wstring& target,
                           const std::wstring& dateISO) {
     const std::wstring targetKey = NameKey(target);
+    // The kept name's own email wins; otherwise the first source that has one (v0.15.0).
+    std::wstring keptEmail;
+    {
+        auto t = list.emails.find(target);
+        if (t != list.emails.end()) keptEmail = t->second;
+    }
     for (const std::wstring& src : sources) {
         if (src == target) continue;
+        auto e = list.emails.find(src);
+        if (e != list.emails.end()) {
+            if (keptEmail.empty()) keptEmail = e->second;
+            list.emails.erase(e);
+        }
         list.names.erase(std::remove(list.names.begin(), list.names.end(), src), list.names.end());
         list.added.erase(src);
         for (auto& kv : list.aliases) {
@@ -160,6 +173,7 @@ inline void NameListMerge(NameList& list, const std::vector<std::wstring>& sourc
         }
     }
     NameListAdd(list, target, dateISO);
+    if (!keptEmail.empty()) list.emails[target] = keptEmail;
     for (const std::wstring& src : sources) {
         if (src == target || NameKey(src) == targetKey) continue;
         list.aliases[src] = target;
@@ -302,7 +316,8 @@ inline bool NameAddedRecently(const std::wstring& addedISO, const std::wstring& 
 
 // ---------------------------------------------------------------------------
 // names.txt text. One record per line, '|' separated (names can never contain '|'):
-//   S|supplier|date    P|species|date    AS|old supplier|canonical    AP|old species|canonical
+//   S|supplier|date|email    P|species|date    AS|old supplier|canonical    AP|old species|canonical
+// (v0.15.0: the supplier's email is the optional 4th field, after the date, so older 3-field lines still load.)
 // ---------------------------------------------------------------------------
 
 inline std::vector<std::wstring> BuildNameMasterLines(const NameMasterData& d) {
@@ -310,7 +325,10 @@ inline std::vector<std::wstring> BuildNameMasterLines(const NameMasterData& d) {
     auto emit = [&lines](const NameList& l, const wchar_t* tag, const wchar_t* aliasTag) {
         for (const std::wstring& n : l.names) {
             auto it = l.added.find(n);
-            lines.push_back(std::wstring(tag) + L"|" + n + L"|" + (it != l.added.end() ? it->second : std::wstring()));
+            std::wstring line = std::wstring(tag) + L"|" + n + L"|" + (it != l.added.end() ? it->second : std::wstring());
+            auto em = l.emails.find(n);
+            if (em != l.emails.end() && !em->second.empty()) line += L"|" + em->second;
+            lines.push_back(line);
         }
         for (const auto& kv : l.aliases) lines.push_back(std::wstring(aliasTag) + L"|" + kv.first + L"|" + kv.second);
     };
@@ -329,9 +347,19 @@ inline void ParseNameMasterLines(const std::vector<std::wstring>& lines, NameMas
         const std::wstring tag = line.substr(0, p1);
         const size_t p2 = line.find(L'|', p1 + 1);
         const std::wstring a = line.substr(p1 + 1, p2 == std::wstring::npos ? std::wstring::npos : p2 - p1 - 1);
-        const std::wstring b = p2 == std::wstring::npos ? std::wstring() : line.substr(p2 + 1);
+        std::wstring b = p2 == std::wstring::npos ? std::wstring() : line.substr(p2 + 1);
+        std::wstring email;
+        if (tag == L"S") { // S|name|date|email: split the optional 4th field off
+            const size_t p3 = b.find(L'|');
+            if (p3 != std::wstring::npos) {
+                email = b.substr(p3 + 1);
+                b = b.substr(0, p3);
+            }
+        }
         if (a.empty() || a.size() > kMaxSupplierSpeciesLength || b.size() > kMaxSupplierSpeciesLength) continue;
-        if (b.find(L'|') != std::wstring::npos) continue;
+        if (b.find(L'|') != std::wstring::npos || email.find(L'|') != std::wstring::npos) continue;
+        // names.txt is untrusted input: an address the entry form would have refused is dropped (the name still loads).
+        if (!email.empty() && (email.size() > kMaxSupplierSpeciesLength || !LooksLikeEmail(email))) email.clear();
         NameList* list = nullptr;
         bool isAlias = false;
         if (tag == L"S") list = &out.suppliers;
@@ -344,12 +372,49 @@ inline void ParseNameMasterLines(const std::vector<std::wstring>& lines, NameMas
         } else if (!NameListHas(*list, a)) {
             list->names.push_back(a);
             list->added[a] = b;
+            if (!email.empty()) list->emails[a] = email;
         }
     }
+    // (emails only ever attach to a name that loaded; nothing to clean up)
     // An alias whose target is not in the list is meaningless; drop it rather than keep a dangling pointer.
     for (NameList* l : { &out.suppliers, &out.species }) {
         for (auto it = l->aliases.begin(); it != l->aliases.end();) {
             if (!NameListHas(*l, it->second)) it = l->aliases.erase(it); else ++it;
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// v0.15.0: supplier email addresses live in names.txt (they used to be a separate emails.txt).
+// ---------------------------------------------------------------------------
+
+// Folds the lines of an old emails.txt ("supplier|address") into the supplier list: a supplier not in the list is added
+// (no date), and an address is only taken when that supplier has none yet. Skips what this app could not have
+// written. Returns how many addresses were taken.
+inline int MigrateLegacyEmails(NameMasterData& d, const std::vector<std::wstring>& lines) {
+    int taken = 0;
+    for (const std::wstring& l : lines) {
+        const size_t pos = l.find(L'|');
+        if (pos == std::wstring::npos) continue;
+        const std::wstring sup = l.substr(0, pos);
+        const std::wstring email = l.substr(pos + 1);
+        if (sup.empty() || email.empty()) continue;
+        if (sup.size() > kMaxSupplierSpeciesLength || email.size() > kMaxSupplierSpeciesLength) continue;
+        if (email.find(L'|') != std::wstring::npos || !LooksLikeEmail(email)) continue;
+        NameListAdd(d.suppliers, sup, std::wstring());
+        if (d.suppliers.emails.find(sup) == d.suppliers.emails.end()) {
+            d.suppliers.emails[sup] = email;
+            ++taken;
+        }
+    }
+    return taken;
+}
+
+// Makes the list's email table equal `addresses`, keeping only names that are in the list (a name that was removed
+// from the list takes its address with it).
+inline void SyncListEmails(NameList& list, const std::map<std::wstring, std::wstring>& addresses) {
+    list.emails.clear();
+    for (const auto& kv : addresses) {
+        if (!kv.second.empty() && NameListHas(list, kv.first)) list.emails[kv.first] = kv.second;
     }
 }

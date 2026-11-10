@@ -437,8 +437,8 @@ void ExecuteMerge(const std::vector<std::wstring>& sources, const std::wstring& 
     SetStatus(status);
     if (!masterSaved || !emailsSaved) {
         MessageBoxW(g_hManageWnd,
-                    L"The change was made, but names.txt or emails.txt could not be written. It will be lost when "
-                    L"the app closes unless a later save succeeds. Check that neither file is open in another "
+                    L"The change was made, but names.txt could not be written. It will be lost when "
+                    L"the app closes unless a later save succeeds. Check that it isn't open in another "
                     L"program.",
                     L"Save Failed", MB_OK | MB_ICONWARNING);
     }
@@ -545,7 +545,11 @@ void DoSaveEmail() {
         }
     }
     if (email.empty()) g_supplierEmails.erase(supplier);
-    else g_supplierEmails[supplier] = email;
+    else {
+        g_supplierEmails[supplier] = email;
+        // v0.15.0: the address is stored on the supplier's names.txt line, so the supplier must be in the list.
+        NameListAdd(g_nameMaster.suppliers, supplier, TodayISO());
+    }
     const bool saved = SaveSupplierEmails();
     PopulateList(supplier);
     if (saved) {
@@ -553,7 +557,7 @@ void DoSaveEmail() {
     } else {
         MessageBoxW(g_hManageWnd,
                     L"Could not save the email address to disk - the change is still in memory for this session, but "
-                    L"will be lost when the app closes unless the save succeeds. Check that emails.txt isn't open in "
+                    L"will be lost when the app closes unless the save succeeds. Check that names.txt isn't open in "
                     L"another program and try again.",
                     L"Save Failed", MB_OK | MB_ICONWARNING);
     }
@@ -570,6 +574,7 @@ void DoAddRemoveListName() {
         status = L"\"" + name + L"\" added to the list.";
     } else if (g_rows[sel].entries == 0) {
         NameListRemove(CurrentList(), name);
+        if (g_isSupplier) g_supplierEmails.erase(name); // the address lives on the list line, so it goes too
         status = L"\"" + name + L"\" removed from the list.";
         removed = true;
     } else {
@@ -593,10 +598,13 @@ void DoAddAlias() {
     const std::wstring typed = CollapseNameSpaces(buf);
     // Would this replace an alias that points somewhere else? Say so in the status line afterwards.
     std::wstring movedFrom;
+    std::wstring replacedSpelling; // same spelling ignoring capitals/spaces/punctuation, so it is replaced, not added
     {
         const NameList& cur = CurrentList();
         for (const auto& kv : cur.aliases) {
-            if (NameKey(kv.first) == NameKey(typed) && kv.second != name) movedFrom = kv.second;
+            if (NameKey(kv.first) != NameKey(typed)) continue;
+            if (kv.second != name) movedFrom = kv.second;
+            else if (kv.first != typed) replacedSpelling = kv.first;
         }
     }
     const UndoSnapshot previousUndo = g_undo;
@@ -616,7 +624,8 @@ void DoAddAlias() {
     const bool saved = SaveNameMaster();
     PopulateList(name);
     SetStatus(L"\"" + typed + L"\" will now be read as \"" + name + L"\"." +
-              (movedFrom.empty() ? L"" : L" (It used to mean \"" + movedFrom + L"\".)"));
+              (movedFrom.empty() ? L"" : L" (It used to mean \"" + movedFrom + L"\".)") +
+              (replacedSpelling.empty() ? L"" : L" It replaced \"" + replacedSpelling + L"\" - spellings that differ only in capitals, spaces or punctuation count as the same."));
     if (!saved) {
         MessageBoxW(g_hManageWnd, L"Could not save names.txt. The change is in memory only until a later save succeeds.",
                     L"Save Failed", MB_OK | MB_ICONWARNING);
@@ -670,7 +679,7 @@ void DoUndo() {
     PopulateList(L"");
     SetStatus(L"Undone.");
     if (!a || !b) {
-        MessageBoxW(g_hManageWnd, L"The merge was undone on screen, but names.txt or emails.txt could not be written.",
+        MessageBoxW(g_hManageWnd, L"The merge was undone on screen, but names.txt could not be written.",
                     L"Save Failed", MB_OK | MB_ICONWARNING);
     }
 }

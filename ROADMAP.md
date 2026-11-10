@@ -4,7 +4,15 @@ This is the current plan: where we are, what is next, what is not built, and wha
 (every version's test checklist, the 0.9.x status notes) is frozen in `ROADMAP_ARCHIVE.md`; version-by-version detail
 is in `CHANGELOG.md`; manual checks still to do are in `Testing.md`.
 
-## Where we are (v0.14.4, 2026-11-07)
+## Where we are (v0.16.0, 2026-11-09)
+
+**v0.16.0 written (strict build clean), NOT yet run by Jack:** right-click Move to book for selected rows; first-entry "No Book Yet" prompt (Debtor / Cash / none / Cancel). Checks: Testing.md "v0.16.0 checks". WinUI port of both is next (Win32 first, per Jack).
+
+Earlier (v0.15.0):
+
+**v0.15.0 written (strict build + 311 tests pass), NOT yet run by Jack:** supplier emails moved into `names.txt` (`S|name|date|email`); old `emails.txt` migrates once (renamed `.migrated`). WinUI gets the same plus exit-crash guards. Checks: Testing.md. Next: Jack's book questions (fix wrong/missing book on entered rows; first-entry "no book" prompt).
+
+Earlier (v0.14.4):
 
 **v0.14.0 written (strict build + 307 tests pass), NOT yet run by Jack:** Manage Names shows an "Also known as" column and has Add alias / Remove alias (with Undo); the entry form's status bar says when a typed name is an alias; autosave.fbd, backups\ and history\ moved into `C:\BalancingAct\data` (existing files moved across on first run). Checks: Testing.md.
 
@@ -14,11 +22,11 @@ Earlier status:
 snaps case/spacing, corrects remembered aliases, asks "did you mean...?" for near matches, adds genuinely new names silently; Manage Names rewritten with
 tick boxes, duplicates strip, merge confirmation, undo). Checklist: Testing.md "v0.13.0 checks". Decisions (Jack, 2026-11-06): ticks for merging; new names
 are added silently; keep the duplicates strip. Open: where `names.txt` / `emails.txt` live once several machines share data (today: beside the exe, so each
-machine has its own copy) - decide with the networking work. WinUI Manage Names (step 8) exists in the old multi-select form and should be rebuilt on this.
+machine has its own copy) - decide with the networking work. WinUI Manage Names was rebuilt on this in WinUI step 9 (2026-11-09; written, not compiled or seen): names.txt, tick boxes, duplicates strip, merge with the "same thing spelled differently" box, aliases, Undo; Add Entry also snaps/aliases silently, asks about near matches and records new names.
 
 **Design note to settle with the shared-repository (Postgres) work - names, aliases and emails are reference data (Jack, 2026-11-06; no actual lists belong in this file or the repo):**
 - Eventually shared tables (suppliers with email, species, aliases) read by every machine and by the analysis side; `names.txt` / `emails.txt` are the simple version of the same data.
-- Put all reading/writing of them behind one small data-layer interface (file today, database later) so the location becomes a setting; both apps already share `src/data`. DECIDED (Jack, 2026-11-06): `names.txt`, `emails.txt`, `settings.txt` and `recent.txt` live in `C:\BalancingAct\data` (v0.13.1, Win32; WinUI reads the same `emails.txt`, does not read `names.txt` yet).
+- Put all reading/writing of them behind one small data-layer interface (file today, database later) so the location becomes a setting; both apps already share `src/data`. DECIDED (Jack, 2026-11-06): `names.txt`, `emails.txt`, `settings.txt` and `recent.txt` live in `C:\BalancingAct\data` (v0.13.1, Win32; WinUI reads the same `emails.txt`, reads `names.txt` too from step 9).
 - Keep a local cached copy per PC so a machine still works when the share/server is down (the Win 7 box especially).
 - Several machines: adding a name should read-merge-write atomically (adds combine); rename/merge is riskier, so allow Manage Names on one PC only.
 - Installed under Program Files, nothing may be written beside the exe: autosave, settings, recent files, backups, history and these lists all move to a ProgramData (or AppData) folder at install time - separate roadmap item.

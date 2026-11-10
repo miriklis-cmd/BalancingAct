@@ -1,0 +1,2857 @@
+# Changelog
+
+All notable changes to Fish Balance Manager are recorded here. Versions
+follow `MAJOR.MINOR.PATCH` loosely: MINOR for new features, PATCH for bug
+fixes, MAJOR reserved for a future point where the app is considered
+feature-complete and stable for daily production use.
+
+Versions before 0.9.0 were not tracked at the time — this history has been
+reconstructed from the project's development conversation as accurately as
+possible, grouped into logical releases.
+
+## Version numbering (from v0.10.0)
+
+Decided with Jack 2026-10-14: the `main.cpp` split is **0.10.0**, and every update that is part of the split is
+**0.10.x**. The next new *feature* after the split is **0.11.0**. Move to **1.0.0** only when the app is ready
+for prime time (released).
+
+## [Unreleased]
+
+- WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
+- (nothing queued yet — see ROADMAP.md for what's planned next)
+
+## [WinUI step 11] - 2026-11-09 (written, not compiled or seen)
+
+### Added
+- WinUI gets the v0.16.0 book features: right-click on the entries list > "Move N selected rows to book" (existing books, new Debtor / Cash book, no book; whole selection kept when you right-click a selected row; not on a finalized day), and the first-entry "This entry isn't in a book yet" dialog (Debtor / Cash / no book, Cancel adds nothing).
+- The status-bar label reads "WinUI prototype - step 11". The temporary [NameRestore] debug lines were removed.
+
+## [0.16.1] - 2026-11-09
+
+### Fixed
+- After a restart, work recovered from autosave that isn't linked to a named file was treated as already saved, so File > New (or Open) discarded it without asking. It now counts as unsaved changes and asks first.
+
+## [0.16.0] - 2026-11-09
+
+### Added
+- Fix a wrong or missing book on rows already entered: select one or more rows on Data Entry, right-click, "Move N selected rows to book" > an existing book, a new Debtor / Cash book, or "No book". Right-clicking a row that is already selected keeps the whole selection. Not available on a finalized day. (Edit > Undo does not cover this; move them back the same way.)
+- The very first entry on a sheet with no book now asks which book it belongs in: start a Debtor book, start a Cash book, no book, or Cancel (go back and nothing is added). Only for a new row on an empty sheet; once the entry is added it never asks again on that sheet.
+
+## [0.15.0] - 2026-11-09
+
+### Changed
+- Supplier email addresses now live in names.txt, on the supplier's own line (`S|name|date|email`), instead of a separate emails.txt. On first run an existing emails.txt is merged in (suppliers missing from the list are added; an address already in names.txt is never overwritten) and renamed emails.txt.migrated. Removing a supplier from the list removes its address with it; saving an address for a supplier not yet in the list adds the supplier.
+- WinUI does the same migration (it shares the data folder with the Win32 app).
+
+### Changed
+- Adding an alias that differs from an existing one only in capitals/spaces/punctuation (e.g. `Smlt` over `S/Mlt`) says it replaced it. The rule itself is unchanged and is now written down in BUSINESS_RULES.md.
+
+### Fixed (WinUI)
+- Typing an alias (e.g. a shorthand for a species) into Supplier/Species on the second and later rows and pressing Tab made the text vanish. The boxes now handle the combo's TextSubmitted themselves: the typed text is kept and a remembered alias / different capitals is swapped for the real name straight away. (Written from the screen recording, not compiled or seen.) Second attempt (step 10e): Tab/click-away now reads the typed text from the combo's inner text box and checks again 120 ms later; the status-bar label now reads "WinUI prototype - step 10e" so the running build is obvious. Step 10h removes the TextSubmitted handler added in 10b (marking it handled stopped the combo committing typed text, so Species went blank every time). Third attempt (step 10g): Jack's debug log showed the typed text is already gone by the time the bubbling KeyDown / LosingFocus events run, so the text is now captured in PreviewKeyDown (Tab) before the combo clears it. Debug output lines starting [NameRestore] show what was typed vs what the combo held.
+- Possible crash on exit: several toolbar/menu handlers (Add, Edit, Delete, Duplicate, Repeat, Cancel, Open, Save, Save As, Finalize, Exit, tabs, price Enter) touched controls after the window had started closing; they now stop once it is closing, and the queued Close is protected too.
+
+## [WinUI step 9] - 2026-11-09 (separate FishBalanceWinUI project; written, not compiled or seen)
+
+### Changed
+- WinUI Manage Names rebuilt to match the Win32 design: names.txt in C:\BalancingAct\data (read at start, shared with Win32), tick boxes + Merge ticked with an inline option panel (incl. the "same thing spelled differently" box), duplicates strip, rename, add/remove from list, supplier email, "Also known as" column with add/remove alias, one level of Undo.
+- WinUI Add Entry: Supplier/Species checked against the master lists - case/spacing and remembered aliases corrected silently, near matches asked ("Did you mean...?"), new names added to names.txt after the entry; drop-downs use the master lists when names.txt exists.
+
+## [0.14.4] - 2026-11-09
+
+### Fixed
+- The Supplier highlight after Add Entry (v0.14.3) was wiped a moment later: the screen refresh rewrote the Supplier / Species box text and reset the caret to the start. RefreshCombos now keeps each box's selection across the refresh.
+
+## [0.14.3] - 2026-11-09
+
+### Changed
+- After Add Entry the kept Supplier is fully selected (it was left with the caret at the start), so typing a different supplier overwrites it and Tab keeps it. The first typed letter still auto-completes.
+
+## [0.14.2] - 2026-11-07
+
+### Fixed
+- Zips no longer contain stray `backups\` test files (extracting them recreated a backups folder in the project/exe folder) and every text file is CRLF again, so git's "LF will be replaced by CRLF" warnings stop. Rule recorded in DevelopmentWorkflow.md.
+
+### Changed
+- Merge ticked now has a tick box: "They are the same thing spelled differently: also remove the other names from the list and correct them automatically". Unticked, only the entries on this sheet are changed - the other names stay in the master list, no alias is recorded and emails are left alone (for a real species/supplier typed by mistake). It starts ticked only when the names are spellings of each other (or the others are not in the list); otherwise unticked. Rename is unchanged.
+
+## [0.14.1] - 2026-11-07
+
+### Fixed
+- Manage Names: the alias box is now a drop-down that lists the selected name's aliases - pick one and press Remove alias, or type a new one and press Add alias. Previously there was no way to choose which alias to remove. Label now reads "Also known as:" and is no longer clipped.
+
+## [0.14.0] - 2026-11-07
+
+### Added
+- Manage Names: "Also known as" column, plus an alias box with Add alias / Remove alias (Undo-able). Refuses an alias that is just the name again or is already a real name (merge those).
+- Entry form: the status bar says when what you typed is another name for a listed one, and when leaving the box changed it.
+
+### Changed
+- autosave.fbd, backups\ and history\ now live in C:\BalancingAct\data with the other files. Anything still beside the exe is moved there on first run (never overwriting), so a stale autosave cannot be recovered twice.
+- Manage Names window is larger to fit the alias row.
+
+### Tests
+- 1 new test (alias add/remove/list); 307 tests.
+
+## [0.13.3] - 2026-11-06
+
+### Changed
+- Aliases now take part in name matching. Typing the start of an alias (e.g. "Blk flat" when "Blk Flathead" is an alias of the real name) is treated as a near match for the real name, so you are asked instead of it being added silently as a new name. The prompt says which alias matched.
+- Supplier / Species boxes auto-complete from aliases when nothing in the list starts with what you typed; leaving the box turns an exact alias or case variant into the real name, so you see what will be stored.
+
+### Tests
+- 3 new tests in test_name_master.cpp (306 tests).
+
+## [0.13.2] - settings.txt and recent.txt move to the shared data folder too
+
+Jack: "put all the txt files there". `settings.txt` (window position/size, last file) and `recent.txt` (Recent Files menu) now live in
+`C:\BalancingAct\data` with `emails.txt` and `names.txt`, copied across once from beside the exe if the new folder has none. Still beside the exe:
+`autosave.fbd`, `backups\`, `history\` (not .txt; moving business data is a separate decision - ROADMAP.md). The WinUI prototype has no settings or
+recent-files feature yet, so it has nothing to move; when it gets them it must use the same folder. Note for then: the window-position keys in
+`settings.txt` belong to one app each, so WinUI will need its own keys (or file) for geometry rather than sharing the Win32 ones.
+
+## [0.13.1] - Shared data folder for the lists
+
+Jack's decision (2026-11-06): the lists are shared reference data, not per-exe settings, and must not sit beside the exe (they would end up in the repo
+folder; under Program Files they could not be written at all).
+- `emails.txt` and `names.txt` now live in `C:\BalancingAct\data` (created on first use). If that folder cannot be created the app falls back to the exe
+  folder so nothing is lost. `GetSharedDataDir()` in `Storage.cpp`; the tests' temp-folder override still redirects it, so tests never touch real data.
+- Upgrade: an `emails.txt` / `names.txt` still beside the exe is COPIED into the new folder once, if the new folder has none; the old file is left alone.
+- Everything else (autosave, settings, recent files, backups, history) stays beside the exe for now; moving those is part of the installer work (ROADMAP.md).
+- WinUI prototype: its Manage Names / Email All now read and write the same `C:\BalancingAct\data\emails.txt`.
+- Checked: strict MinGW build of the whole app. NOT checked: MSVC, running it, or WinUI.
+
+## [0.13.0] - Master name lists, "did you mean...?" at entry, tick-box Manage Names
+
+Jack's redesign (2026-11-06) after finding Manage Names clunky: clicking a second supplier to look at it selected both, and
+the next Apply merged them. Spelling variants (Barra / barra / Barramundi) also kept coming back because the Supplier and
+Species lists were rebuilt from the open sheet only.
+- **Master lists (`names.txt`, beside the exe).** Suppliers and species are kept between sheets. The drop-downs and autocomplete offer the master
+  list plus whatever is on the open sheet. First run: the list is started from the sheet that is open (once); after that the sheet no longer
+  decides what is in it. Format in DATA_FORMATS.md. New pure code `src/core/NameMaster.h` (tests: `tests/test_name_master.cpp`, 16 cases).
+- **Add Entry checks the names** (after every other check, so a Kgs typo never asks a name question first):
+  same name apart from case/spacing/punctuation -> silently uses the list's spelling; an old merged-away spelling (alias) -> silently corrected;
+  a close match (one is the start of the other, or a letter or two off, e.g. "Barra"/"Barramundi", "Snpaer"/"Snapper") -> asks
+  Yes = use the list's name / No = add as new / Cancel = go back; anything else is added to the list silently. The status bar (right) says what happened.
+- **Manage Names rewritten.** Suppliers / Species buttons; the list is single-select (a click only selects, and shows the name and email below);
+  merging is a separate act: tick boxes, then "Merge ticked (n)..." opens a confirmation with a radio button per name (most-used pre-picked) saying how
+  many entries change. Rename edits the selected name (typing an existing name offers to merge). A merge/rename is remembered as an alias.
+  "Possible duplicates" strip with a Tick these button. Names only on the open sheet are marked "not in list" (Add to list); unused list names can be
+  removed. Names added in the last 7 days are marked "new". One-level Undo while the window is open. Email edits via Save Email (Enter works too).
+  Changed from before: if merged suppliers have different emails, the kept supplier's address is used (the confirmation lists them first) instead of a
+  separate Yes/No/Cancel question.
+- `names.txt` added to `.gitignore` (it is written next to the exe, which builds into the repo folder, so `git add -A` would otherwise have committed it).
+- Gotcha recorded: `near` is a macro in `<windows.h>`, so it cannot be used as a member name in headers shared with Windows code.
+- Checked: strict MinGW build (`-Wall -Wextra -Wpedantic -Werror`) of the whole app; all 303 unit tests (1208 assertions) pass. NOT checked: MSVC `/W4 /WX`,
+  the Windows integration tests (no Windows here), and the new window itself - never seen on screen. See Testing.md "v0.13.0 checks".
+- WinUI prototype (not part of the Win32 build): step 8 adds Tools > Manage Supplier / Species Names... in the OLD form (multi-select); it is to be
+  rebuilt to match this once the Win32 version is confirmed.
+
+## [0.12.10] - Printing code made shareable (no change you should see)
+
+Prepares the WinUI prototype's File > Print Preview / Print Breakdown, which run the SAME code as the Win32 app.
+- `RenderReportPages` now takes the entries as a parameter instead of reading the `g_entries` global, and `ReportRender.cpp` no longer includes
+  `AppData.h`.
+- New `src/services/PrintJob.cpp/.h`: `PrintBreakdownJob` (the print job, moved unchanged out of `main.cpp`; the Debtor/Cash text and entries are
+  parameters) and `GetPreviewPageSpec` (the default printer's page size at the capped preview DPI, moved out of `OpenPrintPreview`).
+  `PrintBreakdownReport` in `main.cpp` and `OpenPrintPreview` are now thin callers. Added to all four build lists.
+- Nothing should look or behave differently in the Win32 app: Print Preview and Print Breakdown must still work exactly as before.
+- Checked: strict MinGW build (`-Wall -Wextra -Wpedantic -Werror`, nothing suppressed) of the whole app; `ReportRender.o` and `PrintJob.o` have no
+  undefined `g_` symbols. Not checked: MSVC `/W4 /WX`, an actual print or preview (no printer/screen here).
+- WinUI prototype (not part of the Win32 build): step 7 adds File > Print Preview... and File > Print Breakdown... (Ctrl+P); step 7b adds the Breakdown tab's three buttons (Print Preview..., Print / Save as PDF..., Email All Suppliers...). Email uses the Win32 app's own `EmailSupplier` and flow; addresses are read from an `emails.txt` beside the WinUI exe until Manage Names exists. Step 8 adds Tools > Manage Supplier / Species Names... (rename/merge across all entries, supplier email editing saved to `emails.txt`, same conflict prompts as Win32).
+
+## [0.12.9] - Drill-down: click a column header to sort; Esc closes it
+
+Jack's feedback after testing 0.12.6-0.12.8: a species row covers several prices, so the list needs to be sortable by price or kgs.
+- **Click any column header in the "Entries Behind This Row" list to sort by it** (Supplier, Species, Date, Kgs, Price, Total). Click the same
+  header again to reverse. The clicked header shows a sort arrow. Kgs, Price and Total sort as numbers (10.0 after 4.5), Date as ISO text.
+  Rows that tie keep the default order (species, then date), so sorting by Price keeps each price's entries in date order.
+  Each time the popup opens it starts in the default order again.
+- **Esc closes the popup**, whether the list or the Close button has the keyboard focus. The popup is a plain window (no dialog
+  handling), so the list and Close button are subclassed (`SetWindowSubclass`); if that cannot be set up the popup reports it instead
+  of opening without Esc.
+- The sort lives in core (`DrillSortKey`, `SortDrillDownIndices`) and only reorders the rows; the total line is unchanged by sorting.
+- 5 new portable test cases (287 total, 1149 assertions): price asc/desc with stable ties, kgs and total numerically, date/supplier/species,
+  Default leaves the order, and every Breakdown row keeps the same set of rows under every sort key.
+- Checked: strict MinGW build (`-Wall -Wextra -Wpedantic -Werror`, nothing suppressed) and run under Wine: header clicks show the arrow and
+  flip it, one real Esc keypress closes the popup. Not checked: the look on Windows at 150%, MSVC `/W4 /WX`.
+
+## [0.12.8] - Breakdown print: supplier column, fits 3 pages
+
+Jack printed the same day from the app (4 pages) and from his Excel pivot (3 pages). Excel keeps the "Total" line for every species
+(single-price ones too) and has no title block on later pages, no per-supplier lines and no blank gaps; the app wasted that space.
+Print, PDF and Print Preview share one renderer, so all three change together.
+- **Supplier in its own left column.** The supplier's name now sits on its first row (and again on the first row of a new page if the
+  supplier runs over), like the Supplier column in the pivot, instead of taking a line of its own. Species moved right to make room.
+  "<Supplier> Total" and "GRAND TOTAL" labels sit in that column too; the per-supplier totals Jack prints separately from Excel stay.
+- **Less blank space between suppliers:** a hairline and a small gap replace the blank line before and after each supplier.
+- **Pages 2+ no longer repeat the title and "Generated" lines** - just the column header row.
+- Species "Total" lines are unchanged (every species still has one, as in Excel).
+- Roughly 30 lines saved over the report on Jack's 2026-10-25 day (4th page was about a third full), so it should now fit 3 pages.
+  Layout only; what is printed is unchanged. The page-count result depends on the day's data - Jack to check (Testing.md).
+- GDI drawing is not covered by the portable tests and was NOT compiled here. Margins left as they were (the Excel print's
+  1.9 cm top/bottom would cost rows; the left/right 0.6 cm does not change the row count).
+
+## [0.12.7] - Drill-down popup reports every failure (nothing fails quietly)
+
+Jack (2026-10-26): "do not silence errors - fix them". Reviewed the 0.12.6 drill-down code for anywhere an error was swallowed:
+- **Popup could not be created** (`CreateWindowExW` returned NULL): `OpenDrillDownWindow` just returned and nothing happened. It now shows
+  "The entry list could not be opened: ..." with the Windows error code. The main window stays enabled.
+- **Window class registration** result was not checked (the same gap exists in the older popups, listed under audit F16-F22). The drill-down now checks it and reports.
+- **A control failing to create** used to leave a half-built popup. `WM_CREATE` now aborts the window (so the failure above is reported) if any of
+  its four controls is missing.
+- **A list row the control refused** was dropped without a word. Rows that cannot be inserted are now counted and the total line says
+  `WARNING: n row(s) could not be shown - the total above still includes them`.
+- **A Breakdown row with no matching entry reference** (only possible if the list and the data were out of step) did nothing; it now shows
+  "This Breakdown row could not be matched to its entries ... Please report this." Double-clicking blank space below the rows is still a plain no-op.
+- Not silenced anywhere else: the `-Wno-unknown-pragmas` flag used briefly while compile-checking 0.12.6 was dropped again; the real fix (the
+  `#pragma comment(lib)` lines guarded with `#ifdef _MSC_VER`) is what shipped and what is checked.
+- These failure paths cannot be provoked in normal use, so they are verified by reading and by a clean build only. Normal behaviour is unchanged
+  (re-run under Wine: same lists and totals as 0.12.6). Expect 282 portable, 25 integration.
+
+## [0.12.6] - Breakdown drill-down: double-click a row to see the entries behind it
+
+Jack (2026-10-25): in Excel he double-clicks a species, or one price within a species, in the pivot table and gets the list of entries behind
+it. Same thing here, on the Breakdown tab first (Win32 + core; the WinUI prototype has no Breakdown tab yet, so there is nothing to port there
+until it gets one).
+- **Double-click a row on the Breakdown tab** and a read-only popup lists the entries behind that row: Supplier, Species, Date, Kgs, Price ($/kg)
+  and Total ($), with a bold line underneath: `Total: 2 entries | 13.0 kg | $162.50`. That line is formatted like the row's own Kgs and Total
+  columns so the two can be compared by eye.
+  - a **price row** (`Flathead  $12.50`) -> only that supplier's entries of that species at exactly that price;
+  - a **species total row** (`Flathead Total`) -> all of that supplier's entries of that species;
+  - a **supplier total row** (`Imlay Total`) -> every entry of that supplier (a small extra beyond what was asked; the rows are free to support).
+  Entries are listed by species, then date (older first), then the order they were entered. The popup is a snapshot, read-only (no edit or delete
+  from it), and the main window is disabled while it is open, like Manage Names and Print Preview. Close with the Close button or the window X.
+- The popup header says which row it came from (`Imlay - Flathead at $12.50 /kg`). Supplier names with `&` (`Jenkins & Son`) show literally.
+- **Core:** `BreakdownRowRef` / `BuildBreakdownRowRefs` (one reference per Breakdown list row, in the same order `RefreshBreakdownList` inserts them)
+  and `ComputeDrillDown` in `FishBalanceCore.h`. The price match is exact `==`, the same test `BuildBreakdownData` uses to group price lines, so the
+  drill-down picks exactly the entries in the clicked line. `tests/test_drilldown.cpp` (new, 7 cases, 94 assertions) includes a check that **every
+  row of a Breakdown report drills down to Kgs and Total ($) equal to the row's own figures**.
+- **Forms:** new `src/forms/DrillDownWindow.h/.cpp` (added to all four build paths and `run_tests.ps1` / the CMake test list), new `ID_DRILL_LIST` /
+  `ID_DRILL_CLOSE` in `ControlIds.h`, and an `NM_DBLCLK` handler for `hListBreakdown` in `main.cpp` that rebuilds the row refs from the same
+  `BuildBreakdownData(g_entries)` the list was filled from.
+- **Also fixed (found while compile-checking, present in v0.12.5):** `main.cpp`'s five `#pragma comment(lib, ...)` lines are now `#ifdef _MSC_VER`
+  only. `build_mingw.bat` uses `-Werror`, and GCC treats the unknown pragma as an error, so the MinGW build could never have succeeded. MSVC is unchanged.
+- **Verified here:** the new core tests pass with g++ (`-Wall -Wextra -Wpedantic -Werror`) together with `test_fbd_loader.cpp` (94 cases, 489
+  assertions); the whole app (all 13 `.cpp` files, including this popup and the v0.12.5 tooltip code) compiles and links with MinGW-w64 using
+  `build_mingw.bat`'s exact flags; and that build was run under Wine with a five-entry sheet: double-clicking a price row, a species total, a
+  supplier total and a `Jenkins & Son` row each opened the right list with a total equal to the clicked row, and Close re-enabled the main window.
+  **Not built with MSVC and not run on Windows**, so the Windows look at 150% scaling is unchecked (Testing.md "v0.12.6 checks"). The full portable
+  suite (all 10 files in `run_tests.ps1`) was then run over the final files: 282 cases, 1026 assertions, all passing (275 + 7); expect 25 integration.
+  (This entry first said the full suite had not been re-run; it had been by the time the zip was made - corrected in 0.12.7.)
+
+## [0.12.5] - Only `;` separates books; tooltip on Debtor / Cash
+
+Jack typed `2436.5+56+1900` in the Cash box and the Books table still showed Cash1 about $36 out: with the old rule each `+` started a new
+book, so Cash1 was compared with just the first amount. He found the mixed `+` / `;` rule too confusing and chose "Option A".
+- **`;` is now the ONLY thing that starts the next book** in the Debtor and Cash boxes. Everything between semicolons is one book's
+  amount, and may itself be a sum: `2436.5+56+1900` = one book; `15470.2+22.4-133;26076.2+110` = two books. `+` and `-` are always
+  just arithmetic. Brackets still work and `;` inside brackets does not split. `;` still counts as `+` in every total, so the
+  Debtor/Cash totals, Finalize Day and the print/PDF report are unchanged.
+- **Blank pieces are errors** (`100;`, `;100`, `1;;2`): because `;` counts as `+`, the box total already failed on these ("cannot check",
+  like a dangling `100+`); the per-book check now also shows nothing for that box until it is fixed.
+- **Behaviour change to be aware of:** a box typed as `a+b` used to mean two books and now means one. Brackets joined by `+`,
+  `(100+5)+(200-1)`, are also one book now - use `(100+5);(200-1)`. Existing files whose Debtor/Cash text relied on the old rule
+  will show fewer per-book figures (those books read "-") until `;` is put between the books. The Excel converter already writes
+  `;` between books, so files it produced are unaffected.
+- **Tooltip:** hovering over the Debtor or Cash box explains the rule with an example (Win32 tooltip control, shows after about
+  0.4 s and stays up for 30 s). Not shown while a day is finalized (the boxes are disabled then).
+- Core `SplitBookAmounts` only. Tests: the old "splits on plus only" case was rewritten for the new rule and a case for Jack's
+  Cash example was added (275 cases; this suite run here passed). The tooltip code in `main.cpp` was NOT compiled here - Jack to
+  build and check (Testing.md "v0.12.1 - v0.12.5 checks").
+- The WinUI prototype picks up the rule change from the core, but has no tooltip yet.
+
+## [0.12.4] - Kgs takes products (bins x kg)
+
+- The Kgs box accepts multiplication: `8*30` (8 bins of 30 kg), `(8*30)+16`, `2*3*4+1`. `*` binds tighter than `+`/`-`. As with sums, the
+  total is stored and shown in the grid; the text as typed (`8*30`) is kept and shown again when you edit. Debtor and Cash do NOT take `*`.
+- Excel converter keeps these (`=8*30`, `=(8*30)+16`) as typed; your workbook's 5 such rows now carry their expressions.
+- Core `ParseSumExprStrict(text, allowMul)`; only the Kgs entry paths and the file loader pass `true`. 3 new test cases (274, 908 assertions).
+- WinUI prototype build 5b has the same change.
+
+## [0.12.3] - Parentheses group one book's amount
+
+- Sums (Debtor, Cash and Kgs) accept parentheses: `(15470.2+22.4-133)+(26076.2+110+479+272+52.5)`. Each group is one book's amount
+  with its own corrections inside; a `+` inside a group never starts a new book. Groups are plain +/- sums (no nesting) and must sit
+  between operators: `5(1+2)`, `((1+2))`, `(1+2`, `()` are errors, never guessed. `;` still works too, and text without brackets takes the old path.
+- Core only (`ParseSumExprStrict` now wraps `ParseSumExprFlat`; `SplitBookAmounts` ignores `+` inside brackets), so the Win32 app and the
+  WinUI prototype both get it. 4 new test cases (271 total, 887 assertions).
+
+## [0.12.2] - Semicolon between books; Excel importer
+
+- **`;` in the Debtor / Cash boxes** separates one paper book's amount from the next when a book's amount is itself a sum:
+  `15470.2+22.4-133;26076.2+110+479+272+52.5` = two books. `;` counts as `+` in every total, so nothing else changes. Without any `;`
+  each `+` term is still one book. The Total Overview Books table uses this to pair the n-th book with the n-th amount.
+- **`tools/xlsx_to_fbd.py`**: converts the Excel workbook's Source Data sheet into a `.fbd` (entries, Kgs sums like `40+30+20` kept,
+  books from the marker column - names starting "Cash" become Cash books - and the Debtor/Cash amounts). Run:
+  `python tools\xlsx_to_fbd.py BALANCE_PivotTable.xlsx out.fbd --date 2026-10-23` (needs `pip install openpyxl`). Kgs typed as a
+  product in Excel (`=8*30`) keeps only the total - the app's Kgs box does not take `*` yet. Tested on the 140-row workbook: entered total
+  matches Excel's to the cent.
+- Tests: 267 cases, 861 assertions.
+
+## [0.12.1] - Total Overview: Books table fits
+
+- Books table on Total Overview was cut off (Difference column needed a horizontal scroll). It now takes more of the width (the supplier
+  table had spare space) and its columns are a little narrower, so all six columns show at 1280 wide.
+
+## [0.12.0] - Books (Win32 + core)
+
+Jack's Excel sheet marks where each Debtor/Cash book starts (Cash1, Book1, Book2 in the F column) so a book's rows can be selected
+and checked against that book's total. This is the same check in the app. (WinUI prototype not done yet.)
+- **Book on every entry (optional).** New `Entry::book` + `bookType` (Debtor/Cash), saved as optional 9th/10th `.fbd` fields
+  (`...|Flagged|KgsExpr|Book|D`; the KgsExpr field is empty when Kgs wasn't a sum). Files without books are byte-for-byte as before.
+  A new `DRAFT_BOOK=Name|D` header line remembers the current book even before any entry is in it.
+- **Data Entry:** a read-only "Book" box shows which book new entries go into, and a **Start Book...** button opens a small menu:
+  start the next Debtor book (Book1, Book2, ...), the next Cash book (Cash1, ...), go back to an earlier book, or "No book". Names
+  are automatic (no typing). Editing an existing row never changes its book.
+- **Book column** in the grid (sortable). The first row of each book is bold on a light blue tint so the boundary shows.
+- **Select several rows** in the grid (Ctrl/Shift-click): the status bar shows `Selected: 3 rows | 120.0 kg | $955.00` - the old "select
+  them in Excel and read the sum". Delete / Edit still need exactly one row selected (they say so).
+- **Total Overview:** a new Books table beside the supplier table: rows, kgs, entered total, "From the book" and difference. The n-th
+  Debtor book is compared with the n-th amount typed in the Debtor box (`18633.8+120+12159.3`), the n-th Cash book with the Cash box.
+  Differences other than $0.00 show red; subtotal lines for Debtor books and Cash books; a "Not in a book" line for loose rows.
+- **Denser Data Entry:** grid rows 22px (was 28), tighter spacing and a much shorter reconciliation box (same layout: Debtor/Cash at
+  left, Book/Entered totals, status and difference, Finalize Day at right), so about 16 rows show at 1280x720.
+- Core: `CleanBookName`, `CleanBookType`, `ComputeBookSummaries`, `IsBookStart`, `ComputeSelectionTotals`, `SplitBookAmounts`,
+  `ComputeBookChecks`; 8 new tests (267 total, 856 assertions). The older 9-field-row rejection test still holds; a 10-field row is now valid.
+- Not in this version: book names typed by hand / renaming, Book column in CSV and print, books in the WinUI prototype.
+
+## [0.11.1] - Denser Breakdown print / PDF / preview
+
+Jack compared with his Excel pivot print (2026-10-23): the Excel Breakdown fits in 3 pages, the app needed 6-7.
+- Breakdown report (print, PDF and Print Preview share one renderer) now uses 9pt text on 15px rows (was 11pt on 22px), a 14pt
+  title (was 18pt), 0.4" top/bottom margins (was 0.5") and less blank space after the heading and summary lines. Roughly 65 rows
+  per A4 page instead of about 43, so the same report should take about 3-4 pages.
+- Layout only; no change to what is printed. GDI drawing is not covered by the portable tests - Jack to compare page count and
+  readability against the old print (Testing.md).
+
+## [0.11.0] - Kgs can be typed as a sum, and the sum is remembered
+
+First feature after the `main.cpp` split. Asked for by Jack (2026-10-22/23) while testing the WinUI 3 prototype; built in both.
+- **Kgs accepts `+`/`-` sums** (e.g. `24+24+24`), using the same strict parser as Debtor/Cash. The entry stores the total in `kgs`;
+  the list, totals, reports and CSV all show/use the total. An empty Kgs box is still invalid (it is not 0). A bad term shows
+  `"x" isn't a number`.
+- **The sum is kept** in a new `Entry::kgsExpr` and saved as an optional 8th `.fbd` field, written only when Kgs was a sum, so files
+  without sums are byte-for-byte the old 7-field format. Edit Selected / double-click / Duplicate Last Entry put `24+24+24` back in
+  the Kgs box. On load the expression is trusted only if it parses, is at most 200 characters and still adds up to the stored Kgs;
+  otherwise it is dropped and the file loads normally.
+- **Compatibility:** older builds reject a row with the 8th field (they only know 4/6/7). Use this version on every machine before
+  saving sums.
+- `.gitignore` now ignores `.xdp-*` (temp files from an interrupted atomic save, which a push had picked up).
+- New core helpers `KgsExprToStore`, `KgsBoxText`, constant `kMaxKgsExprLength`. 7 new portable tests (259 total; integration
+  unchanged at 25). `main.cpp` change not built here - Jack to build and test.
+
+## [0.10.19] - Docs only: stages 7d/7e closed by review, Finalize Day checks recorded
+
+No code change. Reviewed Finalize persistence (7d) and entry operations (7e) for anything worth moving: nothing is. The Finalize
+coordination is already the tested core `CoordinateFinalizeDay`; `ExecuteFinalizeDay` is glue over lock state/title/lists; the entry
+validation rules are already pure core functions and the rest drives controls directly. ROADMAP.md says so and recommends calling the
+split finished.
+- Jack confirmed the Finalize Day checks on 2026-10-17 (blocked while out of balance, date prompt and `history\` file, locking, status
+  bar, new-sheet prompt, Un-finalize, reopen locked, overwrite warning); Testing.md ticks them. Only the read-only-file case is unchecked.
+- Fixed a mistake in v0.10.18: Testing.md's new "v0.10.x checks" and "Carried-over checks" sections had landed in the file's introduction
+  instead of before "Full regression pass" (the heading text also appears in the intro). Moved to the right place.
+- Expect 252 portable, 25 integration (unchanged).
+
+## [0.10.18] - Docs only: full audit of the .md files
+
+No code change. Every .md file was checked against the code (Jack's standing request); v0.10.17 manual checks passed first.
+- **ROADMAP.md rewritten (1,436 -> ~290 lines):** where we are, next steps, what is not built, known problems, decisions on record,
+  and the specs for unbuilt features. The old file is frozen unchanged as `ROADMAP_ARCHIVE.md` (two boxes ticked there: Restore
+  opens in `backups\`, MSVC clean build). The stale "Phase 2 after Bucket C" and "A, then C, then B" sequencing is replaced by what is
+  actually happening (split first).
+- **ARCHITECTURE.md:** no longer "single-file"; popups located in `src/forms/`; forward-declaration, shared-declaration and
+  "add a file to four build paths" notes; file-dialog remembered-folder note; autosave/backup/file-text locations.
+- **DevelopmentWorkflow.md:** folder layout now shows `src/`; Developer PowerShell requirement; per-version routine; CRLF zips; never save `.fbd` in the project folder.
+- **README.md:** `main.cpp` row corrected; MinGW marked "not yet run by Jack"; roadmap files listed. **src/README.md:** status line and stage notes current.
+- **Testing.md:** new "v0.10.x checks" and "Carried-over checks" (the unconfirmed old roadmap items, including Finalize Day's full pass).
+- **AuditFindings_2026-09-30.md:** header status corrected; table of the still-open findings (F7, F16-F22).
+- **SecurityHardeningRegister.md:** items 17-21 added (backup collision, temp-file/single-instance, GetExeDir, Finalize named file, Restore/git data).
+- Checked and found current: DATA_FORMATS.md, BUSINESS_RULES.md, NETWORK_ARCHITECTURE.md (skimmed, not line-by-line).
+- Expect 252 portable, 25 integration (unchanged).
+
+## [0.10.17] - Split stage 7c: one shared "open a named file" routine
+
+Behaviour unchanged. File > Open and File > Recent Files each carried their own copy of "confirm discard, snapshot
+what is about to be lost, load, reset the form, remember the file"; they now both call `OpenNamedFile` in `main.cpp`.
+- Reviewed the rest of the file operations: Save As already runs through the tested core `CoordinateSaveAs`, New and
+  Restore are mostly dialogs/controls, and the discard check is one `g_dirty` test, so nothing else is worth moving.
+  Stage 7c is complete with this.
+- `.gitignore` now ignores `*.fbd`: the v0.10.16 push committed a saved sheet (`15-10-26.fbd`) because Save As was used inside the project folder. One-off cleanup: `git rm --cached 15-10-26.fbd`.
+- No new tests (no logic moved). Expect 252 portable, 25 integration.
+- Manual check: File > Open a file (with unsaved changes: Yes/No prompt works); File > Recent Files entry opens;
+  open a file that no longer exists (error message, nothing changed).
+
+## [0.10.16] - Fix: Restore from Backup opens in the last-used folder instead of backups
+
+Jack (2026-10-15, v0.10.15): the first Restore opened in `backups\`, but after saving a file into another folder
+it opened there instead. The classic `GetOpenFileNameW` dialog remembers the last folder used and, on some systems,
+ignores both `lpstrInitialDir` and the pre-filled-folder workaround from v0.9.33.
+- Restore from Backup now uses the modern `IFileOpenDialog` with `SetFolder(backups)`, which always opens in the
+  folder given. Same filters (*.fbd / all files). If the modern dialog can't be created, falls back to the classic
+  one (with the v0.10.15 error reporting). Cancel is silent.
+- `main.cpp` includes `<shobjidl.h>`; `ole32` (and `uuid` for MinGW/CMake) added to build_msvc.bat, build_mingw.bat,
+  CMakeLists.txt and run_integration_tests.ps1.
+- No unit test (file dialogs need a real window). Expect 252 portable, 25 integration.
+- Manual check: File > Save As into a different folder (e.g. Desktop), then File > Restore from Backup. Expected:
+  the picker opens in `backups\`. Pick a snapshot, confirm, "Backup Loaded".
+
+## [0.10.15] - Fix: Restore from Backup failing silently when the file picker can't open
+
+Jack (2026-10-15, after v0.10.14): "Restore from backup does nothing". `DoRestoreFromBackup` is byte-for-byte
+unchanged since v0.9.67, so the split did not cause it - but reading it found one real silent failure: if
+`GetOpenFileNameW` returned FALSE it just `return`ed, with no way to tell a cancelled dialog from a dialog that
+failed to open.
+- Now checks `CommDlgExtendedError()`: 0 = user cancelled (silent, as before); anything else retries once with the
+  folder no longer pre-filled into the file name box (a bare folder there is the likeliest thing to be rejected),
+  and if that also fails shows the error code and the backups folder path instead of doing nothing.
+- No unit test (file dialogs need a real window). Expect 252 portable, 25 integration.
+- Manual check: File > Restore from Backup. Expected: the picker opens in `backups\`; choose a snapshot; confirm
+  (if asked); "Backup Loaded". If you get the new "file picker could not be opened" message instead, send me its
+  error code - that is exactly the evidence needed.
+
+## [0.10.14] - main.cpp split, stage 7b: autosave and rolling backups
+
+- `src/data/Backups.h/.cpp` (new): `WriteBackupSnapshotFile()` - the disk half of the old `WriteBackupSnapshot()`
+  (pick the timestamped name, write it atomically, prune old snapshots). No UI. On failure it leaves the "last
+  backup" bookkeeping untouched so the next autosave retries immediately (the v0.9.31 behaviour, kept).
+- `src/core/FishBalanceCore.h`: two small decisions as pure, tested functions - `NoteSaveOutcome()` (warn once per
+  problem, re-arm after a success, don't mark as warned when there is no window to show it on) and
+  `BackupIntervalElapsed()` (is a rolling backup due).
+- `main.cpp`: `AutosaveNow()`, `WriteBackupSnapshot()` and `MaybeBackupOnTimer()` are now thin - they use the pieces
+  above and only show the two warning popups (texts unchanged). Same behaviour; same function names and callers.
+- 5 new portable tests. Expect 252 portable (247 + 5), 25 integration. New file added to all four build paths.
+- Manual check: use the app normally for a few minutes (entries, Save); `backups\` should keep getting snapshots
+  about every 3 minutes while data changes, and `autosave.fbd` updates as you type. If you can: make the backups
+  folder read-only or full to see the "Backup Snapshot Failed" warning appear once, not repeatedly.
+
+## [0.10.13] - Fix: Finalize Day did not mark the open saved file as finalized
+
+Jack (2026-10-15, checking v0.10.12): after Finalize Day, going back to the saved file it was not finalized.
+- Cause (found by reading the code, present since at least v0.9.60 - the F9 "re-save the open file" step of
+  Finalize Day never actually wrote the marker): `ExecuteFinalizeDay` re-saved the open named file *inside*
+  `CoordinateFinalizeDay`, but only set `g_finalizedDate` *afterwards*, so the file was written with no
+  `FINALIZED=` line. The permanent `history\<date>.fbd` copy was always correct (it is built with the date passed
+  in), which is why nothing looked wrong in the running app: on screen the day was locked, only the file on disk
+  was not.
+- Fix: `SaveToFile` takes an optional `finalizedDateOverride` (same idea `BuildFbdSaveContent` already had for the
+  history file) and Finalize Day passes the date it is finalizing. No other save path changes.
+- Why the tests missed it: the end-to-end test saved a named file and finalized, but only checked the history file
+  *existed*. It now loads both files back from disk and checks each carries the finalized date (verified to fail
+  before this fix by reading the code path; Windows run is the real confirmation).
+- Not repaired automatically: a named file you finalized with an older version is still saved as unfinalized. Its
+  `history\<date>.fbd` copy is correct - open that one to see the finalized day.
+- Expect 247 portable, 25 integration (same count; the finalize test has more checks, 235+ assertions).
+- Manual check: save a sheet as a named file, Finalize Day (choose "No" to starting a new sheet), then File > Open
+  the same named file - it should open finalized (locked, status bar says FINALIZED, button reads Un-finalize Day).
+
+## [0.10.12] - main.cpp split, stage 7a: .fbd file text is now built by pure, tested core code
+
+- New `FbdSaveState` + `BuildFbdText()` in `src/core/FishBalanceCore.h`: everything a save writes, as plain data, and
+  the function that turns it into the file text. It is the mirror of `ParseFbdContent` - same file, same rules.
+- `BuildFbdSaveContent()` in `main.cpp` now only GATHERS the state from the controls (Debtor, Cash, the Add Entry
+  draft, the date picker) and converts the result to UTF-8. Same signature, same output, byte for byte. Its callers
+  (Save, autosave, rolling backups, Finalize) are untouched.
+- 6 new portable tests: exact file text for a typical sheet, SOURCE_FILE= only for autosave, FINALIZED= only for a
+  finalized day, no DRAFT_DATE= without a date picker, an empty sheet, and a full round trip (build -> ParseFbdContent
+  -> same data). The file format used to be testable only by running the GUI.
+- Expect 247 portable tests (241 + 6), 25 integration. Manual check: make an entry, File > Save, close and reopen the
+  file (data, Debtor/Cash and a half-typed Add Entry draft all come back); finalize a day and confirm the history
+  file still opens as finalized.
+
+## [0.10.11] - Revert the v0.10.10 combo experiment (it made the combos disappear)
+
+Jack's screenshot after v0.10.10: the Supplier and Species boxes were not drawn at all (before: drawn, with a grey
+strip). The v0.10.10 hypothesis was wrong or incomplete.
+- Removed `WS_CLIPCHILDREN` from the main window and `WS_CLIPSIBLINGS` from the two combos; the drawing code is
+  back to exactly v0.10.9 (combos draw, with the old intermittent grey-strip glitch). Which of the two flags hid
+  the combos was not isolated - don't retry either without a diagnostic first (noted in ARCHITECTURE.md).
+- Kept from v0.10.10: CRLF packaging (no more git line-ending warnings).
+- The first-paint workaround (`FixComboBoxFirstPaint` + 3 timers) stays. The glitch is cosmetic and parked until a
+  diagnostic build is worth the time; it is not blocking the split.
+
+## [0.10.10] - Experiment (FAILED, reverted in 0.10.11): Supplier/Species combo first-paint glitch; no more CRLF warnings on push
+
+Jack (2026-10-15, screenshot after v0.10.9): the Supplier and Species boxes still draw wrongly (white text area stops
+short, a grey strip before the drop-down arrow) and he asked whether to wait for WinUI 3 - no, this is a small fix
+to try now. Four earlier attempts (v0.9.42-v0.9.46) all patched the symptom with redraws/timers; this tries the
+standard structural cause instead: the main window did not clip its children (so its own background erase, which is
+the same grey, can paint over a child that is not invalidated afterwards) and the combos did not clip siblings.
+- Main window gets `WS_CLIPCHILDREN`; the two combos get `WS_CLIPSIBLINGS`. Two one-line style changes in `main.cpp`.
+- `FixComboBoxFirstPaint` and its timers are left in place on purpose. If this fix holds, remove them in a later version.
+- No automated test can see painting. Manual check: start the app (also maximised and after restoring/resizing) and
+  confirm both combos draw fully. If it still glitches, tell me when it happens (first launch only? after resize?).
+- Zips are now packaged with Windows (CRLF) line endings, which silences git's "LF will be replaced by CRLF" warnings
+  on `push_update.ps1`. Repo contents are unchanged (git stores LF either way).
+
+## [0.10.9] - main.cpp split, stage 6b: layout, tab switching and control helpers moved to forms
+
+- `src/forms/MainWindowLayout.h/.cpp`: `LayoutAll`, `ShowTab`, `FixComboBoxFirstPaint`, `MakeControl`, `AddColumn`,
+  `InitFonts`, the Delete/Edit/Cancel glyph icons and the taller list rows - moved unchanged (~370 lines out of
+  `main.cpp`, now ~2,830). `WM_CREATE` (control creation) stays in `WndProc` for stage 6c.
+- `push_update.ps1` fixed: the commit message and the "Done: vX" line were hard-coded (v0.10.8 was committed with a
+  "v0.10.7" label - the code pushed was right). It now reads the version from `version.h` and the message from the
+  newest `CHANGELOG.md` entry, stops if they disagree, and writes the message without a BOM.
+- New file added to all four build paths. No behaviour change. Expect 241 portable, 25 integration.
+- Manual check: window opens and looks identical at your DPI; resize and maximise (all four tabs re-layout); the
+  Delete/Edit/Cancel buttons still show their icons and the rows are tall; supplier/species combos paint on start.
+  Watch the push: the commit line should now read `v0.10.9: main.cpp split, stage 6b ...`.
+
+## [0.10.8] - main.cpp split, stage 6a: list views, combos and totals moved to forms
+
+- `src/forms/MainWindowLists.h/.cpp`: `RefreshCombos`, `ComboAutoComplete`, `RefreshEntriesList`, `SortEntriesBy`,
+  `RecalcTotals`, the Overview / By Species / Breakdown list builders - moved unchanged (~370 lines out of `main.cpp`).
+- `RefreshAll` stays in `main.cpp` for now: it autosaves (file work), which stage 7 splits out.
+- New file added to all four build paths (MSVC, MinGW, CMake, integration-test runner).
+- No behaviour change. Expect 241 portable tests, 25 integration; the new file is compiled by the integration runner.
+- Manual check: open a file, look at all four tabs (entry list, filter box, column sort, Overview, Breakdown,
+  By Species), type in Supplier/Species for autocomplete, and confirm Debtor/Cash still show Balanced / Out of balance.
+
+## [0.10.7] - Fix: Print Preview (and other popups) could open taller than the screen
+
+Jack (2026-10-14, screenshot of Print Preview): "is top of print preview cut off?" - yes. The popup was a fixed
+S(820) tall (S() = DPI scaling) and centred on the main window, so on a scaled display it was taller than the
+screen's usable height and its title bar and the top of the page were pushed off the top. Pre-existing, not caused
+by the v0.10.x split (that code moved unchanged).
+- New `FitPopupToWorkArea()` (`src/forms/PopupPlacement.h`) clamps a popup's size to the monitor's work area (screen
+  minus taskbar) and slides it back on-screen. Used by Print Preview, Manage Names and the Finalize Day date prompt.
+- The geometry is a pure function (`ClampRectIntoArea` in FishBalanceCore.h) with 5 new tests, including Jack's case
+  (popup taller than the work area). Expect 241 portable tests (236 + 5), 25 integration.
+- No change on a screen big enough for the popup. The preview window is still resizable (WS_THICKFRAME).
+- Needs a manual check (no automated test for window placement): open File > Print Preview and confirm the whole
+  window, including its title bar and the top of the page, is on screen.
+
+## [0.10.6] - main.cpp split, stage 5: Manage Names and Print Preview popups moved to forms
+
+- `src/forms/ManageNamesWindow.h/.cpp`: the "Manage Supplier / Species Names" popup (list, rename/merge, supplier
+  email editing) - moved unchanged.
+- `src/forms/PrintPreviewWindow.h/.cpp`: the Print Preview popup (page display, prev/next, Print button) - moved
+  unchanged.
+- `src/forms/MainWindowApi.h`: the small set of functions the main window still provides to those popups
+  (`RefreshAll`, `CancelEdit`, `ClearUndoState`, `MakeControl`, `GetDebtorCashText`, `PrintBreakdownReport`). They
+  stay defined in `main.cpp` until the main window is split (stages 6-7). `RefreshAll`'s default argument now lives
+  only in this header (removed from main.cpp's forward declarations to avoid a duplicate default).
+- `GetDebtorCashText` is no longer `static` (the preview popup calls it).
+- The Finalize Day date-prompt popup stays in `main.cpp` for now: it is tangled up with the Finalize/Un-finalize
+  operations, which are split in stage 7.
+- Expect identical test counts: 236 portable, 25 integration. Likely failure mode: a linker or include error.
+  Manual check worth doing: Tools > Manage Names (open, rename, close, supplier email) and File > Print Preview.
+
+## [0.10.5] - main.cpp split, stage 4b: report rendering moved to services
+
+- `src/services/ReportRender.h/.cpp`: the Breakdown report renderer (`RenderReportPages`), `RenderedPage`,
+  `RenderReportResult`, `FreeRenderedPages` and the RAII GDI wrappers (`UniqueFont`/`UniquePen`/`UniqueDC`/
+  `ScopedSelect`) - moved unchanged, including all the Phase 2 resource-safety logic and the v0.9.56 font fix.
+- One deliberate signature change so the services layer never touches a control: `RenderReportPages` now takes
+  the Debtor and Cash text as parameters (`debtorText`, `cashText`). `main.cpp` reads the boxes with a small
+  helper (`GetDebtorCashText`, same fixed-size buffer as before) and passes them in from both callers
+  (Print Preview and real printing). The parsing and the "cannot check" report wording are unchanged.
+- Still in `main.cpp` (forms layer): `PrintBreakdownReport` (print dialog and its message boxes) and the Print
+  Preview window.
+- Expect identical test counts: 236 portable, 25 integration. Likely failure mode: a linker or include error.
+  Worth a manual look: File > Print Preview and a PDF print (the Debtor/Cash lines on page 1).
+
+## [0.10.4] - main.cpp split, stage 4a: CSV export and supplier email moved to services
+
+- `src/services/CsvExport.h/.cpp`: `ExportToCsv` (builds and writes the Excel-readable CSV), moved unchanged.
+- `src/services/Email.h/.cpp`: `TodayDateString` and `EmailSupplier` (build the mailto: draft and launch the
+  mail client), moved unchanged.
+- The parts that talk to the user stay in `main.cpp` (forms layer): the Save dialog and result messages in
+  `DoExportCsv`, and the confirm/progress dialogs in `DoEmailSuppliers`.
+- Printing and report rendering (stage 4b) is next; it is the biggest piece so it gets its own step.
+- Expect identical test counts: 236 portable, 25 integration. Likely failure mode: a linker or include error.
+
+## [0.10.3] - main.cpp split, stage 3: file paths and simple storage moved to the data layer
+
+- New `src/data/Storage.h/.cpp` holds, moved unchanged out of `main.cpp`: `GetExeDir` (and the test override),
+  `AutosavePath`/`SettingsPath`/`RecentFilesPath`/`EmailsPath`/`BackupDir`/`HistoryDir`, `LoadSettings`,
+  `Save/LoadRecentFiles`, `Load/SaveSupplierEmails`, `PruneOldBackups`, `CurrentFileLabelForBackup`.
+- Two deliberate signature changes so the data layer never calls up into the UI:
+  `LoadSettings()` -> `LoadSettings(int dpi)` (same MulDiv scaling the UI's `S()` does), and the file-writing
+  half of `SaveSettings()` is now `SaveSettingsFile(...)`; `SaveSettings()` in main.cpp still reads the live
+  window placement and calls it.
+- Deliberately NOT moved yet (they mix file work with controls/message boxes - split in stage 7): `BuildFbdSaveContent`,
+  `SaveToFile`, `LoadFromFile`, `WriteBackupSnapshot`, autosave, recent-files menu.
+- Expect identical test counts: 236 portable, 25 integration. Likely failure mode: a linker or include error.
+
+## [0.10.2] - main.cpp split, stage 2: shared state moved out (no behaviour change)
+
+- The ~107 file-level globals that were `static` at the top of `main.cpp` now live in shared headers, declared
+  `extern` and defined once, so code can move to other files in later stages:
+  - `src/data/AppData.h/.cpp` - document and persistence state (entries, current file, finalized date, dirty flag,
+    backup bookkeeping, undo, recent files, supplier emails, settings, `AppSettings`).
+  - `src/forms/UiState.h/.cpp` - window handles and per-window UI state, `S()` DPI scaling, `RenderedPage`.
+  - `src/forms/ControlIds.h` - the control/menu/timer ID enum.
+  - `src/PlatformWin.h` - the one place that sets Windows version/UNICODE/NOMINMAX macros and includes `<windows.h>`.
+- Values, initial values and meanings are unchanged. `main.cpp` shrank by ~220 lines.
+- Build lists now include `src/data/AppData.cpp` and `src/forms/UiState.cpp` in all four build paths.
+- Expect identical test counts: 236 portable, 25 integration. Likely failure mode if something is wrong:
+  a linker error (unresolved/duplicate symbol) - paste it and it is a one-line fix.
+
+## [0.10.1] - Test and build output now shows which version/source was built
+
+Jack: "there's no way to tell what version of code it's actually testing."
+- Both test executables print `TEST BUILD - version X` and the source path they were compiled from before the
+  doctest output.
+- `run_tests.bat` prints the folder and version it is testing before it starts; `build_msvc.bat` /
+  `build_mingw.bat` print the folder and version after a successful build.
+- No app behaviour change.
+
+## [0.10.0] - main.cpp split, stage 1: folder layout and build plumbing (no behaviour change)
+
+- New layered layout (`src/core`, `src/data`; `services` and `forms` to follow) documented in `src/README.md`.
+  Dependencies only point downward.
+- Moved (not changed): `FishBalanceCore.h` and `FishBalanceControlLimits.h` -> `src/core/`;
+  `FishBalanceWin32IO.h` -> `src/data/`. All `#include` paths updated (main.cpp, tests).
+- Build plumbing: each of the four build paths (build_msvc.bat, build_mingw.bat, CMakeLists.txt,
+  run_integration_tests.ps1) now has one source list to add new `.cpp` files to. Still just `main.cpp`.
+- Expect identical test counts: 236 portable, 25 integration.
+
+## [0.9.67] - Phase 3a step 4: documentation refresh (audit F25-F29)
+
+- Re-checked F25-F29 against current files: the worst drift (F25-F28 claims) had already been fixed in
+  Phase 1; F29's warning gate is real now (all four build paths use /W4 /WX or -Wall -Wextra -Wpedantic -Werror).
+- Remaining drift fixed: README file table now lists `FishBalanceWin32IO.h`, `FishBalanceControlLimits.h`
+  and the integration suite; README/Testing.md/ARCHITECTURE.md mention that `run_tests.bat` runs both suites.
+- Docs only, no code change.
+
+## [0.9.66] - Phase 3a step 3: long install paths no longer truncated (audit F23)
+
+- `GetExeDir()` now grows its buffer until the full exe path fits (previously a fixed 260-character
+  buffer could silently cut a long path, sending autosave/settings/backups to the wrong folder).
+  Falls back to the current directory only if Windows reports an outright failure.
+- Windows-only API call, so no new portable test; covered by the existing integration suite
+  (which overrides the exe dir) plus a manual check of normal startup.
+
+## [0.9.65] - Phase 3a step 2: unique temp file + single-instance guard (audit F6, F24)
+
+- Atomic writer's temp file is now `<file>.<processId>.tmp` instead of a fixed `<file>.tmp`
+  (`BuildAtomicTempPath`, tested). The writer's result checking was already correct and is unchanged.
+- Only one copy of the app can run: a second launch brings the running window to the front and exits.
+  (Per Windows login session; uses a named mutex.)
+- Integration tests updated to look for any leftover `<file>.*.tmp`.
+
+## [0.9.64] - Phase 3a step 1: rolling backups can no longer overwrite each other (audit F8)
+
+- Backup snapshot filenames now include milliseconds (`backup_YYYYMMDD_HHMMSS_mmm_<file>.fbd`)
+  and, if a name still exists, a `-N` counter. Before, two snapshots in the same second
+  (e.g. a Save right after a timed snapshot) shared a name and the later replaced the earlier.
+- Name logic is a pure function (`BuildBackupFileName`, FishBalanceCore.h) with 3 new tests.
+  Pruning still works (fixed-width, sorts chronologically; old-format files still match `backup_*.fbd`).
+
+## [0.9.63] - Warn before adding an entry with a different date from the rest of the sheet
+
+Jack (2026-10-14): "can we set a dialog box to pop up if dates are different?
+E.g. all my entries yesterday, then I go to add one for today's date? I can
+say OK for this session, or no."
+- Adding (or re-dating) an entry whose date isn't already on a non-empty
+  sheet now asks: "The entries already on this sheet are dated <dates>, but
+  this entry is dated <date>. Add this entry anyway?" Yes = add it and don't
+  ask again for this session; No = don't add (the form keeps what was typed).
+  Defaults to No, so a quick Enter can't wave it through.
+- "This session" re-arms whenever the sheet changes: File > New, opening or
+  loading any file, and after Finalize Day clears the sheet. A sheet that
+  already mixes dates (Saturday + Monday) only prompts for a date not yet on it.
+- Editing ignores the row being edited, so re-dating the only row never prompts.
+- Pure logic in FishBalanceCore.h (DistinctSheetDates, IsNewDateOnSheet) with
+  7 new test cases in test_aggregation.cpp. The dialog itself needs a manual
+  check. Not compiled here.
+
+## [0.9.62] - Unusual-price check now compares across the whole sheet, not the same date
+
+Jack (2026-10-14): a test sheet had Flathead $2.00 and $222.00 (13/10) next to
+six normal $12-$18 Flathead entries (30/09) and neither was flagged, because
+the check only compared entries with an IDENTICAL date and needs at least 4
+other prices. Jack: "one sheet is one balance session - that's why we have
+Finalize Day"; a sheet can legitimately hold several dates (Monday + Tuesday
+balanced as one day; Saturday's entries balanced on the Monday with
+Saturday's date).
+- New GatherOtherPricesForSpecies / ReevaluateOutlierFlagsForSpecies
+  (FishBalanceCore.h): same species, ANY date, any supplier. The app (add/
+  edit, delete, undo-delete, and the flagged-row review dialog) now uses
+  these. Everything else is unchanged: minimum 4 other prices, Tukey fence,
+  20% floor, never blocks an entry, flags re-evaluated after every change.
+- The old date-scoped functions and their tests are kept unchanged but no
+  longer called by the app.
+- Flag review dialog wording updated ("... the other <species> entries on
+  this sheet ..."; no longer mentions a date).
+- Tests (test_aggregation.cpp): Jack's real sheet (Flathead $2.00 and $222.00
+  flagged, the six normal ones not), Rock flat (still not flagged: only 3
+  other prices), a Saturday-dated entry compared against Monday's, other
+  species untouched, a fixed typo un-flags. Expected values hand-checked.
+- Also removed an unused local (undoDate) that would otherwise trip /W4 /WX.
+Not compiled here - needs run_tests.bat / build_msvc.bat on Windows.
+
+## [0.9.61] - Fix black button icons; list columns now DPI-scaled
+
+Jack's v0.9.60 check (screenshots):
+1. Delete/Edit/Cancel Edit showed solid black squares instead of icons. Cause
+   (my bug): the glyph bitmap was still selected into a device context when
+   it was handed to ImageList_Add, which Windows doesn't allow. Now the
+   glyph is drawn, the DC is released, and only then is each state converted
+   to a real alpha icon (CreateIconIndirect + ImageList_AddIcon).
+2. Data Entry list cells were truncated (Date "2026-09-...", Price header
+   "Price ($/k...", large Totals "$222,000..."). Cause: every list column
+   width was a fixed pixel number, never passed through S() like the rest of
+   the layout, so at 125-150% display scaling columns were 1.25-1.5x too
+   narrow. AddColumn now scales widths with S() (affects all four tabs), and
+   the Data Entry Price/Total/Date columns were also widened a little
+   (115/125/110).
+Known/unchanged: the Supplier/Species drop-downs very occasionally draw
+incompletely on first launch (long-standing, intermittent, documented in
+FixComboBoxFirstPaint's comment; hovering fixes it). Deliberately not
+worked on again now - a WinUI 3 move would remove the cause.
+
+## [0.9.60] - Mockup polish on the Data Entry tab (Win32 version)
+
+Follow-up to v0.9.59, from Jack's mockup: everything from it that plain
+Win32 can do without owner-draw, in one go. Visual only; no calculation,
+validation or data-format change. Needs a visual check on Windows.
+- Reconciliation box now has three columns with thin divider lines:
+  Debtor/Cash | Book Total + Entered Total | status badge + Difference, and
+  Finalize Day at the far right.
+- Book Total, Entered Total, Difference and the status badge are bold.
+- New badge above Difference: green "tick Balanced", red "cross Out of
+  balance", or red "cross Cannot check" (the fail-closed cases). On Tab 1
+  the Difference line now shows just "Difference: $x" (the old "(OK -
+  balanced)" / "(OUT OF BALANCE)" suffix is replaced by the badge); when the
+  check fails closed it shows only the reason (e.g. "Debtor total is over
+  the maximum allowed ($1,000,000.00)") under the "Cannot check" badge. The
+  Total Overview tab is unchanged (still the full sentence).
+- Book/Entered label text shortened to "Book Total: $x" / "Entered Total:
+  $x" (the box title already says it checks Debtor + Cash).
+- Icons on Delete (trash, red), Edit (pencil, blue) and Cancel Edit (x):
+  drawn at runtime from the Segoe MDL2 Assets icon font built into
+  Windows 10/11 (no image files). If that font is missing or anything fails,
+  the button silently stays plain text.
+- All four list views get taller rows (28px at 100% DPI) for the roomier
+  "cell" look.
+Still NOT done (needs owner-draw or WinUI 3): blue accent Add Entry,
+rounded cards, underlined tab style, two-decimal Kgs.
+
+## [0.9.59] - Data Entry tab layout reworked to match Jack's mockup
+
+Jack's request (2026-10-14, WinUI 3 concept screenshot): lay out the Data
+Entry tab like the mockup. Done as a pure re-positioning in LayoutAll() (no
+handler/logic changes); every size goes through S():
+- Field labels now sit above their boxes (Supplier / Species / Kgs / Price
+  / kg, then Date / Notes); label text no longer has a trailing colon and
+  "Price:" is now "Price / kg".
+- Supplier, Species, Kgs, Price fields and the Add Entry button stretch to
+  fill the window width (proportions 3:3:2:2); Notes stretches between Date
+  and the two Duplicate buttons.
+- Delete / Edit / Cancel Edit on the left, Filter now right-aligned.
+- Reconciliation box (title now "Reconciliation (checks Debtor + Cash
+  against entries above)"): Debtor/Cash stacked on the left, Book total /
+  Entered total / Difference in a middle column that grows with the window,
+  Finalize Day at the right. The Difference row is taller so its longer
+  fail-closed messages no longer wrap into a clipped single-line box (seen
+  in the v0.9.55 screenshot).
+Deliberately NOT done (not possible with plain Win32 controls without
+owner-draw, or a data-format change): blue accent Add Entry button, button
+icons, rounded "card" panels, green "Balanced" badge, tab underline style,
+two-decimal Kgs column. Candidates for the WinUI 3 discussion.
+Not compiled here - needs build + a visual check on Windows (and at a
+couple of window sizes / 125-150% DPI).
+
+## [0.9.58] - Supplier name always in the email subject
+
+Jack's request after trying v0.9.57: subject is now "Prices - <date> - <supplier>"
+for every supplier email (previously the supplier was added only when the
+supplier had no stored To address). Subject text remains percent-encoded
+independently by BuildMailtoUri, so an odd supplier name cannot inject
+anything. No test referenced the subject text. Manual check only (needs a mail client).
+
+## [0.9.57] - Debtor/Cash total ceiling ($1,000,000)
+
+Jack's manual check of v0.9.55 (screenshot): the Debtor and Cash boxes
+accepted absurd values (40+ digit numbers), producing a $1.3e45-scale Book
+Total/Difference that overflowed and clipped its label. It still correctly
+said OUT OF BALANCE, but it should be refused outright - the Phase 2
+Kgs/Price ceilings never covered these two boxes (my gap).
+- New `kMaxDebtorCashTotalDollars` = $1,000,000 (Jack's choice; a real day
+  was $135,000). `ParseSumExprStrict` now fails (new `tooLarge` flag) when
+  the evaluated total's absolute value exceeds it or is non-finite. Applies
+  to the on-screen reconciliation, the Total Overview tab and the printed/PDF
+  report (single shared parser), and to loaded .fbd files (DEBTOR=/CASH=
+  text is evaluated through the same parser).
+- Message: "Difference: cannot check - Debtor total is over the maximum
+  allowed ($1,000,000.00)" (or Cash).
+- Tests: 6 new cases in test_parsing.cpp (boundary, one cent over, negative,
+  many terms, huge digit string, net-small large term, malformed != tooLarge).
+Not compiled here - needs run_tests.bat / build_msvc.bat on Windows.
+
+## [0.9.56] - Fix tiny header text in printed/PDF report; email subject now "Prices"
+
+Found in Jack's manual Windows checklist on v0.9.55 (all automated tests and
+the MSVC build passed; these were manual-only findings):
+1. REGRESSION from v0.9.53 (my RAII font rewrite): the "Generated ..." line
+   and the "Book Total" / "Entered Total" lines on page 1 were drawn with no
+   font selected, so Windows' default fixed-pixel font was used. That looks
+   fine at the low print-preview resolution but is unreadably small at
+   printer/PDF resolution (confirmed in Jack's Print-to-PDF output: the three
+   lines were microscopic). Now explicitly drawn with the normal 11pt report
+   font (hFontNormal), same as the table body. Print preview text for these
+   lines will also become slightly larger/more consistent with the rest.
+2. Supplier email subject changed from "Delivery Summary - <date>" to
+   "Prices - <date>" at Jack's request (the email is the price list sent to
+   suppliers). Body unchanged. No automated test referenced the old subject.
+Not reproducible by unit test (needs a real GDI/printer DC) - covered by the
+manual print checklist, as agreed in Phase 2.
+
+## [0.9.55] - Test-only fix: two wrong expectations in test_phase2_numeric_and_layout.cpp
+
+Jack's Windows run of v0.9.54: portable suite compiled and ran (212 test
+cases, 633 assertions; 210 / 631 passed, 2 failed); integration suite
+passed (25 / 232); build_msvc.bat succeeded earlier. Both failures were
+mistakes in tests I wrote - production code was correct in both cases:
+1. ComputeDibPageBytes(850, 1100): I expected 2550*1100, but 850*3 = 2550 is
+   not a multiple of 4, so a 24bpp DIB row is padded to 2552 bytes (the
+   function's result, 2,807,200, is right; my arithmetic in the test was
+   wrong). Test now expects 2552*1100.
+2. The out-of-range Kgs message test searched for "10,000.0", but FormatKg
+   has no thousands separator and produces "10000.0". Test now searches for
+   "10000.0".
+No production code changed. Remaining 631 assertions in that suite passed.
+
+## [0.9.54] - Test-only fix: doctest compile error in test_parsing.cpp
+
+Jack's first Windows run of v0.9.53 (VS 2026 Community, v18.10.1): the
+Windows integration suite passed (25 test cases, 232 assertions),
+`build_msvc.bat` succeeded, but the portable suite failed to compile with
+C2338 "Expression Too Complex Please Rewrite As Binary Comparison!" at
+test_parsing.cpp:211 - a `CHECK(a && b && c)` leap-day assertion I added
+in v0.9.53. doctest 2.5.0 does not allow `&&` inside CHECK. Split into three
+separate CHECKs. Test-only change; no production code touched. A search of
+all test files found no other `&&`/`||` inside CHECK/REQUIRE expressions.
+
+## [0.9.53] - Phase 2 security hardening: print/preview resource safety, CSV/email injection, numeric & calendar validation
+
+Phase 2 of the post-audit hardening work (Phase 1 was v0.9.49-v0.9.52).
+Addresses the remaining open findings from the external Codex audit and
+findings register (`AuditFindings_2026-09-30.md`): F10/F11 (print/preview
+resource handling), F12 (CSV formula-injection gap), F13 (email/mailto
+injection), F14 (calendar validation), F15 (no numeric upper bound). Every
+finding was re-verified against the CURRENT source before being touched -
+in particular, F6's old claim that the atomic writer doesn't check its
+writes was re-confirmed DISPROVEN (`WriteFileAtomicUtf8` already checks
+every write/flush/close) and correctly left alone.
+
+**1. Print / Print Preview resource safety (F10/F11)**
+- `RenderReportPages` (`main.cpp`) rewritten: validates page dimensions/DPI
+  up front (`ValidateReportPageDimensions`, `FishBalanceCore.h`) before any
+  GDI object is created; every font/DC/bitmap creation is now checked, with
+  a small set of RAII wrappers (`UniqueFont`/`UniquePen`/`UniqueBitmap`/
+  `UniqueDC`/`ScopedSelect`) so a partially-built page is always cleaned up
+  on a failure path.
+- Real printing now renders and prints ONE page at a time (a callback
+  handed to `RenderReportPages`) instead of rendering every page into
+  memory before printing any of them - at most one full-resolution page
+  bitmap exists in memory for the whole print job, regardless of page
+  count.
+- Print Preview still renders every page up front (for instant Next/
+  Previous), but within an explicit, documented total-memory budget
+  (`kReportMaxPreviewTotalBytes`, 512MiB) derived from the REAL per-page
+  byte size at the resolution being rendered - not a worst-case guess that
+  would wrongly refuse an ordinary report.
+- `StartPage`/`StretchDIBits`/`EndPage`/`StartDocW`/`EndDoc` results are now
+  checked; `AbortDoc` is called on any failure after `StartDocW` succeeded;
+  actionable error messages are shown to the user instead of failing
+  silently.
+- Fixed a related, newly-discovered defect while implementing this: the
+  page-count cap's "pageCapHit" flag was computed but never surfaced to the
+  user - content beyond 200 pages was silently dropped with no indication.
+  Now shown via a warning dialog on both Preview and Print.
+- New pure, GDI-free functions in `FishBalanceCore.h` (`ScaleRound`,
+  `ValidateReportPageDimensions`, `ComputeDibPageBytes`,
+  `PreviewBudgetAllows`) with new automated boundary tests
+  (`tests/test_phase2_numeric_and_layout.cpp`) covering page-count/
+  dimension/DPI limits and per-page/total memory-budget decisions.
+
+**2. CSV/spreadsheet-injection hardening (F12)**
+- `CsvField` (`FishBalanceCore.h`) now strips NUL/CR and other C0 control
+  characters (TAB and LF preserved) before anything else, and the
+  formula-injection guard (`=`/`+`/`-`/`@`) now looks past leading
+  spaces/tabs instead of only the field's literal first character -
+  closes the previously-documented `" =1+1"` bypass gap. RFC4180
+  quoting/escaping is unchanged. Applies uniformly to every field in
+  `ExportToCsv` via the shared `csvRow`/`CsvField` chokepoint.
+- New table-driven tests (`tests/test_csv_export.cpp`): control characters,
+  leading-whitespace formula bypass (now fixed), Unicode, empty values, and
+  a full simulated hostile row exercised end to end.
+
+**3. Email-address and mailto construction hardening (F13)**
+- `LooksLikeEmail` (`FishBalanceCore.h`) tightened: rejects CR/LF/NUL/other
+  control characters, mailto/URI-meaningful characters (`? & # % , ; " ' <
+  > \ / ( ) [ ] :`), more than one `@`, and a leading/trailing/doubled `.`
+  in either the local part or domain. Applied both at entry time (Manage
+  Names) and at `emails.txt` load time (previously only length was checked
+  on load).
+- New `BuildMailtoUri` (`FishBalanceCore.h`) replaces raw string
+  concatenation in `EmailSupplier` (`main.cpp`): percent-encodes the
+  recipient, subject, and body independently (so none can inject another
+  query parameter or recipient into the URI), refuses outright - with a
+  user-facing error - rather than best-effort-encoding a stored address
+  that fails `LooksLikeEmail`.
+- New table-driven tests (`tests/test_email.cpp`) for valid/malicious
+  addresses and the final generated mailto URI.
+
+**4. Numeric and calendar validation (F14/F15)**
+- `ParseISODate` (`FishBalanceCore.h`) now validates real calendar
+  correctness (`IsValidCalendarDate`/`DaysInMonth`/`IsLeapYear`) instead of
+  an independent 1-31 day range check - "2026-02-31" is now rejected;
+  leap years handled correctly.
+- New, explicit maximum Kgs (10,000 kg) and Price ($250/kg) per entry
+  (`kMaxWeightKg`/`kMaxPriceDollars`, `FishBalanceCore.h`) - confirmed
+  directly with Jack (2026-10-02) since no authoritative maximum was
+  documented anywhere in the project; not invented. Enforced identically
+  at interactive entry (`CommitEntryForm`) and file loading
+  (`ParseFbdContent`).
+- New overflow-safe accumulation helpers (`SafeMultiplyFinite`/
+  `SafeAccumulate`) applied to the Entered Total on both the Reconciliation
+  tab (`RecalcTotals`) and the printed report - fails closed (same
+  treatment as an invalid Debtor/Cash entry) rather than ever displaying an
+  inf/-inf/NaN total.
+- Double-to-fixed-point migration deliberately NOT attempted this phase
+  (out of scope per Jack's instruction) - remaining rounding risk is
+  unchanged from before this phase and not newly introduced by it.
+- New boundary tests (`tests/test_parsing.cpp`,
+  `tests/test_fbd_loader.cpp`, `tests/test_phase2_numeric_and_layout.cpp`):
+  zero/max/one-over-max/negative weight and price, NaN/infinity, leap
+  years, impossible dates, overflow detection.
+
+**Documentation**: `BUSINESS_RULES.md` ("Entry limits and validation") and
+`DATA_FORMATS.md` (numeric ceilings in the field-limits table, new "Email
+address validation and mailto construction" section, new "Print / Print
+Preview resource bounds" section, expanded CSV export sanitization policy)
+updated to match.
+
+**Not done in this phase** (explicitly out of scope, per Jack's
+instructions): the broad `main.cpp` decomposition; Phase 3; re-litigating
+F6 (atomic writer), which is already disproven/fixed.
+
+## [0.9.52] - Notes/Debtor/Cash can now actually be typed up to their documented limit
+
+v0.9.51's Windows control-limit test surfaced a real, pre-existing gap in
+the application itself (flagged in ROADMAP.md's v0.9.51 status section as
+a deliberately out-of-scope observation): a single-line Win32 `EDIT`
+control without `ES_AUTOHSCROLL` rejects any further typed character once
+the text no longer fits the control's own visible pixel width - a
+different mechanism entirely from `EM_LIMITTEXT`. The Notes field (~340px
+wide on screen) and the Debtor/Cash fields (~260px wide) were created
+without this style, so typing (not pasting, not loading from a file) could
+silently stop dead at roughly 35-48 characters, nowhere near the
+documented 4,096-character limit those fields actually enforce. Jack
+confirmed this was worth fixing.
+
+- Added `ES_AUTOHSCROLL` to `hEditNotes`, `hEditDebtor`, and `hEditCash`
+  (`main.cpp`'s `WM_CREATE` handler) - these three now scroll horizontally
+  as you type past the visible edge, exactly like a normal Windows text
+  box, instead of refusing further keystrokes. `EM_LIMITTEXT` (4,096 for
+  all three) is unchanged and still the real cap.
+- Scope deliberately limited to these three fields: Kgs/Price (short
+  numeric values) and the Manage Names rename/merge and email fields
+  (short names, and already closer to their own on-screen width vs. their
+  255-character limit) were left untouched - no evidence they have this
+  problem in practice, and changing controls beyond what was actually
+  reported risks an unrelated regression.
+- No other application behavior changed. Pasting a long value, or loading
+  one from a saved `.fbd` file, always worked correctly either way - only
+  character-by-character typing was affected.
+
+## [0.9.51] - Test-automation refactor: remaining Phase 1 manual tests automated
+
+**Revision note (2026-10-02):** Jack's first real Windows build of this
+version reported the portable suite passing clean (159/159 test cases,
+469/469 assertions) but the new Windows integration suite failing to
+compile, with two real bugs in the two new, standalone (no-main.cpp-
+dependency) integration test files:
+- `test_io_integration.cpp` and `test_save_fault_injection.cpp` both
+  `#include <windows.h>` directly without defining `NOMINMAX` first (unlike
+  `main.cpp`, which defines it at the very top of the file) - `windows.h`'s
+  `max`/`min` macros then mangled `FishBalanceCore.h`'s one
+  `std::max(iqr, ...)` call (`ComputeOutlierRange`) into invalid syntax
+  (`error C2589`). Fixed by adding the same `#define NOMINMAX` guard to
+  both files, matching `main.cpp`'s own existing comment on why this is
+  needed.
+- `test_io_integration.cpp`'s invalid-UTF-8 test used the string literal
+  `"...\xFF\xFEbroken..."` - MSVC's `\x` escape greedily consumes every
+  following hex digit, and `b` is a valid one, so `\xFEb` was parsed as a
+  single out-of-range 3-digit hex escape (`error C7744`) instead of `\xFE`
+  followed by the letter `b`. Fixed by splitting the literal
+  (`"\xFF\xFE" "broken..."`) so the escape sequence ends where intended.
+
+Both are build-time-only bugs in brand-new integration test *code*, not in
+the application or in the already-passing portable suite - no application
+behavior changed as a result of this fix.
+
+**Second revision note (2026-10-02):** with the build fixed, Jack's next
+real run showed the integration suite building and running, but 9 of the
+control-limit test's own assertions failing (e.g. "CHECK( 6 == 256 )" for
+the Kgs field, "CHECK( 9 == 255 )" for the Supplier combo). This was a bug
+in the test's own throwaway controls, not in `ApplyFieldLengthLimits()`'s
+enforcement: per MSDN, a single-line `EDIT` control WITHOUT `ES_AUTOHSCROLL`
+(and a `COMBOBOX` without `CBS_AUTOHSCROLL`) silently REJECTS any typed
+character once the text no longer fits within the control's own visible
+pixel width - a separate mechanism from `EM_LIMITTEXT`/`CB_LIMITTEXT`
+entirely. The test's tiny (50-100px) throwaway controls were capping typed
+input at roughly 6-12 characters long before the real, much larger
+(256/4096/255-character) limits being tested were ever reached. Fixed by
+adding `ES_AUTOHSCROLL`/`CBS_AUTOHSCROLL` to the test's own controls, which
+is how a real single-line Win32 edit/combo is normally expected to behave
+for typed input in the first place (the test reproduces this correctly now;
+whether the real app's own equivalent fields would benefit from the same
+style is a separate, out-of-scope question - see ROADMAP.md's v0.9.51
+status section for a note on this).
+
+No application code changed as part of this second fix either - only the
+integration test's own throwaway control styles.
+
+Jack confirmed Reconciliation invalid-input handling and Finalize blocking
+had been manually checked and worked, then asked for the remaining Phase 1
+manual test areas to be automated so he doesn't have to repeat them by hand
+— explicitly: preserve current application behavior, do not begin Phase 2,
+and add a Windows integration-test target alongside the existing portable
+tests. This release adds that automation. **No application behavior
+changes** other than two cosmetic wording tweaks called out below;
+v0.9.48/v0.9.49/v0.9.50 remain exactly as delivered.
+
+**New: `FishBalanceCore.h` pure coordination functions** (platform-
+independent, unit-tested in the new `tests/test_recovery_and_finalize.cpp`,
+24 test cases):
+- `DecideAutosaveRecovery()` — the startup autosave-identity/recovery
+  decision (matched identity, mismatch, missing named file, changed file,
+  legacy autosave with no marker, corrupt/rejected autosave), extracted
+  from `wWinMain`'s startup logic without changing it.
+- `CoordinateFinalizeDay()` — Finalize Day's persistence coordination
+  behind an injectable `FinalizePersistencePorts` interface (backup
+  snapshot / history write / named-file sync), tested against every
+  success/failure combination — proves a partial failure (history written,
+  named-file sync failed) is never reported as complete success.
+- `CoordinateSaveAs()` — Save As's write-then-commit-or-revert logic,
+  tested against injected write failures — proves a failed Save As
+  restores the previous file association exactly.
+
+**New: `FishBalanceWin32IO.h`** — the Win32 file-I/O half of the app
+(`WToUtf8`/`Utf8ToW`, `Win32IO_OpenFileW`, `ReadAllBytes`/`ReadAllLines`,
+`WriteFileAtomicUtf8`, and a new `LoadFbdFileContent()`), moved out of
+`main.cpp` unchanged except that `ReadAllBytes` and `WriteFileAtomicUtf8`
+now take an optional injectable `FileReadOps`/`FileWriteOps` port —
+defaulting to the exact real Win32/CRT behavior, but lets an integration
+test force a specific step (open/write/flush/replace) to fail
+deterministically instead of needing a real disk-full or antivirus-lock
+condition. Has zero dependency on any window or global app state, so a
+Windows integration test executable can link it without any GUI code.
+
+**New: `FishBalanceControlLimits.h`** — `ApplyFieldLengthLimits()`, the
+single place that applies the app's documented field-length limits via
+`EM_LIMITTEXT`/`CB_LIMITTEXT`, extracted out of `main.cpp`'s `WM_CREATE`
+handler and the Manage Names dialog so a test can call the exact same
+function against its own throwaway controls.
+
+**`main.cpp` refactoring for testable boundaries** (behavior preserved):
+- `GetExeDir()` gained a test-only override (`SetExeDirOverrideForTests`),
+  empty by default (real behavior, unchanged) — the one lever that
+  redirects every path this app builds (autosave.fbd, settings.txt,
+  recent.txt, emails.txt, backups\, history\) into an isolated temp
+  directory for a test, never this machine's real application folder.
+- `DeleteEntryAt(int)` extracted from `DeleteSelectedEntry()` — the actual
+  delete, with no confirmation dialog, so a test can delete a specific row
+  directly.
+- `ExecuteFinalizeDay()` extracted from the Finalize Day dialog's OK
+  handler — wraps `CoordinateFinalizeDay()` with the real Win32 ports and
+  applies the resulting state, callable directly by a test or by the real
+  dialog.
+- `CreateFishBalanceMainWindow()` extracted from `wWinMain` — menu
+  creation through `ShowWindow`/`UpdateWindow`, so a test can create the
+  REAL main window (hidden, via `SW_HIDE`) and get the real `WM_CREATE`
+  control-creation and autosave-recovery logic, without a message loop.
+  `wWinMain` itself is now guarded by `#ifndef FBM_BUILDING_TESTS`, so the
+  Windows integration test executable (which supplies its own `main()` via
+  doctest) can compile `main.cpp` directly with no duplicate-entry-point
+  conflict.
+- `DoFileSaveAs()` now calls `CoordinateSaveAs()` internally instead of
+  duplicating its revert-on-failure logic inline.
+- `LoadFromFile()` now calls the new `LoadFbdFileContent()` for its
+  read+decode+parse steps, keeping only the global-state commit in
+  `main.cpp` itself.
+- Two small, deliberate wording changes as a result of consolidating
+  through `CoordinateFinalizeDay()`'s single message string: the Finalize
+  Day success dialog now reads "Finalized as `<date>`. The permanent
+  history record was saved..." (one space) instead of "Finalized as
+  `<date>`.\n\n The permanent..." (a blank line) when the named-file sync
+  fails after a successful finalize. No other message text changed.
+
+**New: Windows integration test suite** (`tests/win32_integration/`,
+28 test cases across 3 files + `main.cpp`'s own `#ifdef FBM_BUILDING_TESTS`
+block):
+- `test_io_integration.cpp` (Phase 1 item 3, 13 test cases) — real
+  temporary files on a real disk: missing file, oversized file (a genuine
+  100MB+1-byte file, not a mocked size), invalid UTF-8, missing/duplicate/
+  misordered `BEGIN`/`END` markers, malformed rows, a non-numeric field,
+  excessive records (100,001 rows), an over-length line, stray content
+  outside the data section, and the happy path.
+- `test_save_fault_injection.cpp` (Phase 1 item 4, 7 test cases) — real
+  destination files with injected open/write/flush/replace failures,
+  proving the destination is left byte-for-byte untouched and no `.tmp`
+  file is left behind on every failure path, plus the control case.
+- `main.cpp`'s own `#ifdef FBM_BUILDING_TESTS` block (8 test cases):
+  - Phase 1 item 5 — a hidden host window with real `EDIT`/`COMBOBOX`
+    controls, `WM_CHAR`-driven typing (not `WM_SETTEXT`, which is
+    documented to bypass `EM_LIMITTEXT`) proving the configured limits are
+    actually enforced by the control itself, for every field
+    `ApplyFieldLengthLimits()` targets.
+  - Phase 1 item 6 — a headless end-to-end smoke test: creates the real
+    main window hidden (`SW_HIDE`) against an isolated temp app-data
+    directory, then adds/edits/deletes an entry, reconciles it, saves,
+    reloads, and finalizes through the callable commands above
+    (`CommitEntryForm`, `LoadEntryIntoForm`, `DeleteEntryAt`, `RecalcTotals`,
+    `SaveToFile`, `LoadFromFile`, `ExecuteFinalizeDay`) — never a message
+    loop or simulated mouse/keyboard UI automation, and never touching this
+    machine's real autosave/settings/backups/history/named files.
+
+**Build changes:**
+- `tests/run_tests.ps1`'s source list now includes
+  `test_recovery_and_finalize.cpp` (previously only wired into
+  `CMakeLists.txt`).
+- New `tests/win32_integration/run_integration_tests.ps1` — compiles
+  `main.cpp` (with `-DFBM_BUILDING_TESTS`) together with the two new
+  integration test files and a doctest `main()`, under the same
+  `/W4 /WX` gate as every other build path.
+- `run_tests.bat` now runs both the portable suite and the Windows
+  integration suite from one command, reporting failure (and a non-zero
+  exit code) if either fails.
+- `CMakeLists.txt` gained a `FishBalanceIntegrationTests` target
+  (`main.cpp` + the two new integration test files, `FBM_BUILDING_TESTS`
+  defined) wired into `ctest` alongside the existing `FishBalanceTests`
+  target.
+
+**Still manual, by deliberate choice** (per Jack's own list): visual layout
+and clipping; real printer/PDF appearance; actual external email-client
+launch; mixed-DPI monitor behavior; human judgment of message wording and
+workflow feel.
+
+## [0.9.50] - Phase 1 / F4 completeness: structural, bounds, diagnostics
+## and allocation-handling requirements
+
+After v0.9.49 shipped, Jack reviewed it against F4's original
+authorization and found the release was not actually complete: F4 also
+explicitly required a hard "exactly one `BEGIN` and one `END`" structural
+rule, bounded record/line/field validation, structured read/parse
+diagnostics, and allocation-failure handling. An earlier answer in this
+review cycle incorrectly described those items as outside F4's authorized
+scope — that was wrong; they were part of the original authorization and
+simply hadn't been implemented yet. This corrective build closes all of
+them. **v0.9.48/v0.9.49 remain exactly as delivered; this is a new,
+separate package, not a silent edit to either.**
+
+- **A `.fbd` document now always has exactly one `BEGIN` and one matching
+  `END`** (`ParseFbdContent()`, `FishBalanceCore.h`). A `DEBTOR=`/`CASH=`-
+  only document with neither marker — accepted by every version through
+  v0.9.49 — is now rejected the same way any other structurally-ambiguous
+  file already was. This doesn't break a real historical format: every
+  save path (`BuildFbdSaveContent()`) has always written both markers
+  unconditionally, even for a completely blank sheet. The only valid
+  empty sheet remains `DEBTOR=` / `CASH=` / `BEGIN` / `END`.
+- **New bounded record/line/field validation** (`FishBalanceCore.h`):
+  documented limits — 100,000 entry records, 65,536-character decoded
+  lines, 255 characters for Supplier/Species (rows and drafts), 4,096 for
+  Notes/`DEBTOR=`/`CASH=` and draft Notes, 256 for draft Kgs/Price, 32,767
+  for `SOURCE_FILE=` — are enforced on loaded `.fbd` content. Over-limit
+  input is rejected with a specific diagnostic, never silently truncated.
+  The same limits are now enforced on interactive entry via
+  `EM_LIMITTEXT`/`CB_LIMITTEXT` on every corresponding Win32 control
+  (`main.cpp`), so the UI and the file format agree on what's
+  representable in both directions. Four pre-existing fixed-size
+  `GetWindowTextW` buffers (`BuildFbdSaveContent`, `RecalcTotals`, the
+  print/PDF report builder, `CommitEntryForm`) were resized to match —
+  raising the UI limits without this would have silently truncated a
+  legitimately long value the instant it was read back out of its
+  control, reintroducing exactly the kind of silent-truncation bug this
+  requirement exists to prevent. `emails.txt` — the one companion file
+  that shares the Supplier-name field — now skips (rather than loading) a
+  line whose Supplier or email exceeds the same 255-character bound, and
+  the Manage Names dialog's own Supplier-name/email fields get the
+  matching `EM_LIMITTEXT`.
+- **New structured read and parse diagnostics.** `FbdErrorCode`
+  (`FishBalanceCore.h`) distinguishes every content/structure-level
+  rejection `ParseFbdContent()` can produce (not a recognized file,
+  missing `BEGIN`, missing `END`, a duplicate/misordered marker, duplicate
+  singleton metadata, unexpected content outside the data section, a line
+  or field too long, the record limit exceeded, a malformed row, an
+  invalid numeric field, an empty required field), each with a 1-based
+  line number where applicable and a message that never echoes a full
+  field's content verbatim. `ReadBytesError` (`main.cpp`) does the same
+  for the file-I/O side (not found, open failure, seek failure,
+  size-query failure, too large, allocation failure, short read, I/O
+  failure). `LoadFromFile()` now takes an optional `outError` combining
+  both into one specific, human-readable reason, threaded through all
+  four places a file gets loaded — File > Open, Recent Files, Restore
+  from Backup, and startup autosave recovery — each of which now shows
+  the user a real reason instead of one fixed "could not open" sentence.
+- **Allocation failures are now handled explicitly.** `std::bad_alloc`/
+  `std::length_error` are caught deliberately (never a broad `catch
+  (...)`, which could otherwise hide a genuine programming defect) around
+  every allocation boundary the authorization named: the raw byte-buffer
+  allocation in `ReadAllBytes()`, UTF-8 decoding (`Utf8ToW`, called from
+  both `ReadAllLines` and `LoadFromFile`), and line-splitting/parsing/
+  entry-vector growth (`ParseFbdContent()`, wrapped at its call site).
+  Each reports a clear "not enough memory" message and leaves live
+  document state, the source file, and the autosave untouched — the same
+  transactional guarantee as any other load failure. Deterministically
+  forcing an actual allocation failure in a portable unit test isn't
+  practical, so this path is verified by code review only (narrow catch
+  clauses, no partial state mutation before the result is committed, no
+  file write between the allocation attempt and the error return) — see
+  `SecurityHardeningRegister.md` item 16 for the full verification note.
+  The new size/record/line/field limits above are what actually prevent a
+  hostile or corrupted input from reaching an allocation large enough to
+  fail in the first place.
+- **Documentation reconciled honestly.** `SecurityHardeningRegister.md`
+  (new item 16), `ROADMAP.md`, `DATA_FORMATS.md`, and `BUSINESS_RULES.md`
+  now record that v0.9.49 closed checked reads/the whole-file limit/strict
+  UTF-8, and this build closes the remaining, originally-authorized F4 and
+  structural requirements — none of it is described as having been
+  outside scope. The already-accepted atomic writer (`WriteFileAtomicUtf8`,
+  F6) is untouched.
+- **Tests**: `tests/test_fbd_loader.cpp` grew from 43 to 57 `TEST_CASE`s —
+  two existing fixtures that assumed a Debtor/Cash-only or draft-only
+  document with no `BEGIN`/`END` would still load were corrected to assert
+  rejection instead (matching the new rule), plus new regression tests for
+  missing `BEGIN`/missing `END` specifically, and a new boundary-test
+  suite covering exactly-at-the-limit and one-character/one-record-over
+  for every new limit above, with `errorCode` assertions confirming the
+  specific `FbdErrorCode` fired in each case. All large fixtures (long
+  fields, 100,000-row documents) are built programmatically in the test
+  rather than as in-source literals.
+- **Verified on Windows (MSVC, 2026-09-30):** `run_tests.bat` reports
+  **135/135 test cases, 414/414 assertions, all passing**; `build_msvc.bat`
+  builds `FishBalanceManager.exe` clean. This is the first version in the
+  Phase 1 corrective sequence to actually be compiled and run, not just
+  structurally checked.
+
+## [0.9.49] - Phase 1 completeness review: two corrective fixes
+
+Before running the real Windows build/test verification on v0.9.48, Jack
+asked for a precise, read-only completeness check of that release's F1
+and F2/F3 work against their originally-authorized scope, with source
+citations for every point and an instruction to fix (as a new version,
+not a silent edit to the delivered v0.9.48 package) only a definite
+in-scope omission. Two were found and fixed; everything else the review
+covered was confirmed already correct - see `AuditFindings_2026-09-30.md`
+follow-up notes / the chat record for the full point-by-point answer.
+
+- **F1 follow-up - `SOURCE_FILE=` narrowed to `autosave.fbd` only**
+  (`main.cpp`, `FishBalanceCore.h`). v0.9.48 wrote this marker into
+  *every* `.fbd` save - named files, `history\<date>.fbd` records, and
+  `backups\` snapshots included - even though nothing ever reads any of
+  those copies back (only `autosave.fbd`'s own copy is ever consulted,
+  and only at startup). That meant every file that routinely leaves the
+  original machine (emailed to an accountant, backed up to cloud
+  storage, copied to another computer) carried an absolute path,
+  including the Windows username in it, for no functional benefit -
+  raised directly by Jack's review question asking why this wasn't
+  scoped to autosave alone. `BuildFbdSaveContent()` gained a new
+  `includeSourceFile` parameter (default `false`); `SaveToFile()` now
+  sets it by comparing the target path against a new `AutosavePath()`
+  helper (case-insensitively, matching the existing startup identity
+  check). Every other call site (`WriteBackupSnapshot`,
+  `MaybeBackupOnTimer`, the Finalize history write) is unaffected and
+  correctly keeps the default `false`. No named/history/backup file will
+  carry this marker going forward; old files that already have one from
+  v0.9.48 are harmless (nothing reads it from them) and don't need
+  cleaning up.
+- **F2 follow-up - unrecognized content outside `BEGIN`/`END` is now
+  rejected** (`ParseFbdContent()`, `FishBalanceCore.h`). A non-empty line
+  that isn't a recognized `KEY=` marker, isn't `BEGIN`/`END`, and sits
+  outside the data section (before the first `BEGIN`, after `END`, or
+  anywhere in a file with no `BEGIN` at all) previously matched no
+  branch in the parser's if/else-if chain and was silently ignored -
+  "entry before `BEGIN`", "entry after `END`", and other stray content
+  weren't actually covered by v0.9.48's transactional/structural-
+  strictness claim, even though the same class of gap (a bare `END` as a
+  silent no-op) had already been closed. Now rejected the same way as
+  every other structural ambiguity; a genuinely blank line in that
+  position is still harmless and ignored. Three new test cases added to
+  `tests/test_fbd_loader.cpp` covering exactly these scenarios
+  (unrecognized content before `BEGIN`, after `END`, and confirming a
+  genuinely blank line in either position still loads fine).
+- Corrected stale documentation left over from v0.9.48's original
+  (unscoped) `SOURCE_FILE=` description: `DATA_FORMATS.md`,
+  `BUSINESS_RULES.md`, and `SecurityHardeningRegister.md` now describe
+  `SOURCE_FILE=` as autosave-only throughout, and `ROADMAP.md`'s v0.9.48
+  status summary is corrected to match.
+- **Not yet verified by an actual compile or test run** - same caveat as
+  v0.9.48: no compiler is available in this environment. The structural
+  balance check (paren/brace/bracket counts) passes on both changed
+  files. Jack's real Windows build and `tests/run_tests.ps1` remain the
+  actual verification step for this version too.
+
+## [0.9.48] - External audit (OpenAI Codex) Phase 1: data-integrity fail-closed remediation
+
+Phase 1 of the external audit remediation, authorized by Jack in priority
+order F5 → F9 → F1 → F3+F2 → F4 (see `AuditFindings_2026-09-30.md` for the
+full Phase 0 findings register and ROADMAP.md for the Phase 1 summary).
+F6 (atomic writer) stays deferred - confirmed already fixed, not a defect.
+
+- **F5 - `ParseSumExpr()` replaced with `ParseSumExprStrict()`**
+  (`FishBalanceCore.h`): Debtor/Cash parsing now fails closed. A leading
+  `+`/`-` is allowed only on the expression's first term; an operator
+  immediately following another operator (`100++20`, `100+-20`,
+  `100--20`) is rejected; a dangling trailing operator (`100+`) is
+  rejected; every term must be digits with at most one decimal point,
+  rejecting typos (`12x`), `nan`/`inf`/`-inf`, and scientific notation
+  (`1e10`). Previously a bad term was silently dropped and the total
+  computed from whatever was left (`1000+oops+250` used to silently
+  evaluate to `1250`). `RecalcTotals()`, the print/PDF report builder,
+  and `DoFinalizeDay()` (`main.cpp`) all updated to treat "invalid entry"
+  as a distinct, blocking state from "doesn't balance."
+- **F9 - Finalize Day's named-file re-save is now checked.** The
+  `ID_FIN_OK` handler in `FinalizeWndProc` (`main.cpp`) previously
+  discarded the return value of the `SaveToFile(g_currentFile)` call that
+  keeps the open named file's `FINALIZED=`/`SOURCE_FILE=` markers in sync
+  with the permanent history record just written. That result is now
+  checked; on failure the day is still finalized (the permanent
+  `history\<date>.fbd` record was already written and checked earlier in
+  the same handler), but the success dialog is replaced with a warning
+  naming the problem and instructing a manual Save, and `g_dirty` is left
+  `true` so the mismatch isn't lost.
+- **F1 - autosave/named-file identity separation.** Every `.fbd` save
+  (`BuildFbdSaveContent()`, `main.cpp`) now writes a `SOURCE_FILE=` line
+  recording `g_currentFile` at the moment of writing. `ParseFbdContent()`
+  (`FishBalanceCore.h`) parses it into `FbdLoadResult::sourceFile`/
+  `hasSourceFile`. `wWinMain`'s startup sequence now only restores
+  `g_currentFile` from `settings.txt`'s `LASTFILE` when the just-recovered
+  `autosave.fbd`'s own `SOURCE_FILE=` agrees with it (case-insensitively);
+  on a mismatch, or an old autosave with no `SOURCE_FILE=` at all, the
+  recovered data still loads but `g_currentFile` stays empty and an
+  informational dialog explains that Save As is needed - closing the gap
+  where `LASTFILE` (only ever written on a clean exit) could point at a
+  different file than what a crash-recovered autosave actually contains,
+  and a later Save would have silently overwritten that other file.
+- **F3+F2 - `.fbd` loading is now transactional and structurally strict**
+  (`ParseFbdContent()`, `FishBalanceCore.h`): a row that doesn't parse
+  into 4/6/7 fields, has an invalid/negative Kgs or Price, or has an
+  empty Supplier/Species now rejects the **whole document**, replacing
+  the previous "skip the bad row(s), warn with a count, load everything
+  else" behavior. A second `BEGIN`, a duplicate or unmatched `END`, or a
+  duplicate `DEBTOR=`/`CASH=` line are now also rejected outright (the
+  last-seen value no longer silently wins). Every legitimate historical
+  row format (4/6/7-field) is still accepted; `LoadFromFile`'s now-dead
+  "Some Rows Skipped" warning path is left in place with a comment
+  explaining why it's currently unreachable.
+- **F4 - bounded, checked file reading.** `ReadAllLines` and
+  `LoadFromFile` each had their own unchecked `fseek`/`ftell`/`fread`
+  sequence with no `ferror()` check and no size limit; both now go
+  through one new shared `ReadAllBytes()` helper (`main.cpp`) that checks
+  every I/O call's result and rejects a file over 100MB. `Utf8ToW()` now
+  decodes with `MB_ERR_INVALID_CHARS` and reports invalid UTF-8 via an
+  optional out-parameter instead of silently substituting replacement
+  characters for invalid bytes.
+- **Warning-gate tightening (finding F29)**: `CMakeLists.txt` now applies
+  `/W4 /WX` (MSVC) or `-Wall -Wextra -Wpedantic -Werror` (MinGW/GCC) to
+  both the app and test targets; `build_msvc.bat`, `build_mingw.bat`, and
+  `tests/run_tests.ps1` (previously using no warning flags, or `/W4`
+  without `/WX`) now match. **Not yet verified by an actual build** - no
+  compiler is available in this environment; if this surfaces existing
+  warnings on Jack's machine, they need fixing at the root cause, not
+  suppressing.
+- **Documentation drift corrected (findings F25-F28)**: Testing.md,
+  README.md, and ARCHITECTURE.md no longer claim there's no automated
+  test suite or that `main.cpp` is "the entire application" - both were
+  stale since `FishBalanceCore.h`/`tests/` were added.
+- Extensive new/rewritten test coverage in `tests/test_parsing.cpp` and
+  `tests/test_fbd_loader.cpp` for all of the above (the F9/F1-startup/F4
+  changes touch Win32-specific code in `main.cpp` that isn't reachable
+  from the doctest suite - see Testing.md for the corresponding manual
+  checks).
+
+## [0.9.47] - Combo-box first-paint bug: evidence-based fix, diagnostic removed
+
+Jack ran v0.9.46's logging build via F5 and sent back the actual Output
+window log. It gave a clean, specific answer for the first time in five
+rounds of work on this bug (`[0.9.3]`/`[0.9.11]`/`[0.9.12]`/`[0.9.42]`/
+`[0.9.44]`):
+
+- v0.9.44's own `SWP_FRAMECHANGED`/hide-show fix DID run and DID produce
+  `WM_NCCALCSIZE`, `WM_NCPAINT`, `WM_PAINT`, `WM_ERASEBKGND` on the broken
+  control - at 328ms, 344ms, 391ms, 407ms after launch, and again at
+  1141-1157ms from the 1-second retry timer. The box was still visibly
+  broken after all of that. So non-client recalculation was never the
+  right mechanism - the v0.9.44 theory was wrong.
+- The moment Jack actually hovered the mouse (+11344ms in the log), the
+  only messages that arrived were `WM_MOUSEMOVE` -> `WM_PAINT` ->
+  `WM_ERASEBKGND`. No `WM_NCPAINT`, no `WM_NCCALCSIZE` at all. That's the
+  one thing every earlier fix attempt never actually did: none of them
+  sent the control a `WM_MOUSEMOVE`.
+
+**Fix**: `FixComboBoxFirstPaint()` now sends a synthetic `WM_MOUSEMOVE` to
+each combo box (via `SendMessageW`, no real cursor movement needed) before
+invalidating and updating it - reproducing the exact interaction the log
+showed actually works, rather than the non-client-focused approach v0.9.44
+was built on, which is removed since the evidence shows it wasn't
+contributing to the fix.
+
+**The temporary logging subclass (`ComboDiagSubclassProc`, added v0.9.46)
+has been fully removed** now that it's done its job - confirmed gone from
+`main.cpp` (grep for `ComboDiag`/`g_diagStartTick` returns nothing) and the
+structural balance check is back to the same paren/brace/bracket shape as
+before it was added, adjusted only for this fix's own smaller footprint.
+
+**Confirmed fixed by Jack 2026-09-30** ("combo box now there on load") -
+closing this out after five rounds of work across `[0.9.3]` through here.
+
+## [0.9.46] - Combo-box first-paint bug: reinstated the logging diagnostic
+
+Spy++ turned out to be impractical: correct window was found and selected
+(confirmed - Supplier's ComboBox handle showed up correctly in Spy++'s
+window tree, `Messages` log window was open and logging was on), but the
+message log stayed empty even after directly hovering/clicking/typing into
+the box - the UAC-elevation mismatch angle was ruled out too (Spy++ was
+the elevated one, which shouldn't block it; the app wasn't elevated).
+Rather than keep troubleshooting Spy++ itself, Jack asked to go back to
+the code-based logging subclass from the earlier v0.9.45 draft -
+explicitly on the condition it gets removed again once it's done its job.
+
+**Reinstated `ComboDiagSubclassProc`** (identical to the draft reverted
+out of v0.9.45): subclasses `hCmbSupplier`/`hCmbProduct` and logs
+`WM_NCPAINT`, `WM_NCCALCSIZE`, `WM_MOUSEMOVE`/`WM_NCMOUSEMOVE`,
+`WM_SHOWWINDOW`, `WM_WINDOWPOSCHANGED`, `WM_PAINT`, `WM_ERASEBKGND`,
+`WM_THEMECHANGED`, `WM_SETFOCUS`, `WM_STYLECHANGED` via
+`OutputDebugStringW`, visible in Visual Studio's Output window
+automatically while running via F5.
+
+**THIS IS TEMPORARY AND MUST COME OUT.** Flagged with `!!! TEMPORARY !!!`
+banner comments at all three sites in `main.cpp` (the block itself, the
+`g_diagStartTick` assignment in `WM_CREATE`, and the two
+`SetWindowSubclass` calls), in this CHANGELOG entry, and in ROADMAP.md's
+status header so it can't quietly ship forgotten in a release build.
+
+**What to do with it**: run via F5, let the box fail to paint, copy the
+Output window log so far, then hover over the box until it fixes itself,
+then copy what got logged during/after the hover and send both back.
+
+## [0.9.45] - Combo-box first-paint bug: no code change, switched to Spy++ instead
+
+v0.9.44's `SWP_FRAMECHANGED` attempt did not fix it - Jack confirmed still
+broken on F5. An `OutputDebugStringW`-based logging subclass
+(`ComboDiagSubclassProc`) was written and shipped as a first draft of this
+version, then deliberately reverted before this entry was finalized: Jack
+raised a fair concern that a temporary debug-logging subclass is exactly
+the kind of thing that could get forgotten and left in a future version,
+and asked to just use Spy++ instead, which needs no code change at all and
+- unlike the subclass, which only logged the ~12 messages guessed to be
+relevant - captures every message sent to the window, so it can't miss the
+actual culprit if it's not on that guessed list.
+
+**Net result: main.cpp is functionally identical to v0.9.44** (confirmed
+by a structural diff - identical paren/brace/bracket counts). Only the
+version number moved. The actual diagnosis now happens via Spy++ directly
+against the running app - see ROADMAP.md/chat for the walkthrough - with
+nothing left in the codebase to clean up afterward either way.
+
+## [0.9.44] - Combo-box first-paint bug: real diagnostic progress, new fix attempt
+
+Confirmed 0.9.40-0.9.42's other three fixes (Cash label, Finalize/new-sheet
+lock, label alignment) all working via smoke test - see Testing.md.
+
+The Supplier/Species combo-box border/dropdown-arrow bug (`[0.9.3]`/
+`[0.9.11]`/`[0.9.12]`/`[0.9.42]`) is still not closed, but Jack's testing
+turned up real, specific evidence for the first time: it fails on **every**
+launch, not intermittently, via both Visual Studio's F5 and a plain
+double-click of the .exe; switching tabs away and back fixes it, hovering
+the mouse over the box fixes it, but resizing/moving the window does not.
+
+That distinction matters: a tab switch runs the exact same
+`ShowWindow(HIDE)`/`ShowWindow(SHOW)` pair v0.9.42's fix already does (see
+`ShowTab()`), just separated by real time and message-pump cycles instead
+of back-to-back in one call — so v0.9.42's immediate hide/show may simply
+be getting coalesced into a no-op by Windows. A hover involves no
+visibility change at all, only a `WM_MOUSEMOVE`-driven non-client repaint —
+pointing at a missing `WM_NCCALCSIZE`/non-client recalculation, not a
+visibility or plain-invalidate problem.
+
+**Fix (untried until now)**: `FixComboBoxFirstPaint()` now also calls
+`SetWindowPos(..., SWP_FRAMECHANGED)` on both combo boxes before the
+existing hide/show/redraw - the documented Win32 mechanism for forcing a
+control's non-client area to be recalculated and repainted from scratch
+even when its size/position hasn't changed, which is closer to what a real
+hover-triggered `WM_NCPAINT` does than anything tried in the three earlier
+rounds. The existing hide/show/redraw is kept as a fallback.
+
+Same honesty caveat as every previous round: not provably root-caused
+without a live debugger/Spy++ trace. If this doesn't close it, the next
+useful step is watching what specifically changes in Spy++ (or similar)
+between a hover and a cold launch, since guessing a fourth time without
+that evidence has a poor track record here.
+
+## [0.9.43] - Full project audit: drift/staleness cleanup, one real bug found
+
+Jack asked for a full audit of every file while testing v0.9.42, plus a
+proposal for splitting up `main.cpp`. This entry covers the audit fixes;
+see ROADMAP.md's "main.cpp architecture decomposition" section for the
+split proposal (not executed - still correctly sequenced after Bucket A/C,
+this was just planning).
+
+**One real bug found: `history\` was never added to `.gitignore`.**
+`backups\` has been gitignored since it was introduced, but the newer
+`history\` folder (Finalize Day, v0.9.40) was missed. Since the exe builds
+directly into this repo folder, `git add -A` in `push_update.ps1` would
+have committed finalized day-files - real supplier/pricing data - straight
+into version control. **If v0.9.40, v0.9.41, or v0.9.42 was already
+pushed with a finalized day on record, check the repo for a
+`history\*.fbd` file that shouldn't be there and remove it from git
+history if so** (this is exactly the kind of thing the v0.9.39 dark-mode
+history rewrite dealt with - ask if a hand and it can be walked through
+again). Fixed going forward by adding `history/` to `.gitignore`.
+
+**Stale documentation/comments found and fixed** (none affect behavior,
+all are drift between what the code does and what it says about itself):
+- `main.cpp`'s own top-of-file header comment described only 3 tabs
+  ("Data Entry", "Total Overview", "Breakdown") - the app has had a 4th
+  ("By Species") since long before this file's header was last touched.
+  Added.
+- `DoAbout()`'s Help > About dialog text had the exact same gap (missing
+  tab 4) - this one ships to Jack, not just other developers reading the
+  source - and also never mentioned Finalize Day or the outlier
+  price-flag review workflow, both real, shipped features. Added all
+  three.
+- `ARCHITECTURE.md` said "there are three top-level windows" - missed
+  `FinalizeWndProc` (added v0.9.40), the 4th. Also had a garbled,
+  duplicated half-paragraph fragment ("open, `EnableWindow(mainWnd,
+  TRUE)`...") left over from an earlier edit, sitting with no context
+  after an unrelated section - removed and replaced with a genuinely
+  useful note on why Finalize Day is a tab-1 button, not a menu item.
+- `README.md` never mentioned Finalize Day or outlier price-flagging at
+  all (both real, shipped features), never mentioned the `backups\`/
+  `history\` folders the app actually creates, and had its own
+  hand-copied `.fbd` format example that had gone stale - missing the
+  `Flagged` field (added v0.9.19) and the `FINALIZED=` field (added
+  v0.9.40). Replaced the duplicated example with a pointer to
+  DATA_FORMATS.md (the actual authoritative copy) specifically so this
+  can't drift out of sync silently again.
+- `Testing.md`'s "Finalize Day" section header still said "v0.9.40-0.9.41"
+  after v0.9.42 added more fixes to the same feature. Updated.
+
+**Dead code removed**: `GreetingForNow()` in `main.cpp` had no remaining
+caller - `BuildSupplierEmailBody()` (FishBalanceCore.h) takes the current
+hour as an explicit parameter from `EmailSupplier()` and calls
+`GreetingForHour()` directly, so this no-argument wrapper was never
+actually invoked anywhere. Removed; `TodayDateString()` right below it
+(which IS still used) kept as-is.
+
+**Found, not fixed - flagged for a future pass, needs a compiler to touch
+safely**: two places where real (not just cosmetic) logic is duplicated
+rather than shared, found during the audit:
+- Book-balance arithmetic (`entered`/`debtor`/`cash`/`book`/`diff`) is
+  computed independently in `RecalcTotals()` and again in
+  `RenderReportPages()` (for the printed report), with `DoFinalizeDay()`'s
+  balance gate depending on `RecalcTotals()`'s result staying in sync via
+  the `g_diffOk` global. Candidate: factor into one testable
+  `ComputeBookBalance()` in FishBalanceCore.h.
+- `ExportToCsv()` hand-rolls its own per-supplier and per-species
+  aggregation instead of calling the already-existing, already-tested
+  `ComputeGroupedTotals()`/`ComputeSpeciesStats()` in FishBalanceCore.h -
+  meaning the CSV export and the on-screen Overview/By Species tabs could
+  silently diverge if that logic ever changes in one place and not the
+  other.
+Neither touched in this pass - both are real functional code paths in a
+financial-balancing app, and changing them without a compiler to verify
+against is a different risk category than fixing a comment.
+
+## [0.9.42] - Supplier/Species/Kgs/Price label alignment, combo box first-paint fix escalated
+
+Two more issues from the same live-testing pass as v0.9.41, both
+pre-existing and unrelated to Finalize Day itself:
+
+- **Supplier/Species/Kgs/Price labels vertically misaligned with their
+  boxes.** These 4 labels sat at a fixed `top + S(3)` pixel nudge, guessed
+  years ago to visually match a plain EDIT box's text baseline - a guess
+  that never held for the two COMBOBOX controls (Supplier/Species), since
+  a themed dropdown's closed-box text doesn't center at the same offset an
+  EDIT box's does, and the mismatch is DPI/font-dependent rather than a
+  fixed pixel count. Jack: "labels to textboxes still misaligned.
+  Supplier, species, kg, price still misaligned." Fixed properly instead
+  of re-guessing another offset: each label now shares the exact same top
+  and height as its paired control and uses `SS_CENTERIMAGE` to center its
+  text from real font metrics - the same mechanism Windows already uses to
+  center the text inside the neighboring EDIT/COMBOBOX, so the two always
+  agree regardless of DPI or font instead of two independent guesses that
+  can drift apart. (Important detail: the label height matches the
+  combo's *closed* height, `S(22)`, not `hCmbSupplier`/`hCmbProduct`'s own
+  `S(200)`, which is their dropped-down list height.)
+- **Supplier/Species combo boxes still occasionally not painting their
+  border/dropdown-arrow until hovered.** A known, long-lived Win32 theming
+  race (see the `[0.9.3]`/`[0.9.11]`/`[0.9.12]` entries below) that three
+  earlier rounds of fixes narrowed but never fully closed - Jack: "Doesnt
+  always happen, but see screenshot for example." Escalated on both axes
+  this function's own comment had already flagged as the next things to
+  try: (1) two more delayed retries (250ms, 1000ms) added alongside the
+  existing 50ms one, on the theory that the race doesn't always resolve
+  that quickly on every machine; (2) the fix itself now toggles the
+  controls' visibility (`SW_HIDE` then `SW_SHOW`) before redrawing, which
+  forces ComCtl32's visual-styles engine to actually redo its theme setup
+  for the control rather than just repainting pixels it may already
+  consider clean - closer to root cause than a plain `RedrawWindow` call
+  alone. Still not provably root-caused without a live debugger, same
+  honesty caveat as the `[0.9.12]` entry.
+
+## [0.9.41] - Two real bugs found in v0.9.40's first live check
+
+- **Cash label was word-wrapping and getting clipped.** `hLblCash`'s box
+  was only 65px wide - too narrow for its actual text, "Cash amount(s):" -
+  so the STATIC control silently wrapped it onto a second line that its
+  22px-tall box then clipped, leaving "Cash" visible and "amount(s):" cut
+  to a sliver sitting lower than the Debtor label beside it. Jack noticed
+  it as "labels/text boxes are misaligned - one is higher than the other"
+  while looking closely at the screen after finalizing a day for the first
+  time - a pre-existing layout bug, not something the Finalize Day change
+  introduced, just never previously looked at that closely. Widened the
+  label and shifted `hEditCash` right to match.
+- **"Start a new entry sheet now?" left the new sheet locked.** Choosing
+  Yes on Finalize Day's follow-up prompt cleared the on-screen list but
+  deliberately left `g_currentFile`/`g_finalizedDate` pointing at the file
+  that was just finalized - the reasoning at the time was "the finalized
+  file shouldn't be touched," but that also meant the fresh, blank "next
+  day" sheet inherited the finalized lock: every entry control stayed
+  disabled and the button still read "Un-finalize Day." Jack: "Finalise -
+  then clicking new clears the file, but not the unfinalise button." Fixed
+  to detach fully - clear `g_currentFile` and `g_finalizedDate` and
+  re-apply the (now unlocked) state, exactly like File > New already does.
+
+## [0.9.40] - Finalize Day (ROADMAP.md item 3)
+
+A new way to lock in a business day once it's genuinely balanced, replacing
+the vaguer "day-rollover" idea that used to sit in the roadmap. Built after
+extensive back-and-forth with Jack about how his team's actual workflow
+runs (Monday/Tuesday often balanced together as one Tuesday-dated day,
+Saturday sales often balanced on Monday with Saturday's date, occasional
+"special week" exceptions around Easter/Christmas) — the upshot was that
+auto-detecting "today doesn't match this file's date" would be wrong more
+often than it was right, so this feature doesn't try. Instead, staff
+finalize a day explicitly, whenever they've actually finished balancing it.
+
+**How it works:**
+- A new **Finalize Day** button sits on Tab 1, under Book Reconciliation.
+- Finalize is blocked outright — no override — unless Debtor + Cash
+  exactly balances against the entered total. Jack: "for finalise - you
+  should stop allowing entries once finalize is clicked."
+- Clicking it (once balanced) prompts for the date this day is being
+  finalized as, defaulting to today, or to the current file's own name if
+  that already looks like an ISO date (e.g. a file named `2026-09-20.fbd`).
+- Confirming writes a permanent snapshot to a new `history\<date>.fbd` file
+  (a new subfolder next to the exe, separate from the rolling `backups\`
+  safety-net snapshots) and marks the working file itself as finalized
+  (`FINALIZED=<date>` — see DATA_FORMATS.md).
+- Once finalized, every control that could change the numbers — the entry
+  form, Add/Edit/Delete/Duplicate, Debtor, Cash — is disabled ("grey
+  everything out"), and the button relabels itself to **Un-finalize Day**.
+  This was chosen over Jack's own first idea (intercept every add/delete
+  attempt and ask to un-finalize or discard) for being much lower-risk to
+  implement correctly, and for reusing the same disable-everything pattern
+  already planned for multi-machine read-only mode.
+- After a successful finalize, the app asks first — "Start a new entry
+  sheet now?" — rather than silently clearing the screen.
+- **Un-finalize Day** just asks for confirmation (no reason required),
+  takes a backup snapshot first, then re-enables everything.
+- A `FINALIZED=` line in a `.fbd` file is validated the same strict way
+  `DRAFT_DATE=` already is — an invalid or hand-edited value is dropped
+  rather than treated as a valid lock.
+
+New unit tests in `test_fbd_loader.cpp` cover a valid `FINALIZED=` line,
+an ordinary file with no such line, and an invalid value being dropped.
+
+## [0.9.39] - Dark Mode removed entirely — reverted to the v0.9.33 baseline
+
+Dark Mode went through five straight iterations (v0.9.34 through v0.9.38)
+and never matched what Jack actually wanted, each one fixing what the
+previous claimed to fix while missing something else - low contrast, then
+native controls staying light, then the tab strip never actually going
+dark despite being documented as fixed, then the menu bar, then the status
+bar. Jack's final word on it: "you've made a real mess of dark mode -
+scrap it all together, you're not listening or understanding... revert to
+back before we started it." He's planning a "v2" later with a clearer
+mockup of exactly what he wants, rather than iterating blind against
+screenshots after the fact.
+
+**What happened**: this development environment has no git history and no
+saved snapshot of every past version, so a literal file restore wasn't
+possible from this side. Jack located and sent back his own saved copy of
+the v0.9.33 build - the last version before any Dark Mode work started -
+and every file in this release is that build's content, verbatim, with
+only `version.h` bumped forward to `0.9.39` and this entry added. No
+Dark Mode code, menu item, settings field, or build dependency
+(`dwmapi`/`uxtheme`) remains anywhere in the app. Confirmed by a fresh
+structural balance check and non-ASCII scan of `main.cpp`, same as every
+other release.
+
+**Not lost, just parked**: the CHANGELOG/ROADMAP/Testing.md entries for
+`[0.9.34]` through `[0.9.38]` below are left in place as a historical
+record of what was tried and why each attempt fell short - useful context
+if/when Dark Mode comes back as a proper v2 feature, scoped from a clear
+mockup instead of guessed at.
+
+## [0.9.33] - Restore from Backup now reliably opens to the backups folder
+- **Jack, smoke-testing Restore from Backup**: "shouldnt it take me to
+  backup folder? it didnt. last folder i used in open was desktop and
+  went there instead."
+- Root cause: this is documented Windows behavior, not a logic bug -
+  `GetOpenFileNameW`'s `lpstrInitialDir` is only honored the very first
+  time a process ever shows that common dialog. On every later call
+  (regardless of which of our functions triggered it - File > Open,
+  Restore from Backup, whichever came first), Windows reuses whatever
+  folder the user last navigated to in *any* prior call, ignoring
+  `lpstrInitialDir` entirely. `DoRestoreFromBackup()`'s `lpstrInitialDir`
+  was already correctly set to the backups folder - it was just being
+  silently overridden by the earlier File > Open into Desktop.
+- Fix: `lpstrFile` is now pre-filled with the backups folder path (plus a
+  trailing backslash, no filename) before the dialog opens. A path
+  supplied in `lpstrFile` takes priority over Windows' remembered folder,
+  unlike `lpstrInitialDir` - this reliably forces the dialog to open in
+  `backups\` every time, regardless of where any other file dialog was
+  last used. `lpstrInitialDir` is kept as a harmless fallback for a
+  genuine first-ever call.
+
+## [0.9.32] - File > New now takes a backup snapshot before discarding too
+- **Jack found this directly while smoke-testing v0.9.28's checklist**:
+  added an entry, did File > New, confirmed the discard prompt, checked
+  `backups\` afterward - nothing there.
+- v0.9.28 gave File > Open, Recent Files, and Restore from Backup an
+  unconditional backup snapshot right before discarding unsaved data, but
+  deliberately left File > New out, reasoned at the time as "New already
+  clears to a blank sheet, nothing to preserve." That reasoning was
+  backwards: it's not the new blank sheet that needs protecting, it's
+  whatever unsaved work is being thrown away to reach it - exactly the
+  same risk as the other three paths, and exactly the kind of gap the
+  v0.9.24 data-loss incident this whole feature exists to close.
+- Fix: `DoFileNew()` now calls `WriteBackupSnapshot()` right after the
+  discard prompt is confirmed, same pattern and same place in the flow as
+  `DoFileOpen()`/`DoRestoreFromBackup()`/the Recent Files handler.
+- This also means the old v0.9.28 checklist item "no spurious snapshot on
+  File > New" is now wrong on purpose - New backing up before a genuine
+  discard is the correct, intended behavior as of this version.
+
+## [0.9.31] - Rolling backup snapshots now warn on failure instead of failing silently
+- **Jack's report**: "Every 3 minute save not working" — after v0.9.29
+  added the real `WM_TIMER` for `MaybeBackupOnTimer()`, Jack retested and
+  corrected his original account: it was actually v0.9.28, and he'd made
+  "maybe 5" separate Add Entry commits over roughly a minute before
+  checking `backups\` after about 3 minutes and finding nothing. He asked
+  to "look properly at the code" rather than re-diagnose from his own
+  uncertain recollection of timing.
+- On inspection, `MaybeBackupOnTimer()`'s guard (`g_lastBackupTick != 0 &&
+  ...`) does **not** skip the very first call of a session — with 5 Add
+  Entry commits, each routing through `RefreshAll()` → `AutosaveNow()` →
+  `MaybeBackupOnTimer()`, a backup snapshot should have been written on
+  the very first commit regardless of the v0.9.29 timer fix. So the
+  missing-timer explanation, while real and worth fixing, didn't fully
+  account for what Jack described.
+- Root cause found: `WriteBackupSnapshot(const std::string&)` called
+  `WriteFileAtomicUtf8(path, content)` and **discarded its return value**.
+  A failed write (backups\ folder unwritable, disk full, antivirus lock,
+  etc.) was completely silent — no warning shown to Jack — and worse,
+  `g_lastBackupContent`/`g_lastBackupTick` were still updated as if the
+  snapshot had succeeded. That meant `MaybeBackupOnTimer()`'s "nothing
+  changed since last snapshot" skip logic believed a (non-existent)
+  snapshot was already current, and its interval guard believed one had
+  just been taken — both suppressing any near-term retry. A persistently
+  failing backup folder could go bad indefinitely without any sign
+  anything was wrong, unlike autosave.fbd's failures (which already warn
+  via `g_autosaveFailWarned`/`AutosaveNow`).
+- Fix: `WriteBackupSnapshot` now checks `WriteFileAtomicUtf8`'s return
+  value. On success, behavior is unchanged. On failure: shows a one-time
+  warning dialog (same warn-once/reset-on-recovery pattern as autosave's
+  own failure warning, via a new `g_backupFailWarned` flag), and — new —
+  deliberately does **not** update `g_lastBackupContent`/`g_lastBackupTick`
+  on failure, so the very next autosave (e.g. the next field's focus loss)
+  retries immediately instead of waiting out a full 3-minute interval
+  believing a snapshot already succeeded.
+- This is a real, previously-unnoticed bug independent of the v0.9.29
+  timer fix, and a credible full explanation for backups Jack expected
+  but didn't see even while actively entering data. It doesn't rule out
+  the v0.9.29 fix also having mattered (both could have compounded), but
+  it closes the gap that the timer fix alone left open.
+
+## [0.9.30] - Discard prompt now tracks real unsaved changes, not just "any data"
+- **Jack's request after smoke-testing v0.9.28**: "should be kinda?
+  dirty flagged?. If something changes, dialog comes up. Once saved,
+  then no dialog until something changes again." Previously,
+  `ConfirmDiscardCurrentData` fired whenever there was *any* data on
+  screen (entries, or Debtor/Cash text) regardless of whether it had
+  just been saved - so File > Save followed immediately by File > Open
+  still asked to confirm, even though nothing was actually at risk.
+- **Fix**: new `g_dirty` flag, set `true` on every actual data change -
+  `CommitEntryForm` (add/update), `DeleteSelectedEntry`, `UndoDelete`,
+  a rename/merge via Manage Names that actually changed anything, and
+  Debtor/Cash `EN_CHANGE` (every keystroke, matching how those fields
+  already autosave on focus-loss) - and set back to `false` on every
+  point where the in-memory state provably matches something durable on
+  disk again: File > New (blank sheet, nothing to lose), a successful
+  File > Open/Recent Files/Restore from Backup load, a successful
+  File > Save/Save As, and the startup autosave.fbd reload.
+  `ConfirmDiscardCurrentData` now checks `g_dirty` instead of "is there
+  any data at all."
+- **Deliberately NOT cleared by**: autosave.fbd writes or rolling backup
+  snapshots (including the v0.9.28 file-switch snapshot) - those are
+  safety nets running in the background, not the user's own deliberate
+  "I'm done with this" action the prompt exists to key off.
+- **One subtlety worth documenting**: `SetWindowTextW` on the Debtor/Cash
+  fields fires `EN_CHANGE` the same as a real keystroke does, so the
+  clear-to-blank calls in `DoFileNew` and the Debtor/Cash restores inside
+  `LoadFromFile` would otherwise mark the sheet dirty immediately after
+  a load. Each of those call sites explicitly sets `g_dirty = false`
+  *after* the load/clear completes, so the flag ends up correct despite
+  the intermediate `EN_CHANGE` noise.
+- No `FishBalanceCore.h` change - pure `main.cpp` logic, no doctest
+  re-run needed.
+
+## [0.9.29] - Fix: rolling backups didn't actually run on a real timer
+- **Real gap Jack found while smoke-testing v0.9.28**: made an edit, then
+  left the app idle - no backup ever appeared, no matter how long he
+  waited. Reported as "every 3 minute save not working."
+- **Root cause**: `MaybeBackupOnTimer()` was never wired to an actual
+  `WM_TIMER`. It only ran *inside* `AutosaveNow()`, which itself only
+  fires on focus-loss (`EN_KILLFOCUS`/`CBN_KILLFOCUS`) or an explicit
+  action like Save. So "roughly every 3 minutes" only held true while
+  actively tabbing/clicking between fields - the moment you stopped
+  interacting with the form (cursor still in a field, no more focus
+  changes), the elapsed-time check inside `MaybeBackupOnTimer()` never
+  got evaluated again, regardless of how much real time passed. Exactly
+  the case - unsaved edit, then idle - this feature exists to protect.
+- **Fix**: a new recurring `WM_TIMER` (`ID_TIMER_BACKUP_CHECK`, ticking
+  every 30 seconds, started in the main window's `WM_CREATE` and killed
+  in `WM_DESTROY`) now calls `MaybeBackupOnTimer()` directly, independent
+  of any UI activity. 30 seconds is just the polling granularity, not the
+  backup interval - `MaybeBackupOnTimer()`'s own `kBackupIntervalMs`
+  (3 minutes) and no-change-skip logic (v0.9.26) are unchanged and still
+  decide whether anything actually gets written on each tick.
+- Autosave-on-focus-loss still also calls `MaybeBackupOnTimer()` as
+  before (harmless - the interval/no-change checks make a redundant call
+  a no-op), so active data entry behaves exactly as it did in v0.9.17-28.
+  The only real-world difference is idle screens with unsaved data now
+  actually get backed up on schedule.
+- No `FishBalanceCore.h` change - pure `main.cpp` logic, no doctest
+  re-run needed.
+
+## [0.9.28] - Backup snapshot taken on every file switch, not just Save
+- **Real gap Jack flagged**: "Umm I dunno if we should for switching
+  files? Seeming as I lost work when we did, perhaps we should?" - in
+  reference to the v0.9.24 data-loss incident. That fix made File > Open
+  and Recent Files *ask* before discarding unsaved data, but the
+  confirmation prompt is not itself a backup - answering "Yes, discard"
+  still destroys whatever wasn't saved yet if nothing had backed it up
+  in the meantime (the rolling timer might be up to 3 minutes stale, and
+  there might be no explicit Save at all for in-progress work).
+- **Fix**: `DoFileOpen`, the Recent Files menu handler, and
+  `DoRestoreFromBackup` now each call `WriteBackupSnapshot()`
+  unconditionally, immediately after the user confirms the discard
+  prompt and immediately before `LoadFromFile` overwrites `g_entries` in
+  memory. This is the same unconditional snapshot explicit Save/Save As
+  already took (see `[0.9.17]`) - switching files is now treated as an
+  equally deliberate, equally backup-worthy action, not just a read.
+- Whatever was on screen right before the switch is now always
+  recoverable via File > Restore from Backup, even if it was never
+  explicitly saved and the rolling timer hadn't ticked yet - closing the
+  last real exposure window this class of incident depends on.
+- No `FishBalanceCore.h` change - pure `main.cpp` logic, no doctest
+  re-run needed.
+
+## [0.9.27] - Backup filenames now show which source file they're from
+- **Real gap Jack flagged**: with backups just named
+  `backup_YYYYMMDD_HHMMSS.fbd`, there was no way to tell which source
+  file a snapshot belonged to if you'd worked in more than one `.fbd`
+  file in a session - a real problem in Restore from Backup's file
+  list, where picking the wrong one is exactly the kind of mistake this
+  feature exists to protect against.
+- **Fix**: new `CurrentFileLabelForBackup()` extracts the current named
+  file's base name (no path, no extension - e.g. `21112` for
+  `...\21112.fbd`), or `unsaved` if no named file is open yet.
+  Filenames become `backup_YYYYMMDD_HHMMSS_<label>.fbd` - visible
+  directly in the standard Open dialog Restore from Backup already
+  uses, no new UI needed.
+- **The label goes AFTER the timestamp, deliberately** - the timestamp
+  has to stay the leading, fixed-width part of the filename for
+  `PruneOldBackups`' "sort by name = sort by time" logic to keep
+  working. A label placed first would sort backups by source file
+  before time, breaking chronological pruning outright. Hand-verified
+  the sort order still holds: two backups with different timestamps
+  sort correctly regardless of the label, since string comparison
+  resolves on the fixed-width timestamp portion first; only a
+  same-second collision (effectively impossible in practice) would ever
+  fall through to comparing labels, which is a harmless tiebreak.
+- `PruneOldBackups`' `backup_*.fbd` glob still matches both old- and
+  new-format filenames, so nothing already in an existing `backups\`
+  folder needs to change.
+- No `FishBalanceCore.h` change - pure `main.cpp` logic, no doctest
+  re-run needed.
+
+## [0.9.26] - Rolling backups now skip writing when nothing's changed
+- **Real waste identified by Jack**: with the interval down to 3
+  minutes (v0.9.25), a snapshot was still being written every 3 minutes
+  regardless of whether the underlying data had actually changed since
+  the last one - e.g. just switching tabs or sorting a column can
+  trigger `AutosaveNow()`, and if that happened to land on a
+  3-minute-elapsed check, a byte-identical duplicate file got written
+  for no reason.
+- **Fix**: `MaybeBackupOnTimer` now builds the current `.fbd` content
+  and compares it against the last snapshot's content before writing -
+  if nothing's changed, it skips the write entirely (no new file, no
+  disk write, no wasted slot in the 50-backup cap), but still resets
+  the timer so it doesn't re-check on every subsequent no-op autosave
+  before the next full interval.
+  - `WriteBackupSnapshot` split into a content-taking version and a
+    no-arg convenience overload (used by explicit Save/Save As, which
+    remain unconditional - "you just explicitly saved" is still worth
+    its own snapshot regardless of content match).
+  - New `g_lastBackupContent` tracks what was actually last written, so
+    the comparison has something real to check against.
+- No `FishBalanceCore.h` change - pure `main.cpp` logic, no doctest
+  re-run needed.
+
+## [0.9.25] - Rolling backup interval tightened to 3 minutes
+- **Prompted by a real loss**: Jack lost in-progress edits to the
+  v0.9.24 File > Open bug (fixed that version), and it turned out no
+  rolling backup existed yet for that work - the 10-minute interval
+  hadn't elapsed, and no explicit Save had happened either. Tightening
+  this doesn't undo that loss, but shrinks the exposure window for
+  other ways work could still be lost before a fix exists (a crash, a
+  power cut) - not just the File > Open case, which v0.9.24 already
+  closed off entirely.
+- `kBackupIntervalMs` changed from 10 to 3 minutes.
+- **Deliberate tradeoff, decided with Jack**: the 50-backup cap was NOT
+  raised to match - at 3 minutes, 50 backups covers roughly 2.5 hours
+  of rolling history, down from a full business day at the old
+  10-minute/50-cap combination. Jack chose more frequent recent
+  coverage over full-day coverage; noted here so it's a known,
+  deliberate choice if it comes up again later.
+- Every place that mentioned "every 10 minutes" updated to match: the
+  About dialog, the "No Backups Yet" message, and `Testing.md`'s
+  checklist. `CHANGELOG.md`'s `[0.9.17]` entry is left as-is - it's a
+  historical record of what was true at that version, not something
+  retroactively corrected.
+- No `FishBalanceCore.h` change - pure `main.cpp` constant + message
+  text, no doctest re-run needed.
+
+## [0.9.24] - Fix: File > Open / Recent Files could silently discard
+  unsaved data
+- **Real data-loss bug, confirmed via Jack's own testing**: opened an
+  old `.fbd` file, then went back to the file he'd been editing - his
+  in-progress edits were gone. Root cause: `DoFileOpen()` had **no
+  unsaved-changes check at all** - it loaded the newly-selected file
+  immediately, and since `RefreshAll()` autosaves on every load, this
+  also overwrote `autosave.fbd` with the new file's content, wiping out
+  the only on-disk copy of the in-progress work too. The Recent Files
+  menu had the identical gap. File > New already had this exact kind of
+  check ("Discard the current data and start a new sheet?"), and
+  Restore from Backup (v0.9.17) had its own near-identical inline copy
+  - Open and Recent Files were simply missing it.
+- **Fix**: new shared `ConfirmDiscardCurrentData()`, used by all four
+  places that can replace the on-screen sheet (New, Open, Recent Files,
+  Restore from Backup) instead of three separate, driftable copies of
+  similar logic. Checks entries, Debtor, and Cash (not just entries,
+  which is what New's old inline check did) before prompting; prompts
+  only when there's actually something to lose.
+- No `FishBalanceCore.h` change - pure `main.cpp` logic, no doctest
+  re-run needed this time.
+- **If you lost work to this bug**: check `backups\` via File > Restore
+  from Backup - a rolling snapshot from before the file switch may
+  still have it, depending on timing (see ROADMAP.md item 4).
+
+## [0.9.23] - Two fixes from live testing: IQR floor + silent flagging
+- **Real bug found via live testing**: five identical $10 entries for a
+  species, then a genuinely normal $12 sixth entry, triggered the
+  outlier warning. Root cause confirmed: a baseline with zero price
+  spread gives IQR=0, which collapses Tukey's fence to exactly the
+  baseline price itself - ANY deviation at all, even a cent, was being
+  flagged. Not a tuning issue, a real defect in the formula for
+  low-variance data (likely common for steadier species).
+  - **Fix**: `ComputeOutlierRange` now floors the IQR used in the fence
+    at a percentage of the baseline's own median price (20%, chosen
+    with Jack after checking it against his exact numbers - $10
+    baseline, $12 now within the resulting $7-$13 fence). Only ever
+    widens the fence for a tight/low-variance baseline; every existing
+    test case with real spread in the data is unaffected (hand-checked
+    and covered by a new doctest case confirming the floor doesn't
+    change anything when it isn't needed).
+- **Removed the interactive Yes/No dialog from Add Entry**, at Jack's
+  explicit request: a modal interrupting every flagged entry broke his
+  keyboard-driven data-entry flow at real volume (100-500 entries/day).
+  `CommitEntryForm` now silently sets `priceFlagged` and commits -
+  never blocks, never interrupts. The double-click/Edit Selected review
+  dialog (`ReviewOrEditEntry`) is unchanged and remains the deliberate
+  review path. Combined with v0.9.22's whole-group re-evaluation, a
+  false-positive flag will often clear itself automatically as more
+  similar-priced entries come in, without any user action.
+- New doctest coverage in `tests/test_aggregation.cpp` for the floor fix
+  (Jack's exact $10/$12 numbers, plus confirmation a genuine $50 typo
+  still gets caught, plus a regression check that existing spread-in-
+  the-data cases are unaffected). **`FishBalanceCore.h` changed again -
+  run the doctest suite before testing this build.**
+
+## [0.9.22] - Outlier check now re-evaluates the whole species/date group
+- **Closes a real gap Jack hit with live data**: a typo entered as the
+  FIRST entry for a species that day had no baseline to be checked
+  against (below the minimum of 4), silently became part of the data,
+  and was never re-evaluated just because later, correctly-priced
+  entries came in around it - even once there were enough of them to
+  make the typo obvious. Confirmed with Jack's own numbers: bonito at
+  $1111, $11, $11, $11, $111 - the $1111 entry was never flagged, even
+  after the 5th entry gave it a real baseline to be judged against.
+- **New `ReevaluateOutlierFlagsForSpeciesOnDate`** (`FishBalanceCore.h`):
+  after anything that changes which prices exist for a species/date - a
+  commit (add/edit), a delete, or an undo-delete - every entry in that
+  group is silently re-checked leave-one-out against the CURRENT full
+  set, not just the entry that triggered the change. Using the same
+  bonito numbers: once the 5th entry existed, re-evaluating the whole
+  group correctly flagged the $1111 entry and left the other four
+  alone (hand-verified and covered by a new doctest case using these
+  exact numbers).
+- **The flag is now live at the group level, not just per-entry**: an
+  entry manually cleared (right-click "Clear flag", or "No" in
+  `ReviewOrEditEntry`) can be silently re-flagged later if a
+  SUBSEQUENT change to a sibling entry's price makes it look unusual
+  again. This is a deliberate behavior change, not an oversight - see
+  ROADMAP.md item 7 for the reasoning.
+- Wired into `CommitEntryForm` (after add/edit), `DeleteSelectedEntry`,
+  and `UndoDelete` - deletion/undo needed the product/date captured
+  before the vector mutation invalidates the entry reference.
+- New doctest coverage in `tests/test_aggregation.cpp`: Jack's exact
+  reported scenario as a named test case, a below-minimum-baseline
+  case, a different-species/date isolation case, and an unflag-on-fix
+  case. **`FishBalanceCore.h` changed again - run the doctest suite
+  before testing this build.**
+
+## [0.9.21] - Outlier warning wording fix
+- **The v0.9.19 warning text was factually wrong**, not just off-brief:
+  it said "other entries range $X-$Y", but $X-$Y was Tukey's fences (the
+  computed threshold), not the actual range of today's other entries -
+  those fences deliberately sit outside the real observed spread by
+  design, so the sentence was describing the wrong thing entirely, not
+  just phrased differently than requested.
+- **Rewritten to match Jack's original wording**, and one-sided: shows
+  only the bound actually crossed ("the dynamic limit calculated for
+  today is max $X/kg" for a too-high price, "min $X/kg" for a too-low
+  one) rather than always showing both — which also resolves the
+  factual problem above, since "the dynamic limit" correctly describes
+  what the number is.
+  - `CommitEntryForm`'s warning and `ReviewOrEditEntry`'s re-evaluated
+    review dialog both updated to match.
+  - The low-bound display no longer needs the `displayLow` negative-
+    clamp workaround from v0.9.19 - showing the low bound only when it
+    was actually crossed means it's mathematically guaranteed positive
+    at that point (price >= 0 by validation, and price < low to trigger
+    that branch).
+  - Button captions remain plain `MessageBox` Yes/No (a custom-captioned
+    popup like Jack's original mockup was considered and explicitly
+    declined - see ROADMAP.md item 7) - the distinction is in the
+    sentence, not the buttons.
+- No `FishBalanceCore.h` change - pure message text in `main.cpp`, no
+  doctest re-run needed this time.
+
+## [0.9.20] - Fix: v0.9.19 build failure (C++17 inline variable)
+- **v0.9.19 did not compile via the CMake/Ninja path** —
+  `error C7525: inline variables require at least '/std:c++17'` on
+  `FishBalanceCore.h`'s `kMinBaselineForOutlierCheck` constant, added in
+  v0.9.19. Root cause, found on investigation: `CMakeLists.txt` never
+  set a C++ standard at all - unlike `build_msvc.bat`
+  (`/std:c++17`) and `build_mingw.bat` (`-std=c++17`), which both
+  already specified it correctly. This is a pre-existing gap between
+  the three build paths that simply never surfaced before, because
+  nothing in the codebase had needed a genuinely C++17-only construct
+  through the CMake path until this one variable.
+- **Two-part fix**:
+  1. Changed `kMinBaselineForOutlierCheck` from `inline const` (a
+     C++17-only "inline variable") to `static const` - functionally
+     identical for a header-only constant that's never address-taken
+     across translation units, and valid in any C++ standard back to
+     C++98.
+  2. Added `set(CMAKE_CXX_STANDARD 17)` /
+     `set(CMAKE_CXX_STANDARD_REQUIRED ON)` to `CMakeLists.txt`, matching
+     the two `.bat` scripts, so this class of mismatch can't quietly
+     recur the next time a genuine C++17 feature is used.
+- Every other `inline` in `FishBalanceCore.h` is on a function (fine in
+  any standard) - checked the whole file to confirm this was the only
+  inline-variable case.
+- No behavior change from v0.9.19's intended design.
+
+## [0.9.19] - Outlier price warning (ROADMAP.md item 7)
+- **New: warns when a price looks like a typo, compared against that
+  species' other entries on the same date (all suppliers pooled).**
+  Same-day only, deliberately - no cross-day history, no dependency on
+  item 5 (Price History) or the flat-file-vs-SQLite decision behind it.
+  - **Range method**: Tukey's fences (IQR-based) - `Q1 - 1.5*IQR` to
+    `Q3 + 1.5*IQR`, computed via median-of-halves quartiles. Needs at
+    least 4 other entries for that species/date before it runs at all -
+    below that, no check, no warning, no flag.
+  - **Soft warning, never a hard block**: a standard Yes/No `MessageBox`
+    ("Click Yes to go back and fix it, No to save it as entered
+    anyway") - a genuinely unusual but correct price is always
+    enterable.
+  - **New `priceFlagged` field on `Entry`**, persisted as a 7th
+    pipe-delimited field in `.fbd` (`Supplier|Species|Kgs|Price|Date|
+    Notes|Flagged`) - backward compatible with both the pre-v0.9.19
+    6-field format and the pre-v0.9.0 4-field format.
+  - **Flagged rows are marked in the Entries list**: a warning glyph
+    prefixed on the Price cell, plus the whole row tinted (reusing the
+    app's existing red for the Debtor/Cash "out of balance" text) - via
+    a new `NM_CUSTOMDRAW` handler on that list.
+  - **The flag is "live," not set-once**: `CommitEntryForm` re-runs the
+    same check on every commit, add or update, excluding the row being
+    edited from its own baseline. Fixing a bad entry's own price
+    correctly re-evaluates and clears its own flag; it does not
+    retroactively re-check other entries that were flagged because of
+    it.
+  - **Two ways to review/dismiss a flagged row**: double-click (or Edit
+    Selected) re-evaluates it live and shows the same-style dialog
+    before falling through to the normal edit form - "No" clears the
+    flag without opening the form at all. Right-click → "Clear flag" is
+    a faster direct dismiss for when the row's already obviously fine at
+    a glance (new `WM_CONTEXTMENU` handler, only shown on flagged rows).
+  - `FishBalanceCore.h` changed (`Entry.priceFlagged`, the `.fbd`
+    parser, and two new portable functions -
+    `GatherOtherPricesForSpeciesOnDate` and `ComputeOutlierRange`) - new
+    doctest coverage added in `tests/test_fbd_loader.cpp` (7-field
+    parsing, backward compat with 4/6-field rows, a 5-field rejection
+    case) and `tests/test_aggregation.cpp` (the IQR math, hand-checked
+    for both even and odd baseline counts, plus Jack's own $5-$10/$25
+    Blue Grenadier example). **Run the doctest suite before testing
+    this build.**
+  - `DATA_FORMATS.md` updated for the new field and row format.
+
+## [0.9.18] - Fix: v0.9.17 build failure (MaybeBackupOnTimer)
+- **v0.9.17 did not compile** — `error C3861: 'MaybeBackupOnTimer':
+  identifier not found` at the `AutosaveNow()` call site. Root cause:
+  `AutosaveNow()` calls `MaybeBackupOnTimer()`, but that function (along
+  with `WriteBackupSnapshot`/`PruneOldBackups`/`BackupDir`) wasn't
+  defined until further down the file - a plain declaration-before-use
+  ordering mistake, not caught by the structural brace/paren balance
+  check used in place of an actual compiler (that check verifies
+  matching braces/parens, not that every identifier used is declared
+  first - a real gap, noted for next time).
+- **Fix**: added a forward declaration for `MaybeBackupOnTimer()` next
+  to the file's other forward declarations, the same pattern already
+  used for every other function called before its definition in this
+  file (`RefreshAll`, `CancelEdit`, etc.). No other new v0.9.17 symbol
+  had this problem - checked every definition/call-site pair for
+  `BuildFbdSaveContent`, `BackupDir`, `PruneOldBackups`,
+  `WriteBackupSnapshot`, `DoRestoreFromBackup` and confirmed each is
+  defined before (or forward-declared before) every place it's called.
+- No behavior change from v0.9.17's intended design - same rolling
+  backup feature, same throttling, same Restore from Backup menu item.
+  The v0.9.17 test checklist in ROADMAP.md still applies once this
+  version actually builds.
+
+## [0.9.17] - Timestamped rolling backups (ROADMAP.md item 4)
+- **New: `backups\` folder next to the .exe, holding rolling timestamped
+  snapshots of the current sheet** — right up until now, autosave only
+  ever overwrote a single `autosave.fbd`, so a mistake (a bad merge, an
+  accidental File > New/Open discarding unsaved work, or anything else
+  that silently clobbers the current data) had no way to recover an
+  earlier version. Snapshots are named `backup_YYYYMMDD_HHMMSS.fbd`.
+  - **Throttled, not per-autosave**: autosave already fires on every
+    field focus-loss during normal data entry (v0.9.15) - snapshotting
+    every single one of those would flood the folder with near-identical
+    files at real volume (500-1000 entries/day). A snapshot is taken at
+    most once every 10 minutes from the autosave path
+    (`MaybeBackupOnTimer`), plus one unconditional snapshot on every
+    explicit File > Save / Save As (a deliberate user action, worth its
+    own point-in-time copy regardless of the timer).
+  - **Rolling cap of 50 backups** — oldest snapshots are pruned once the
+    count exceeds that, so the folder doesn't grow unbounded
+    (`PruneOldBackups`, sorts by the sortable timestamp embedded in the
+    filename).
+  - **New menu item: File > Restore from Backup...** — a standard Open
+    dialog pointed at the `backups\` folder, reusing the same strict
+    `LoadFromFile`/`ParseFbdContent` validation as opening any other
+    `.fbd` file, so a corrupted or non-.fbd file is rejected the same
+    way. Deliberately does **not** set the restored backup as the
+    current named file - the user reviews it on screen first and must
+    explicitly File > Save As to keep it, rather than the very next
+    autosave/backup cycle silently starting to overwrite a
+    timestamp-named backup file as if it were the real document.
+  - Best-effort and silent on individual failure (no warning dialog like
+    the real `autosave.fbd` write has) - missing one rolling snapshot
+    isn't worth interrupting data entry over, since `autosave.fbd` and/or
+    the named file remain the actual save path this feature backs up,
+    not replaces.
+  - Refactored `SaveToFile` to extract its content-building logic into a
+    new `BuildFbdSaveContent()`, reused by both the real save path and
+    the backup snapshot writer - identical output, no behavior change to
+    existing saves, just avoids a second copy of that logic drifting out
+    of sync.
+  - `backups\` added to `.gitignore` alongside `autosave.fbd` and the
+    other per-machine runtime files - these are user data generated at
+    runtime, not project source.
+  - `FishBalanceCore.h` untouched by this change (pure Win32/file-I/O
+    addition in `main.cpp`), so the doctest suite doesn't need
+    re-running for this one - see DevelopmentWorkflow.md.
+
+## [0.9.16] - Debtor/Cash: subtraction now actually works
+- **Fixed a real bug found during v0.9.15 manual testing**: typing
+  `123+11-21` into Debtor or Cash silently computed `134`, not `113`.
+  `ParseSumExpr` only ever recognized `+` as an operator between terms -
+  a `-` character just got absorbed into whatever term it appeared in,
+  so `"11-21"` was treated as one single term, and `std::stod` on that
+  string silently parses just the `"11"` prefix, dropping the `"-21"`
+  entirely. Not a documented/accepted gap like the parser's other known
+  permissive behaviors (an invalid term like `"oops"` being dropped,
+  `"12x"` contributing just `12`) - this one was a genuine bug that
+  produced a wrong number with no indication anything was off.
+  - Fixed properly: both `+` and `-` are now recognized as operators
+    between terms, with a running sign applied to whichever term
+    follows - `123+11-21` now correctly computes `113`. A leading minus
+    also works (`-50+100` = `50`).
+  - 5 new test cases added to `test_parsing.cpp`, including the exact
+    real-world scenario that surfaced this (`123+11-21` → `113`) as a
+    named regression test, plus confirming plain addition-only
+    expressions are unaffected. Full suite: 83 test cases / 244
+    assertions, all passing, clean under
+    AddressSanitizer/UndefinedBehaviorSanitizer.
+  - The parser's other already-documented permissive behaviors
+    (dropping an unparseable term entirely, accepting `"12x"` as `12`)
+    are deliberately unchanged - only operator support was added here,
+    not term-level validation. Those remain tracked separately in
+    SecurityHardeningRegister.md/ROADMAP.md.
+
+## [0.9.15] - Autosave performance: write on focus loss, not every keystroke
+- **Fixed the real performance cost of v0.9.13/v0.9.14's per-keystroke
+  autosave** - item 1 on the roadmap, now confirmed urgent at the real
+  target volume (500-1000 entries/day). Every keystroke in
+  Supplier/Species/Kgs/Price/Notes/Date/Debtor/Cash was triggering a
+  full, synchronous atomic rewrite of the entire day's file. Analysis:
+  at real volume, the dominant cost is disk I/O frequency (specifically
+  the flush-to-stable-storage step in `WriteFileAtomicUtf8`), not how
+  cheaply the content string gets assembled beforehand - a day's worth
+  of text (tens to ~100KB at 1000 entries) is trivial to build in
+  memory, but the same fixed per-write disk overhead paid once per
+  character adds up fast.
+  - Fixed by switching all six fields from `EN_CHANGE`/`CBN_EDITCHANGE`
+    (fires per keystroke) to `EN_KILLFOCUS`/`CBN_KILLFOCUS` (fires once,
+    when the field loses focus - moving to the next field, clicking a
+    button, switching tabs, etc.). A natural, deterministic checkpoint
+    that needs no timer at all - deliberately avoiding the exact
+    unreliability that sank the v0.9.11-v0.9.13 debounced-timer attempt
+    for Debtor/Cash, since a direct notification has no "did it actually
+    fire" question the way a `SetTimer`/`WM_TIMER` did.
+  - `RecalcTotals()` (Debtor/Cash's live on-screen total) and
+    `ComboAutoComplete()` (Supplier/Species's live suggestions) are
+    unaffected - both stay on their original per-keystroke triggers,
+    since neither does any disk I/O.
+  - **Trade-off, stated plainly**: a crash while a field still has focus
+    can now lose that field's most recent keystrokes since the last
+    focus change - a small, bounded loss (at most one field's recent
+    typing), not the whole draft or day. The existing unconditional
+    final save in `WM_DESTROY` still covers a graceful close regardless
+    of focus state, unchanged.
+  - Full history of this fix (three iterations - no autosave, then an
+    unreliable timer, then unthrottled per-keystroke, now this) is
+    documented directly in the code comment at the fix site, not just
+    here, so the reasoning survives without needing to dig through
+    conversation history.
+
+## [0.9.14] - In-progress "Add Entry" draft survives a crash or power loss
+- **Added: the Add Entry form (Supplier/Species/Kgs/Price/Notes/Date) now
+  persists as you type**, not just after clicking Add Entry — so a crash
+  or power loss no longer loses a row you were in the middle of typing.
+  Requested explicitly (Jack: "in case of crash or power loss, yes").
+  - New `.fbd` format fields: `DRAFT_SUPPLIER=`, `DRAFT_SPECIES=`,
+    `DRAFT_KGS=`, `DRAFT_PRICE=`, `DRAFT_NOTES=`, `DRAFT_DATE=` — written
+    on every save (autosave included) alongside the existing `DEBTOR=`/
+    `CASH=` fields, documented in `DATA_FORMATS.md`. Fully backward
+    compatible: a file with none of these lines (anything saved before
+    this version) just loads with an empty draft.
+  - Every field that previously had no change-tracking at all now does:
+    added `EN_CHANGE` handling for Kgs/Price/Notes, added
+    `DTN_DATETIMECHANGE` handling for the date picker (neither existed
+    before), and extended the existing Supplier/Species autocomplete
+    handlers to also persist the draft.
+  - On load, the draft restores into the form in "add new" mode - not an
+    attempt to resume editing a specific existing row, which would be a
+    much more fragile thing to restore correctly (the underlying entries
+    are already safe in the file regardless of the form's draft state).
+  - "Clear / Cancel Edit" now explicitly persists the cleared state
+    immediately, rather than relying on the `SetWindowTextW` calls that
+    reset the fields to reliably fire their own change notifications
+    (they're programmatic, not genuine keystrokes - a known Win32
+    inconsistency already documented elsewhere in this codebase) -
+    without this, clicking Clear could leave a stale, un-cleared draft on
+    disk that would incorrectly reappear on next launch.
+  - Same design tradeoff as the v0.9.13 Debtor/Cash fix: a direct,
+    synchronous save on every keystroke rather than a debounced timer,
+    favoring guaranteed correctness over write-frequency optimization -
+    now applied consistently across every field in the entry form, not
+    just Debtor/Cash.
+  - 5 new test cases added to `test_fbd_loader.cpp` covering the new
+    format fields: correct parsing, invalid-date rejection (same
+    validation `ParseISODate` already applies everywhere else), backward
+    compatibility with pre-v0.9.14 files, and that draft-only content
+    (no `BEGIN`/`END`/`DEBTOR`/`CASH`) is still recognized as a genuine
+    `.fbd` document rather than rejected as unrelated text. Full suite:
+    80 test cases / 237 assertions, all passing.
+
+## [0.9.13] - Debtor/Cash autosave: removed the debounce timer entirely
+- **Fixed: Debtor/Cash still wasn't reliably autosaving**, confirmed
+  broken even when running the actual built `.exe` directly (ruling out
+  the earlier "Visual Studio's F5 terminates the debuggee rather than
+  closing gracefully" theory from v0.9.11/v0.9.12). Root cause not fully
+  provable without a live debugger, but the `SetTimer`/`WM_TIMER`
+  debounce mechanism itself was the obvious suspect - it's genuinely more
+  complex than every other autosave path in the app, and its correctness
+  depends on `WM_TIMER` messages surviving this app's main message loop
+  (`IsDialogMessageW` processing every message before normal dispatch),
+  which couldn't be independently verified. Rather than keep guessing at
+  an unprovable async mechanism, replaced it with a direct, synchronous
+  call to `AutosaveNow()` on every Debtor/Cash keystroke - the exact same
+  proven-reliable pattern `RefreshAll()` already uses for every
+  Add/Edit/Delete elsewhere in the app. This trades the "coalesce rapid
+  typing into one write" optimization for guaranteed correctness; the
+  file is small enough that a write per keystroke isn't a real
+  performance concern, and it now matches the app's already-established
+  performance profile rather than introducing a new one. (If the
+  separately-tracked `RefreshAll()` performance item is ever addressed,
+  this call site benefits automatically with no further change needed
+  here.) Removed the now-dead timer plumbing entirely (`ID_TIMER_DEBTOR_CASH_AUTOSAVE`
+  and its `WM_TIMER`/`WM_DESTROY` handling) rather than leaving unused,
+  unreliable code in place.
+- **Confirmed working, not actually a bug**: the "which email should be
+  kept" merge-conflict prompt (v0.9.11) fired correctly on what looked
+  like a single-supplier rename. Investigated using the uploaded
+  `emails.txt`: an orphaned email entry for a bare "Jenkins" (with no
+  current entries anywhere in the data - a leftover from a rename made
+  before the v0.9.9 email-migration fix existed) collided with "Jenkins
+  & Son"'s own saved email when renaming the latter to "Jenkins". Working
+  as designed - see ROADMAP.md for the follow-up decision on whether to
+  build a way to see/clean up these pre-existing orphaned entries through
+  the UI (currently invisible there since Manage Names only lists names
+  with current entries).
+
+## [0.9.12] - Combo box regression investigated: likely root cause found
+- **Investigated the v0.9.11 combo box first-paint regression properly**
+  instead of layering on another blind workaround, per Jack's request.
+  Method: diffed every change to `main.cpp` between v0.9.3 (when the
+  original fix was confirmed working) and v0.9.10 (when the regression
+  was reported) that touches `WM_CREATE`, `wWinMain`, or `LayoutAll()`.
+  Ruled out: the v0.9.9 Debtor/Cash timer additions (don't run during
+  startup), the v0.9.10 `NOMINMAX` define (pure compile-time macro guard,
+  zero runtime effect). Found one concrete, verifiable change: the status
+  bar added in v0.9.8 was being created **immediately before** the
+  Supplier/Species combo boxes in `WM_CREATE` - previously (v0.9.3), the
+  combo boxes were among the very first controls created, right after
+  the tab strip.
+  - This is a plausible root cause, not just a coincidence: the status
+    bar is a comctl32 control class (`msctls_statusbar32`) being
+    instantiated for the first time in the process, and this whole bug
+    is fundamentally a paint/theme-initialization *timing* issue -
+    exactly the kind of thing a newly-inserted control's creation could
+    plausibly perturb, by shifting how the internal theme-engine
+    initialization for the two combo boxes lands relative to everything
+    else happening during window setup.
+  - Fix: moved the status bar's creation to the very end of `WM_CREATE`
+    (after all four tabs' controls exist, right before `LayoutAll()`),
+    restoring the combo boxes' original relative position as being
+    created early - matching the exact structure that was working back
+    in v0.9.3.
+  - **Honesty check**: this is a well-evidenced hypothesis based on a
+    systematic diff, not a certainty - genuinely confirming the
+    mechanism would need a live debugger or Spy++ trace, which isn't
+    available here. The v0.9.11 belt-and-suspenders fixes (the
+    synchronous + delayed-timer `RedrawWindow` calls) are left in place
+    as a safety net regardless of whether this reordering turns out to
+    be the real fix.
+
+## [0.9.11] - Combo box paint regression, email merge conflict prompt
+- **Regression reported: the v0.9.3 combo box first-paint fix stopped
+  reliably working** (Supplier/Species combo boxes not rendering their
+  border/dropdown-arrow until hovered, again). The exact code that fixed
+  this in v0.9.3 is unchanged, so the precise root cause of the
+  regression couldn't be pinned down without a live debugger - **this
+  fix is a best-effort improvement, not a confirmed root-cause fix**,
+  and needs real testing to know if it actually resolved it. Made the
+  fix more robust rather than guessing blindly: extracted the redraw
+  logic into a shared `FixComboBoxFirstPaint()` function, and in
+  addition to the existing synchronous call right after the window
+  becomes visible, added a second delayed attempt via a 50ms one-shot
+  timer - this catches the case where something else (a late
+  WM_SIZE-triggered relayout, possibly related to the status bar added
+  in v0.9.8) re-invalidates the two combo boxes between the first
+  attempt and the message loop settling. If this still isn't reliable,
+  the next things to try are documented in the function's comment
+  (toggling visibility, or sending `WM_THEMECHANGED` directly).
+- **Added: merging/renaming suppliers with different saved email
+  addresses now asks which to keep**, instead of silently picking one
+  (raised as a design question after the v0.9.9 email-migration fix).
+  Resolved *before* touching any entries, so canceling leaves nothing
+  changed - a clean abort, not a half-applied merge. For the common case
+  (exactly two different saved emails among the suppliers being merged)
+  this is a Yes/No/Cancel prompt naming both addresses. For the rarer
+  case of three or more different saved emails at once, a full picker
+  UI wasn't judged worth building for how uncommon that is - the first
+  one found is kept, but the user is now told a conflict existed and
+  which one it picked, rather than that being silent as it was in
+  v0.9.9.
+
+## [0.9.10] - Fixed a build failure in v0.9.9
+- **Fixed: v0.9.9 failed to compile under MSVC** with `error C2589:
+  illegal token on right side of '::'` at the two `std::min()` calls
+  added for the Print Preview memory fix. Root cause: `<windows.h>`
+  `#define`s `min`/`max` as macros unless `NOMINMAX` is defined first,
+  which textually mangles any `std::min`/`std::max` call into a broken
+  expression before the compiler ever sees it as a function call - a
+  well-known, easy-to-hit Win32/C++ gotcha. Fixed by defining `NOMINMAX`
+  before `#include <windows.h>` - the standard, permanent fix for this
+  entire class of error, not a narrow patch to just the two call sites
+  that happened to trip it. Confirmed no other code in the file relied on
+  the macro versions of `min`/`max` before making this change.
+- This was caught by Jack's build, not by Claude - a reminder that
+  `FishBalanceCore.h`'s tests (which run on Linux/g++, where this
+  particular macro collision doesn't exist since `<windows.h>` isn't
+  involved) can't catch every category of Win32-specific compile error;
+  a real MSVC build remains necessary for full confidence on changes to
+  `main.cpp` itself, not just to the portable core.
+
+## [0.9.9] - Remaining Tier 2 audit items closed out
+- **Fixed: supplier email addresses were orphaned on rename/merge.**
+  Renaming or merging a supplier via Manage Names updated `g_entries` but
+  never touched `g_supplierEmails`, so a saved email address became
+  silently disconnected from a supplier that no longer existed under
+  that name anywhere. Fixed: a rename/merge of SUPPLIER names (species
+  renames don't apply - email addresses have no species concept) now
+  migrates any saved email(s) to the target name and persists the
+  change. Merge conflict policy when multiple merged sources have
+  *different* saved emails: whichever is found first wins (or the
+  target's own pre-existing email, if it had one) - documented in code
+  as a deliberate simplification rather than building a full "which one
+  do you want to keep" UI for a rare edge case. If the migrated email
+  fails to save to disk, the existing "Updated N entries" confirmation
+  now includes a warning instead of silently losing it.
+- **Fixed: Debtor/Cash edits weren't autosaved until some other action
+  happened to trigger a refresh.** Typing in either field only called
+  `RecalcTotals()` (updates the on-screen figures) - the actual autosave
+  write didn't happen until an Add/Edit/Delete elsewhere triggered
+  `RefreshAll()`. A crash after editing only Debtor/Cash could lose that
+  change indefinitely. Fixed with a debounced autosave: typing restarts
+  an 800ms timer, so a burst of keystrokes coalesces into one disk write
+  shortly after you pause, rather than either staying unsaved
+  indefinitely or writing on every single character. Extracted the
+  existing autosave-with-warn-once-on-failure logic out of `RefreshAll()`
+  into a shared `AutosaveNow()` helper so both paths get identical
+  failure handling from one place.
+- **Fixed: Print Preview could use gigabytes of memory on a large
+  report.** Every page was rendered as a full-resolution 24-bit bitmap at
+  the *printer's* native DPI (often 600+) - a single Letter page at 600
+  DPI is roughly 100MB, even though the preview window only ever shows
+  it shrunk down to ~680px wide. Fixed: the preview now caps its
+  rendering DPI at 150 (still crisp for on-screen viewing) while scaling
+  the pixel dimensions to match, so the real printer's page proportions
+  (Letter/A4/etc) are preserved exactly, just at a screen-appropriate
+  resolution - roughly a 16x memory reduction per page. The actual
+  `PrintBreakdownReport()` print path is untouched and still renders at
+  full printer DPI for genuine print quality. Also added a hard 200-page
+  safety cap directly in the shared rendering function (protects both
+  Preview and the real print path) - far beyond any realistic business
+  report, so this only ever engages on pathological/unexpected input,
+  and guarantees a bounded ceiling on memory use regardless of caller.
+
+This closes out every item from the original external audit's Tier 2
+findings (see SecurityHardeningRegister.md) - the remaining roadmap items
+are the `RefreshAll()` performance item and the feature backlog.
+
+## [0.9.8] - Atomic/checked saves, status bar, focus fix
+- **Fixed: focus after Add/Update Entry now returns to Supplier**, not
+  Species (v0.9.7 had changed this to Species; reverted per follow-up
+  feedback - Species still clears, Supplier still doesn't, only where
+  focus lands changed back).
+- **Fixed: every save path in the app is now atomic and checked** - the
+  first of the remaining Tier 2 audit items. Previously `.fbd` saves
+  (both autosave and named-file), `settings.txt`, `recent.txt`,
+  `emails.txt`, and CSV export all opened their destination with `"wb"`
+  (truncating it immediately) and never checked whether the write
+  actually succeeded - a disk-full condition, a locked file, or a crash
+  partway through could leave a silently truncated file while the app
+  reported success. Added a shared `WriteFileAtomicUtf8()` helper that
+  every one of those paths now goes through: write to a `.tmp` file in
+  the same directory first, check every write/flush/close, and only
+  atomically swap it into place (`MoveFileExW` with
+  `MOVEFILE_REPLACE_EXISTING`) if the whole write succeeded. If anything
+  fails partway, the temp file is cleaned up and the real destination is
+  left completely untouched - never left half-written.
+  - `.fbd` saves (`File > Save`/`Save As`) and CSV export now show the
+    *specific* failure reason in their error message instead of a
+    generic "could not save."
+  - `SaveSupplierEmails()` now returns success/failure, and
+    `ManageSaveEmail()` was fixed to actually check it - previously it
+    unconditionally told the user "Email saved" regardless of whether
+    the write worked (a gap flagged in the original audit).
+  - Autosave failures (both the ongoing one in `RefreshAll()` and the
+    final one at shutdown) now warn the user once, rather than either
+    staying silent forever or spamming a dialog on every single
+    Add/Edit/Delete while a problem persists - a flag resets once
+    autosave succeeds again, so a *new* failure after recovery still
+    gets its own warning.
+  - `settings.txt`/`recent.txt` failures stay silent by design (low
+    stakes - only window position/recent-files list, not business data),
+    but are still genuinely atomic+checked writes now, not a
+    truncate-and-hope.
+- **Added: a status bar at the bottom of the window**, showing the
+  running app version and the currently loaded file (title bar still
+  shows the filename too, unchanged). Uses the native Win32 status bar
+  control (`msctls_statusbar32`), kept in sync automatically with the
+  title bar since both are now driven from the same `UpdateTitle()`
+  call - no other call site needed to change.
+
+## [0.9.7] - Data entry workflow polish
+- **Changed: Species now clears after Add/Update Entry (Supplier still
+  doesn't).** Previously neither field cleared, which could carry a
+  species over into what's often actually a different one. Supplier
+  deliberately stays populated - supports fast entry of several rows for
+  the same supplier in a row (per README.md's batch-entry workflow).
+  Focus now jumps to Species (was Supplier) after committing an entry,
+  since Supplier is usually already correct at that point.
+- **Added: "Duplicate Supplier & Species" button** on the Data Entry tab,
+  next to the existing "Duplicate Last Entry". Unlike that button (which
+  copies the whole last row including Kgs/Price/Notes/Date), this one
+  fills only Supplier and Species from the most recent entry, leaving
+  everything else untouched - for when the next row is the same
+  supplier+species again but at a different weight/price, complementing
+  Species now clearing after Add Entry above.
+- **Fixed: Manage Names' "Apply" button was always clickable**, even with
+  nothing selected in the list or an empty rename target - clicking it in
+  that state just showed a MessageBox error. It now reflects that state
+  directly: grayed out unless at least one name is selected AND the
+  target field has something in it, updating live as the list selection
+  or target text changes. ("Save Email" already had equivalent
+  enable/disable logic via `UpdateManageEmailControls()` - this adds the
+  matching behavior for "Apply" via a new `UpdateManageApplyButton()`.)
+
+## [0.9.6] - Manage Names hint text cut off
+- **Fixed: the hint text at the top of Tools > Manage Supplier / Species
+  Names ("Select one or more names to merge/rename...") was visibly cut
+  off**, with its second line clipped by the list box positioned right
+  below it (confirmed via screenshot during v0.9.5 manual testing). The
+  label's box only had room for one line, but the actual hint text wraps
+  to two lines at normal dialog widths. Gave the label enough height for
+  two lines and moved the list box (and its minimum-height clamp) down
+  to match — everything below the list is positioned relative to the
+  list's bottom edge, not its top, so nothing else needed to move.
+
+## [0.9.5] - First real Windows test run, zero-warning test build
+- **`tests/run_tests.ps1` was actually run for the first time on a real
+  Windows/MSVC toolchain** (all 75 test cases / 215 assertions passed -
+  the underlying logic was already verified with g++ on Linux before
+  v0.9.4 shipped, but this was the first confirmation it also builds and
+  passes on the real target compiler).
+- **Fixed: doctest.h triggered a `C5285` warning** ("cannot declare a
+  specialization for `std::tuple`... forbidden by `[tuple.tuple.general]`")
+  once per test file (7 total) under MSVC. Root cause: by default doctest
+  skips `#include`-ing the real `<tuple>`/`<ostream>`/etc. standard
+  headers for faster compiles, and instead forward-declares pieces of
+  `namespace std` itself (including `template <class...> class tuple;`) -
+  technically not permitted by the C++ standard, which is exactly what a
+  newer MSVC diagnostic (`C5285`) now flags, on top of an older one
+  (`4643`) doctest already knew about and suppressed.
+  - Fixed properly, not suppressed: doctest ships its own documented
+    escape hatch for this, `DOCTEST_CONFIG_USE_STD_HEADERS`, which makes
+    it `#include` the real standard headers instead of forward-declaring
+    parts of `std` itself - removing the actual cause of the warning
+    rather than telling the compiler to stop mentioning it. Added a new
+    `tests/doctest_setup.h` (included before `doctest.h` in all 7 test
+    files) that defines this macro in exactly one place, with the
+    reasoning written down once instead of repeated in every file.
+  - Re-verified after the fix: clean build under `-Wall -Wextra -Werror`
+    on Linux, all 215 assertions still passing, and a clean
+    AddressSanitizer/UndefinedBehaviorSanitizer pass (this genuinely
+    changes which standard headers get pulled in, so it needed
+    re-verification, not just an assumption that it'd still work).
+
+## [0.9.4] - Automated test suite
+- **Added the automated test suite that was always supposed to follow the
+  `FishBalanceCore.h` extraction (v0.9.2)** - this was flagged as the next
+  step at the time but got deferred while fixing the build warnings and
+  the combo box paint bug instead. 75 test cases / 215 assertions across
+  6 files in a new `tests/` folder, using
+  [doctest](https://github.com/doctest/doctest) (single-header, vendored
+  in as `tests/doctest.h`, MIT licensed):
+  - `test_parsing.cpp` — `TrimW`, `ParseDoubleW`, `ParseSumExpr`,
+    `FormatDateISO`/`ParseISODate`
+  - `test_formatting.cpp` — `FormatMoney`, `FormatKg`, `FormatNum`
+  - `test_fbd_loader.cpp` — the big one: valid documents, backward
+    compatibility with the old 4-field format, and the specific v0.9.1
+    regressions (garbage files rejected, truncated `BEGIN`-with-no-`END`
+    rejected, NaN/Inf/negative rows skipped and counted, empty
+    Supplier/Species rejected, whitespace trimming on load)
+  - `test_aggregation.cpp` — `BuildBreakdownData`, `ComputeGroupedTotals`
+    (the exact math behind the v0.9.1 Total Overview column bug),
+    `ComputeSpeciesStats`
+  - `test_csv_export.cpp` — `CsvField` escaping, including the
+    formula-injection guard
+  - `test_email.cpp` — `LooksLikeEmail`, `UrlEncodeForMailto`,
+    `GreetingForHour`, `PadRight`, `BuildSupplierEmailBody`
+  - Several `CHARACTERIZATION` tests are included alongside the regular
+    ones - these pin down already-known, already-documented permissive
+    behaviors (e.g. `ParseSumExpr` silently dropping a bad term,
+    `ParseISODate` not validating day-of-month) exactly as they currently
+    are, without fixing them. The point isn't that these are correct -
+    it's that changing them later becomes a deliberate decision with a
+    failing test to update, not an accidental side effect of some
+    unrelated change.
+  - Compiled and run directly (native g++, not cross-compiled) before
+    being delivered: clean build under `-Wall -Wextra`, all 215
+    assertions passing, and a clean pass under
+    AddressSanitizer+UndefinedBehaviorSanitizer. One real mistake was
+    caught this way and fixed before shipping: an early draft asserted
+    `FormatMoney(1.005) == "$1.01"`, but `1.005` can't be represented
+    exactly in IEEE 754 double-precision floating point (it's actually
+    stored as `~1.00499999999999989342`), so it correctly rounds *down*
+    to `$1.00` - not a bug in `FormatMoney`, just a bad choice of test
+    value sitting exactly on a floating-point representation boundary.
+    Replaced with `1.006`/`1.004`, which are safely clear of that
+    boundary on either side.
+  - `tests/run_tests.ps1` added for quick everyday use (compiles with
+    `cl.exe` from a Developer PowerShell for VS, runs the suite, reports
+    pass/fail). A matching `FishBalanceTests` target was also added to
+    `CMakeLists.txt`, wired into CTest, as an alternative way to run the
+    same suite.
+  - Everything here is Win32-independent by design and runs with no GUI
+    window ever created. Win32-only concerns (Print Preview rendering,
+    actual printing, DPI switching, window restoration, dialog
+    appearance, the v0.9.3 combo box paint issue) are NOT covered here
+    and stay on the manual Testing.md/ROADMAP.md checklist - see
+    ROADMAP.md's updated status section for exactly which checklist items
+    are now covered by this suite vs. which still need a human looking at
+    the actual app.
+
+## [0.9.3] - Combo box first-paint fix
+- **Fixed: the Supplier and Species combo boxes on the Data Entry tab
+  didn't render their border/dropdown-arrow chrome when the app first
+  opened** - they appeared blank until the mouse hovered over one of
+  them, at which point both suddenly painted correctly (reported with
+  screenshots showing the before/after). Every other control on the tab
+  is created and positioned the exact same way and painted fine
+  immediately, so this was specific to these two combo boxes - a known,
+  if under-documented, Win32/visual-styles quirk where a themed ComboBox
+  can fail to paint on its very first appearance, only rendering once
+  some later event (hover, focus change, etc.) happens to trigger a
+  repaint.
+  - Fixed by explicitly forcing a repaint of both combo boxes right after
+    the main window actually becomes visible (`ShowWindow`/`UpdateWindow`
+    in `wWinMain`). Doing this any earlier - e.g. inside `WM_CREATE`,
+    where the controls are created and laid out - wouldn't help, since
+    the top-level window isn't shown on screen yet at that point
+    regardless of what's invalidated.
+  - **Caveat**: this is a UI paint-timing fix that can't be verified
+    without an actual Windows display and a real visual-styles-enabled
+    session - Claude's environment has no compiler or display to test
+    against. If this specific fix doesn't resolve it, the next things to
+    try would be forcing a `WM_THEMECHANGED` after `ShowWindow`, or
+    checking whether the external `app.manifest` (which requests Common
+    Controls v6 for visual styles) is actually being picked up correctly
+    at runtime.
+
+## [0.9.2] - Core extraction and a clean build
+- **Internal refactor, no visible behavior change**: extracted the
+  platform-independent logic from `main.cpp` into a new `FishBalanceCore.h`
+  - data model (`Entry`, `SupplierGroup`/`ProductGroup`/`PriceLine`),
+  parsing (`.fbd` content validation, date parsing, number parsing),
+  formatting (money/kg), report aggregation (`BuildBreakdownData`, the
+  Overview/By Species totals), and CSV/email string-building. This header
+  has zero dependency on `windows.h`/Win32, so it can be compiled and
+  tested independent of the GUI - this is preparatory work for the
+  automated test suite (ROADMAP.md item 0), not a feature or fix in
+  itself. `main.cpp` now `#include`s this header and calls into it
+  instead of keeping its own copies; a handful of functions that need a
+  Win32 type at the boundary (`SYSTEMTIME` for the DateTimePicker,
+  `GetLocalTime` for the current time) keep a thin wrapper in `main.cpp`
+  with their original signature unchanged, so no other call site needed
+  to change. Verified via a temporary smoke test compiled and run
+  directly (plus a clean AddressSanitizer/UndefinedBehaviorSanitizer
+  pass) before being wired into `main.cpp`; that smoke test has since
+  been removed in favor of the permanent doctest-based suite that comes
+  next.
+- **Build-quality fixes surfaced by the first real Visual Studio build of
+  the refactored code** (all three are pre-existing, not introduced by
+  the `FishBalanceCore.h` extraction above - see analysis below):
+  - `CMakeLists.txt` was missing `/EHsc` for the MSVC compiler options
+    (only `/W4` was set), which triggered a real "C++ exception handler
+    used, but unwind semantics are not enabled" warning, since
+    `ParseDoubleW`/`ParseSumExpr` use `try`/`catch`. `build_msvc.bat`
+    already had `/EHsc` for the plain-batch build path; the CMake path
+    just hadn't been given the same flag. Fixed by adding `/EHsc`
+    alongside `/W4` in `CMakeLists.txt`.
+  - `OpenPrintPreview()` triggered four "potentially uninitialized local
+    variable" warnings for `pageWidthPx`/`pageHeightPx`/`dpiX`/`dpiY`.
+    Traced by hand: every actual code path already initialized all four
+    before use, so this was a false positive from the compiler's flow
+    analysis being conservative about the two-branch structure - fixed by
+    giving them default values at declaration (matching the existing
+    fallback values exactly, so no behavior change) and removing the
+    `gotPrinter` bookkeeping variable that no longer served any purpose
+    once the fallback became "do nothing, the defaults already cover it."
+  - Fixed the eight "`_wfopen`/`wcsncpy` may be unsafe, use
+    `_wfopen_s`/`wcsncpy_s` instead" warnings properly - not by
+    suppressing them, and not by switching outright (which would have
+    broken the MinGW build, since `_wfopen_s`/`wcsncpy_s` are
+    Microsoft-only CRT extensions). Added a single shared `OpenFileW()`
+    helper (all 7 `_wfopen` call sites in the app now go through it) and
+    a compile-time guard around the one `wcsncpy` call in
+    `RenderReportPages`: under MSVC, both now genuinely use the safer
+    `_s` functions (`_wfopen_s` validates its arguments and reports
+    errors through its return code; `wcsncpy_s` with `_TRUNCATE`
+    validates the destination buffer size instead of trusting the
+    caller) - an actual improvement, not just satisfying the compiler.
+    Under any other compiler (MinGW/GCC), the plain, already-correct
+    standard functions are used unchanged, since this warning is an
+    MSVC-specific CRT header annotation that GCC never raised in the
+    first place.
+
+## [0.9.1] - Data-integrity hardening (external audit follow-up)
+An external audit (ChatGPT, read-only static review) plus a follow-up
+internal review turned up several real defects. This release fixes the
+three most serious ones — all three are things that could silently
+corrupt or hide real financial data with no error shown. See
+SecurityHardeningRegister.md for full technical detail on the first two.
+
+- **Fixed: opening almost any file could silently wipe the autosave.**
+  `LoadFromFile()` used to accept nearly anything as a "successful" load —
+  no `BEGIN`/`END` required, no entries required, and an invalid Kgs/Price
+  value was silently replaced with `0` instead of being rejected. Since
+  every caller immediately autosaves after loading, selecting the wrong
+  file (or opening a `.fbd` that was corrupted or cut off mid-save) could
+  destroy the real recovery copy in one click, with the app reporting
+  success the whole time.
+  - The loader now validates the *whole document* before touching
+    anything: it requires at least one recognized `.fbd` marker
+    (`DEBTOR=`/`CASH=`/`BEGIN`/`END`), requires a `BEGIN` to be matched by
+    an `END`, and requires Kgs/Price on every row to be a valid, finite,
+    non-negative number (previously `nan`/`inf`/garbage silently became
+    `0`). A row with an empty Supplier or Species (only possible via a
+    hand-edited or corrupted file — the entry form already blocked this)
+    is also now rejected instead of silently creating a blank-named group.
+  - A file that fails validation changes nothing — the in-memory sheet and
+    the on-disk autosave are both left exactly as they were, and the user
+    sees a clear message instead of a silent "success."
+  - This uncovered a second copy of the same risk at startup: reloading
+    `autosave.fbd` on launch also ignored a load failure and then
+    autosaved right over it. `RefreshAll()` now takes an optional
+    "skip autosave" flag, and startup uses it when the existing autosave
+    can't be read — the user is warned and the file is left untouched
+    instead of being overwritten with a blank sheet.
+  - `ParseDoubleW()` (shared by the entry form and the file loader) now
+    also rejects `NaN`/`Infinity` outright — previously `std::stod`
+    parsed `"nan"`/`"inf"` as valid, "fully consumed" numbers.
+- **Fixed: Undo Delete could insert a row from a different, already-closed
+  sheet into your current one.** The single-level undo buffer was never
+  cleared by File > New, File > Open, Recent Files, or a Manage Names
+  rename/merge — only by actually using Undo. Delete a row in one sheet,
+  then open a different file, then click the (still-enabled) Edit > Undo
+  Delete, and the deleted row from the *old* sheet would be silently
+  inserted into the new one and autosaved immediately. A new
+  `ClearUndoState()` helper is now called everywhere the document gets
+  replaced or restructured, so the undo buffer (and the menu item) can't
+  outlive the sheet it came from.
+- **Fixed: Total Overview tab was showing the wrong number under "Total
+  ($)."** The list view only had two columns defined (Supplier, Total $),
+  but the code populating it always wrote Supplier → column 0, Kgs →
+  column 1, dollar total → column 2 — so the column labeled "Total ($)"
+  was actually displaying kilograms, and the real dollar total was being
+  written to a column that didn't exist and was never shown at all. Added
+  the missing Kgs column (matching the same Supplier/Kgs/Total shape the
+  By Species tab already uses correctly) — no change was needed to the
+  totals calculation itself, which was correct all along.
+
+## [0.9.0] - Date & Notes
+- Added a Date field per entry (calendar picker, defaults to today; stored
+  as ISO `YYYY-MM-DD` so it sorts correctly as plain text)
+- Added an optional Notes field per entry
+- Added "Duplicate Last Entry" button (pre-fills the form from the most
+  recent entry, focuses Kgs with it selected)
+- `.fbd` file format extended to 6 fields per entry; old 4-field files
+  still load correctly with Date/Notes left blank
+- Entries list, sorting, delete confirmation, and CSV export all updated
+  to include Date/Notes
+- **Confirmed working** (built and tested on real hardware): date picker,
+  Notes field, old-file backward compatibility, Duplicate Last Entry,
+  Date column sorting, and CSV export all verified against the full
+  Testing.md checklist
+
+## [0.8.2] - Email reliability fixes
+- Fixed "Email All Suppliers" only opening one draft when multiple
+  suppliers were selected — mail clients (Outlook especially) don't
+  reliably handle several rapid `mailto:` requests. Switched to opening
+  drafts one at a time with a confirmation between each.
+- Fixed "Email All Suppliers" silently doing nothing at all in some
+  environments (no default mail app configured, or the launched window
+  not gaining focus) — added `AllowSetForegroundWindow`, error-checked
+  `ShellExecuteW`'s return value, and surfaced a clear message when a
+  draft fails to open.
+
+## [0.8.1] - By Species use-after-free fix
+- Fixed the By Species tab showing garbled or blank data. Root cause: a
+  temporary `std::wstring`'s `.c_str()` pointer was passed directly into
+  `ListView_SetItemText`, which is a multi-statement macro — the temporary
+  was destroyed before the underlying message actually read it. Audited
+  every `ListView_SetItemText` call site in the codebase for the same
+  pattern; only this one was affected.
+
+## [0.8.0] - Print Preview, DPI fixes, By Species price stats
+- Added a real Print Preview window (page-accurate rendering, Next/
+  Previous navigation, hands off to the print dialog when ready).
+  Refactored printing to render into a shared device-independent bitmap
+  so preview and actual print output can never diverge.
+- Fixed labels/buttons being clipped top/bottom or side to side on
+  higher-DPI displays — the app declares DPI awareness but the layout
+  code was using fixed pixel sizes that didn't scale to match. Added a
+  DPI scale factor applied throughout all layout code.
+- Added Average/Highest/Lowest price columns to the By Species tab and
+  matching columns in the CSV export.
+
+## [0.7.0] - Security and data-integrity hardening
+- Fixed a buffer-overflow risk in the Supplier/Species autocomplete
+  (`CB_GETLBTEXT` written into a fixed-size buffer without checking the
+  real length first)
+- Fixed a resource leak on every print job (`PrintDlgW`'s `hDevMode`/
+  `hDevNames` handles were never freed)
+- Fixed silent data corruption: Supplier/Species/Notes fields now reject
+  the `|` character, since it's used internally as the save-file field
+  separator with no escaping
+- Added a confirmation prompt before deleting a row
+
+## [0.6.x] - Email Suppliers
+- Added "Email All Suppliers..." — opens a pre-filled `mailto:` draft per
+  supplier in the user's default email app for review before sending, no
+  SMTP credentials stored
+- Added a Supplier → Email address list, managed from the Manage Names
+  window
+- Iterated on the email body template per user feedback: removed the
+  dollar total, simplified price display (dropped redundant "/kg"),
+  switched Kg to 1 decimal place throughout the app (previously 2)
+- Blank "To" field support: suppliers without a saved email still get a
+  draft opened rather than being skipped, with their name added to the
+  Subject line so blank drafts can still be told apart
+
+## [0.5.0] - Data management batch
+- Undo Delete (single-level)
+- Manage Supplier / Species Names window: merge or bulk-rename spelling
+  variants across all entries at once
+- By Species tab (Kgs/$ totals grouped by species across all suppliers)
+- Export to CSV (entries, per-supplier totals, per-species totals, full
+  breakdown, all in one file)
+- Sortable columns and a live filter box on the entries list
+- Recent Files list (File menu)
+- Window size/position and last-opened-file remembered between sessions
+
+## [0.4.0] - Branding
+- Custom application icon (multi-resolution .ico, embedded via a
+  dedicated resource script separate from the manifest)
+
+## [0.3.0] - Editing & persistence
+- Edit existing entries in place (double-click a row, or Edit Selected Row)
+- Save As / Open / autosave to a `.fbd` file format
+- Supplier/Species autocomplete while typing
+
+## [0.2.0] - Batch entry
+- Tab / Enter keyboard flow for fast sequential data entry
+
+## [0.1.0] - Initial version
+- Win32 C++ port of the original `BALANCE_PivotTable.xlsx` spreadsheet:
+  Data Entry tab with Debtor/Cash book-balance check, Total Overview tab
+  (per-supplier totals), Breakdown tab (Supplier > Species > Price, with
+  subtotals)

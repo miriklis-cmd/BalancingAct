@@ -244,7 +244,7 @@ void RememberRecentFile(const std::wstring& path) {
 }
 
 // ---------------------------------------------------------------------------
-// Supplier email addresses (emails.txt) - used by Email Suppliers
+// Supplier email addresses (stored in names.txt since v0.15.0) - used by Email Suppliers
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -573,6 +573,116 @@ void ShowStartBookMenu() {
     AutosaveNow(); // the current book is part of the saved file (DRAFT_BOOK)
 }
 
+void ClearSelectedEntryFlag(); // defined further down
+
+// v0.16.0: Move the selected rows to a book (right-click on the entries list). `name` empty = take them out of any
+// book. Not allowed on a finalized day. Returns how many rows were changed.
+static int MoveSelectedRowsToBook(const std::wstring& name, wchar_t type) {
+    if (!g_finalizedDate.empty() || !hListEntries) return 0;
+    int moved = 0;
+    for (int row = ListView_GetNextItem(hListEntries, -1, LVNI_SELECTED); row >= 0;
+         row = ListView_GetNextItem(hListEntries, row, LVNI_SELECTED)) {
+        if (row >= (int)g_filteredIndices.size()) continue;
+        int idx = g_filteredIndices[row];
+        if (idx < 0 || idx >= (int)g_entries.size()) continue;
+        Entry& e = g_entries[idx];
+        const wchar_t cleanType = name.empty() ? (wchar_t)0 : CleanBookType(type);
+        if (e.book == name && e.bookType == cleanType) continue;
+        e.book = name;
+        e.bookType = cleanType;
+        moved++;
+    }
+    if (moved > 0) {
+        g_dirty = true;
+        RefreshAll();
+        std::wstring msg = name.empty() ? L"Took " + std::to_wstring(moved) + (moved == 1 ? L" row" : L" rows") + L" out of its book."
+                                        : L"Moved " + std::to_wstring(moved) + (moved == 1 ? L" row" : L" rows") + L" to " + name + L".";
+        if (hStatusBar) SendMessageW(hStatusBar, SB_SETTEXT, 2, (LPARAM)msg.c_str());
+        AutosaveNow();
+    }
+    return moved;
+}
+
+// v0.16.0: the right-click menu on the entries list. `clearFlagRow` = the clicked row is price-flagged (adds "Clear
+// flag"). Shows "Move to book" for the selected rows unless the day is finalized.
+static void ShowEntriesContextMenu(POINT pt, bool offerClearFlag) {
+    const bool canMove = g_finalizedDate.empty() && ListView_GetSelectedCount(hListEntries) > 0;
+    if (!offerClearFlag && !canMove) return;
+    HMENU menu = CreatePopupMenu();
+    HMENU moveMenu = CreatePopupMenu();
+    BooksResult br = ComputeBookSummaries(g_entries);
+    if (offerClearFlag) AppendMenuW(menu, MF_STRING, ID_ENTRY_CLEAR_FLAG, L"Clear flag");
+    if (canMove) {
+        if (offerClearFlag) AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        const int n = ListView_GetSelectedCount(hListEntries);
+        for (size_t i = 0; i < br.books.size() && i < 40; i++) {
+            std::wstring label = br.books[i].name + L" (" + std::to_wstring(br.books[i].count) + L" rows)";
+            AppendMenuW(moveMenu, MF_STRING, ID_MOVE_PICK_BASE + (UINT)i, label.c_str());
+        }
+        if (!br.books.empty()) AppendMenuW(moveMenu, MF_SEPARATOR, 0, nullptr);
+        std::wstring d = L"New Debtor book (" + NextBookName(L'D') + L")";
+        std::wstring c = L"New Cash book (" + NextBookName(L'C') + L")";
+        AppendMenuW(moveMenu, MF_STRING, ID_MOVE_NEW_DEBTOR, d.c_str());
+        AppendMenuW(moveMenu, MF_STRING, ID_MOVE_NEW_CASH, c.c_str());
+        AppendMenuW(moveMenu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(moveMenu, MF_STRING, ID_MOVE_NONE, L"No book");
+        std::wstring title = L"Move " + std::to_wstring(n) + (n == 1 ? L" selected row to book" : L" selected rows to book");
+        AppendMenuW(menu, MF_POPUP, (UINT_PTR)moveMenu, title.c_str());
+    }
+    UINT cmd = (UINT)TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD, pt.x, pt.y, 0, g_hMainWnd, nullptr);
+    DestroyMenu(menu); // also destroys the attached submenu
+    if (cmd == ID_ENTRY_CLEAR_FLAG) ClearSelectedEntryFlag();
+    else if (cmd == ID_MOVE_NEW_DEBTOR) { const std::wstring nm = NextBookName(L'D'); MoveSelectedRowsToBook(nm, L'D'); }
+    else if (cmd == ID_MOVE_NEW_CASH) { const std::wstring nm = NextBookName(L'C'); MoveSelectedRowsToBook(nm, L'C'); }
+    else if (cmd == ID_MOVE_NONE) MoveSelectedRowsToBook(std::wstring(), 0);
+    else if (cmd >= ID_MOVE_PICK_BASE && cmd < ID_MOVE_PICK_BASE + 40) {
+        size_t i = (size_t)(cmd - ID_MOVE_PICK_BASE);
+        if (i < br.books.size()) MoveSelectedRowsToBook(br.books[i].name, br.books[i].type);
+    }
+}
+
+// v0.16.0: the very first entry on a sheet with no book: ask which book it belongs in. Returns 'D' (new Debtor
+// book), 'C' (new Cash book), 'N' (no book, carry on) or 0 (Cancel - go back without adding).
+static wchar_t AskFirstEntryBook() {
+    const std::wstring dn = NextBookName(L'D');
+    const std::wstring cn = NextBookName(L'C');
+    typedef HRESULT(WINAPI * TaskDialogIndirectFn)(const TASKDIALOGCONFIG*, int*, int*, BOOL*);
+    TaskDialogIndirectFn fn = nullptr;
+    if (HMODULE h = GetModuleHandleW(L"comctl32.dll"))
+        fn = reinterpret_cast<TaskDialogIndirectFn>(reinterpret_cast<void*>(GetProcAddress(h, "TaskDialogIndirect")));
+    if (fn) {
+        const std::wstring dl = L"Start a Debtor book (" + dn + L")";
+        const std::wstring cl = L"Start a Cash book (" + cn + L")";
+        TASKDIALOG_BUTTON buttons[3];
+        buttons[0].nButtonID = 101; buttons[0].pszButtonText = dl.c_str();
+        buttons[1].nButtonID = 102; buttons[1].pszButtonText = cl.c_str();
+        buttons[2].nButtonID = 103; buttons[2].pszButtonText = L"No book - carry on without one";
+        TASKDIALOGCONFIG cfg{};
+        cfg.cbSize = sizeof(cfg);
+        cfg.hwndParent = g_hMainWnd;
+        cfg.dwFlags = TDF_USE_COMMAND_LINKS | TDF_ALLOW_DIALOG_CANCELLATION;
+        cfg.dwCommonButtons = TDCBF_CANCEL_BUTTON;
+        cfg.pszWindowTitle = L"No Book Yet";
+        cfg.pszMainInstruction = L"This entry isn't in a book yet.";
+        cfg.pszContent = L"Which book are you entering from? You can move rows between books later (right-click the rows).";
+        cfg.cButtons = 3;
+        cfg.pButtons = buttons;
+        cfg.nDefaultButton = 101;
+        int button = 0;
+        if (SUCCEEDED(fn(&cfg, &button, nullptr, nullptr))) {
+            if (button == 101) return L'D';
+            if (button == 102) return L'C';
+            if (button == 103) return L'N';
+            return 0;
+        }
+    }
+    int r = MessageBoxW(g_hMainWnd,
+                        (L"This entry isn't in a book yet.\n\nYes = start a Debtor book (" + dn + L")\nNo = no book, carry on\n"
+                         L"Cancel = go back").c_str(),
+                        L"No Book Yet", MB_YESNOCANCEL | MB_ICONQUESTION);
+    return r == IDYES ? L'D' : (r == IDNO ? L'N' : (wchar_t)0);
+}
+
 // ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------
@@ -689,6 +799,16 @@ void CommitEntryForm() {
             if (r != IDYES) return;
             g_allowMixedDatesThisSession = true;
         }
+    }
+
+    // v0.16.0: the very first entry on a sheet that has no book yet asks which book it is in. Cancel = go back
+    // (nothing added, the form keeps what was typed). Only for a new row; editing never asks.
+    if (!(g_editIndex >= 0 && g_editIndex < (int)g_entries.size()) && g_entries.empty() && g_currentBook.empty() &&
+        g_finalizedDate.empty()) {
+        const wchar_t choice = AskFirstEntryBook();
+        if (choice == 0) return;
+        if (choice == L'D') SetCurrentBook(NextBookName(L'D'), L'D');
+        else if (choice == L'C') SetCurrentBook(NextBookName(L'C'), L'C');
     }
 
     // Outlier price check (ROADMAP.md item 7) - "is this price a typo?"
@@ -2041,8 +2161,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // already sized from these via CreateWindowExW in wWinMain).
         LoadRecentFiles();
         RebuildRecentMenu();
+        LoadNameMaster(); // v0.13.0: master lists (names.txt); v0.15.0: also holds supplier emails (migrates emails.txt)
         LoadSupplierEmails();
-        LoadNameMaster(); // v0.13.0: master Supplier / Species lists (names.txt)
         if (g_hEditMenu) EnableMenuItem(g_hEditMenu, ID_EDIT_UNDO_DELETE, MF_BYCOMMAND | MF_GRAYED);
 
         // Silently reload whatever was last auto-saved next to the exe. If
@@ -2307,13 +2427,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 ht.pt = clientPt;
                 row = ListView_HitTest(hListEntries, &ht);
             }
-            if (row >= 0 && row < (int)g_filteredIndices.size() &&
-                g_entries[g_filteredIndices[row]].priceFlagged) {
-                ListView_SetItemState(hListEntries, row, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-                HMENU hCtx = CreatePopupMenu();
-                AppendMenuW(hCtx, MF_STRING, ID_ENTRY_CLEAR_FLAG, L"Clear flag");
-                TrackPopupMenu(hCtx, TPM_RIGHTBUTTON, pt.x, pt.y, 0, g_hMainWnd, nullptr);
-                DestroyMenu(hCtx);
+            if (row >= 0 && row < (int)g_filteredIndices.size()) {
+                // v0.16.0: right-clicking a row that is already part of the selection keeps the whole selection (so
+                // several rows can be moved to a book at once); right-clicking any other row selects just that row.
+                if (!(ListView_GetItemState(hListEntries, row, LVIS_SELECTED) & LVIS_SELECTED)) {
+                    ListView_SetItemState(hListEntries, -1, 0, LVIS_SELECTED);
+                    ListView_SetItemState(hListEntries, row, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+                }
+                ShowEntriesContextMenu(pt, g_entries[g_filteredIndices[row]].priceFlagged);
             }
             return 0;
         }
@@ -2885,6 +3006,9 @@ TEST_CASE("add, edit, delete, reconcile, save, reload and finalize via callable 
     SetWindowTextW(hEditKgs, L"10");
     SetWindowTextW(hEditPrice, L"5");
     SetWindowTextW(hEditNotes, L"");
+    // v0.16.0: the very first entry on a sheet with no book asks which book (a dialog) - start a book first so this
+    // headless path stays dialog-free.
+    SetCurrentBook(L"Book1", L'D');
     CommitEntryForm();
     REQUIRE(g_entries.size() == 1);
     CHECK(g_entries[0].supplier == L"Smoke Test Supplier");
