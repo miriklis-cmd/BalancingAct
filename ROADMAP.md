@@ -6,7 +6,7 @@ is in `CHANGELOG.md`; manual checks still to do are in `Testing.md`.
 
 ## Where we are (v0.16.0, 2026-11-09)
 
-**v0.16.0 written (strict build clean), NOT yet run by Jack:** right-click Move to book for selected rows; first-entry "No Book Yet" prompt (Debtor / Cash / none / Cancel). Checks: Testing.md "v0.16.0 checks". WinUI port of both is next (Win32 first, per Jack).
+**v0.16.0 tested OK by Jack (2026-11-09; price-flagged row's Clear flag not re-checked), v0.15.0 (emails in names.txt) tested OK; v0.16.1 (recovered autosave counts as unsaved) written, not yet seen:** right-click Move to book for selected rows; first-entry "No Book Yet" prompt (Debtor / Cash / none / Cancel). Checks: Testing.md "v0.16.0 checks". WinUI port of both is next (Win32 first, per Jack).
 
 Earlier (v0.15.0):
 

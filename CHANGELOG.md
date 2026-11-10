@@ -17,8 +17,49 @@ for prime time (released).
 
 ## [Unreleased]
 
+- **`tools/compare_to_excel.py`** (+ `tools/fbd_breakdown.cpp`): checks the app against the Excel workbook. Runs `xlsx_to_fbd.py`, then the app's own core (`ParseFbdContent`, `BuildBreakdownData`, `ParseSumExprStrict`) on the result, and compares every Supplier/Product/Price line plus Debtor / Cash / Total / Entered Total with the workbook's `Breakdown` pivot and balance block, listing differences. `python tools\compare_to_excel.py BALANCE_PivotTable.xlsx --date 2026-11-10` (needs openpyxl and g++). First run on the real workbook: 250 entries, 128 Breakdown lines, all matched.
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
+
+## [0.17.1] - 2026-11-11
+
+### Added
+- Auto-complete in the Supplier / Species boxes now also matches on letters only, ignoring spaces, capitals and punctuation: typing `jtm` offers `J T Moyce`, `sm` offers `S/Mlt`. The part you did not type is highlighted, so the next key overwrites it and Tab/Enter accepts it. Exact-start matches (and alias completion) work as before and are tried first. (`FindNameByKeyPrefix` in FishBalanceCore.h; WinUI not changed yet.)
+
+## [0.17.0] - 2026-11-11
+
+### Changed
+- Reports now treat names that differ only in capitals, spaces or punctuation as ONE supplier / species: Total Overview, Breakdown, By Species, the drill-down, the print/PDF report, the supplier emails and the CSV export. Before, typing and merging ignored those differences but the reports grouped by exact spelling, so `lucas` and `Lucas` listed as two fishermen (found when the Excel sheet was imported). Each group shows its master-list spelling (e.g. `J T Moyce`), else its most common spelling. Nothing stored changes and no total changes. (`GroupKey`, `WithCanonicalNames`, `PreferredSupplierSpellings` in FishBalanceCore.h; Storage.cpp refreshes the preferred spellings when names.txt is loaded or saved.)
+- Typing `Jtmoyce` in Data Entry already snapped to the master-list `J T Moyce` when the entry was added; unchanged.
+- 315 unit tests.
+
+## [0.16.2] - 2026-11-10
+
+### Fixed
+- A difference of floating-point dust (e.g. -0.00000000001) showed as "-$0.00", and on the Books table that made a perfectly balanced book turn red (the red test compares the text with "$0.00"). `FormatMoney` now shows "$0.00" for any negative that rounds to zero; the Overview line "Difference: -$0.00" is fixed the same way. Found by loading the Excel-converted sheet.
+
+## [WinUI step 12b] - 2026-11-10 (written, not compiled or seen)
+
+### Fixed
+- Manage Supplier / Species Names: on a short window (laptop) the merge options and everything below were cut off with no way to scroll. The dialog content now scrolls and the name list shrinks on short windows. Label reads "step 12b".
+
+## [WinUI step 12] - 2026-11-10 (written, not compiled or seen)
+
+### Added
+- File > New (Ctrl+N): asks before discarding unsaved work, then a blank unsaved sheet (WinUI had no New).
+- Alias auto-complete in the Supplier / Species boxes, as in Win32: when nothing in the drop-down starts with what you've typed, an alias that does is filled in with the rest selected (so the next key overwrites it); Tab / Add turn an exact alias into the real name.
+- The status-bar label reads "WinUI prototype - step 12".
+
+## [WinUI step 11] - 2026-11-09 (written, not compiled or seen)
+
+### Added
+- WinUI gets the v0.16.0 book features: right-click on the entries list > "Move N selected rows to book" (existing books, new Debtor / Cash book, no book; whole selection kept when you right-click a selected row; not on a finalized day), and the first-entry "This entry isn't in a book yet" dialog (Debtor / Cash / no book, Cancel adds nothing).
+- The status-bar label reads "WinUI prototype - step 11". The temporary [NameRestore] debug lines were removed.
+
+## [0.16.1] - 2026-11-09
+
+### Fixed
+- After a restart, work recovered from autosave that isn't linked to a named file was treated as already saved, so File > New (or Open) discarded it without asking. It now counts as unsaved changes and asks first.
 
 ## [0.16.0] - 2026-11-09
 

@@ -17,8 +17,26 @@ for prime time (released).
 
 ## [Unreleased]
 
+- **`tools/compare_to_excel.py`** (+ `tools/fbd_breakdown.cpp`): checks the app against the Excel workbook. Runs `xlsx_to_fbd.py`, then the app's own core (`ParseFbdContent`, `BuildBreakdownData`, `ParseSumExprStrict`) on the result, and compares every Supplier/Product/Price line plus Debtor / Cash / Total / Entered Total with the workbook's `Breakdown` pivot and balance block, listing differences. `python tools\compare_to_excel.py BALANCE_PivotTable.xlsx --date 2026-11-10` (needs openpyxl and g++). First run on the real workbook: 250 entries, 128 Breakdown lines, all matched.
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
+
+## [0.16.2] - 2026-11-10
+
+### Fixed
+- A difference of floating-point dust (e.g. -0.00000000001) showed as "-$0.00", and on the Books table that made a perfectly balanced book turn red (the red test compares the text with "$0.00"). `FormatMoney` now shows "$0.00" for any negative that rounds to zero; the Overview line "Difference: -$0.00" is fixed the same way. Found by loading the Excel-converted sheet.
+
+## [WinUI step 12b] - 2026-11-10 (written, not compiled or seen)
+
+### Fixed
+- Manage Supplier / Species Names: on a short window (laptop) the merge options and everything below were cut off with no way to scroll. The dialog content now scrolls and the name list shrinks on short windows. Label reads "step 12b".
+
+## [WinUI step 12] - 2026-11-10 (written, not compiled or seen)
+
+### Added
+- File > New (Ctrl+N): asks before discarding unsaved work, then a blank unsaved sheet (WinUI had no New).
+- Alias auto-complete in the Supplier / Species boxes, as in Win32: when nothing in the drop-down starts with what you've typed, an alias that does is filled in with the rest selected (so the next key overwrites it); Tab / Add turn an exact alias into the real name.
+- The status-bar label reads "WinUI prototype - step 12".
 
 ## [WinUI step 11] - 2026-11-09 (written, not compiled or seen)
 
