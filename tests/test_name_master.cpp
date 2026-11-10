@@ -115,6 +115,61 @@ TEST_CASE("NameListAddAlias / RemoveAlias / AliasesOf") {
     CHECK_FALSE(NameListRemoveAlias(l, L""));
 }
 
+TEST_CASE("names.txt: supplier email is the 4th field, old 3-field lines still load") {
+    NameMasterData d;
+    NameListAdd(d.suppliers, L"Port Fish Co", L"2026-11-01");
+    NameListAdd(d.suppliers, L"Eden Prawns", L"");
+    d.suppliers.emails[L"Port Fish Co"] = L"a@b.com";
+    d.suppliers.emails[L"Eden Prawns"] = L"c@d.com";   // no date: the line is "S|Eden Prawns||c@d.com"
+    auto lines = BuildNameMasterLines(d);
+    CHECK(lines[0] == L"S|Port Fish Co|2026-11-01|a@b.com");
+    CHECK(lines[1] == L"S|Eden Prawns||c@d.com");
+    NameMasterData e;
+    ParseNameMasterLines(lines, e);
+    CHECK(e.suppliers.emails == d.suppliers.emails);
+    CHECK(e.suppliers.added[L"Port Fish Co"] == L"2026-11-01");
+
+    NameMasterData old;
+    ParseNameMasterLines({ L"S|Old Style|2026-01-01", L"S|Bad Mail|2026-01-01|not an address" }, old);
+    CHECK(old.suppliers.names.size() == 2);   // the name with a bad address still loads
+    CHECK(old.suppliers.emails.empty());      // ... but the address is dropped
+}
+
+TEST_CASE("Merging suppliers keeps the kept name's email, else the first found") {
+    NameList l = MakeList({ L"A", L"B", L"C" });
+    l.emails[L"B"] = L"b@x.com";
+    l.emails[L"C"] = L"c@x.com";
+    NameListMerge(l, { L"B", L"C" }, L"A", L"d");
+    CHECK(l.emails.size() == 1);
+    CHECK(l.emails[L"A"] == L"b@x.com");
+    NameList m = MakeList({ L"A", L"B" });
+    m.emails[L"A"] = L"a@x.com";
+    m.emails[L"B"] = L"b@x.com";
+    NameListMerge(m, { L"B" }, L"A", L"d");
+    CHECK(m.emails[L"A"] == L"a@x.com");
+    NameListRemove(m, L"A");
+    CHECK(m.emails.empty());
+}
+
+TEST_CASE("MigrateLegacyEmails adds missing suppliers, never overwrites an address") {
+    NameMasterData d;
+    NameListAdd(d.suppliers, L"Known", L"2026-01-01");
+    d.suppliers.emails[L"Known"] = L"keep@x.com";
+    const int n = MigrateLegacyEmails(d, { L"Known|other@x.com", L"New One|n@x.com", L"junk", L"Bad|nope", L"|x@y.com", L"NoMail|" });
+    CHECK(n == 1);
+    CHECK(d.suppliers.emails[L"Known"] == L"keep@x.com");
+    CHECK(d.suppliers.emails[L"New One"] == L"n@x.com");
+    CHECK(NameListHas(d.suppliers, L"New One"));
+    CHECK_FALSE(NameListHas(d.suppliers, L"Bad"));
+}
+
+TEST_CASE("SyncListEmails keeps only names in the list") {
+    NameList l = MakeList({ L"A" });
+    SyncListEmails(l, { { L"A", L"a@x.com" }, { L"Gone", L"g@x.com" }, { L"A2", L"" } });
+    CHECK(l.emails.size() == 1);
+    CHECK(l.emails[L"A"] == L"a@x.com");
+}
+
 TEST_CASE("ResolveName on an empty list is always New") {
     NameList l;
     NameResolution r = ResolveName(l, L"Anything");

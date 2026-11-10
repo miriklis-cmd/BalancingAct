@@ -181,44 +181,35 @@ void LoadRecentFiles() {
 
 std::wstring EmailsPath() { return GetSharedDataDir() + L"\\emails.txt"; }
 
+// v0.15.0: supplier addresses live in names.txt (S|name|date|email).
+// g_supplierEmails stays as the in-memory name->address view the Manage Names
+// and Email code use; it is rebuilt from names.txt here and folded back in by
+// SaveNameMaster().  emails.txt is only read once, to migrate older installs.
 void LoadSupplierEmails() {
-    CopyFromExeDirIfMissing(L"emails.txt");
-    std::vector<std::wstring> lines;
-    ReadAllLines(EmailsPath(), lines);
     g_supplierEmails.clear();
-    for (auto& l : lines) {
-        size_t pos = l.find(L'|');
-        if (pos == std::wstring::npos) continue;
-        std::wstring sup = l.substr(0, pos);
-        std::wstring email = l.substr(pos + 1);
-        // Phase 1 completeness follow-up (2026-09-30, v0.9.50): companion-
-        // file content sharing the Supplier-name field gets the same bound
-        // applied to that field everywhere else (kMaxSupplierSpeciesLength).
-        // emails.txt has never had transactional/whole-file-reject semantics
-        // like .fbd loading - a line this app itself could never have
-        // written (both fields are UI-limited at entry, see EM_LIMITTEXT
-        // above) is simply skipped, same as the existing empty-field/no-pipe
-        // cases just above, rather than failing the entire load.
-        if (sup.size() > kMaxSupplierSpeciesLength || email.size() > kMaxSupplierSpeciesLength) continue;
-        // Phase 2 / F13 (2026-10-02): emails.txt is untrusted input - a
-        // hand-edited or otherwise-tampered file could otherwise smuggle in
-        // an address containing characters LooksLikeEmail() would have
-        // rejected at entry time (see EmailSupplier/BuildMailtoUri). Skip
-        // (don't load) any address that doesn't pass the same check used at
-        // entry time, same "skip the bad line, don't fail the whole load"
-        // policy as the other checks in this loop.
-        if (!email.empty() && !LooksLikeEmail(email)) continue;
-        if (!sup.empty() && !email.empty()) g_supplierEmails[sup] = email;
-    }
+    for (const auto& kv : g_nameMaster.suppliers.emails)
+        if (!kv.second.empty()) g_supplierEmails[kv.first] = kv.second;
 }
 
-bool SaveSupplierEmails() {
-    std::string content;
-    for (auto& kv : g_supplierEmails) content += WToUtf8(kv.first + L"|" + kv.second) + "\n";
-    return WriteFileAtomicUtf8(EmailsPath(), content);
-}
+bool SaveSupplierEmails() { return SaveNameMaster(); }
 
 std::wstring NamesPath() { return GetSharedDataDir() + L"\\names.txt"; }
+
+// Reads one legacy emails.txt (if present) into the master; true if the file existed.
+static bool MigrateOneLegacyEmailsFile(const std::wstring& path) {
+    if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) return false;
+    std::vector<std::wstring> lines;
+    if (!ReadAllLines(path, lines)) return false;
+    MigrateLegacyEmails(g_nameMaster, lines);
+    return true;
+}
+
+static void RetireLegacyEmailsFile(const std::wstring& path) {
+    // Keep the old file as emails.txt.migrated (never overwrite an earlier one).
+    const std::wstring dest = path + L".migrated";
+    if (GetFileAttributesW(dest.c_str()) != INVALID_FILE_ATTRIBUTES) DeleteFileW(dest.c_str());
+    MoveFileW(path.c_str(), dest.c_str());
+}
 
 void LoadNameMaster() {
     CopyFromExeDirIfMissing(L"names.txt");
@@ -227,9 +218,24 @@ void LoadNameMaster() {
     g_nameMaster = NameMasterData();
     if (found) ParseNameMasterLines(lines, g_nameMaster);
     g_nameMaster.fileExisted = found;
+
+    // v0.15.0: one-time migration of emails.txt (shared data folder, and the
+    // old exe-folder copy) into names.txt.  Addresses already in names.txt win.
+    const std::wstring sharedLegacy = EmailsPath();
+    const std::wstring exeLegacy = GetExeDir() + L"\\emails.txt";
+    const bool s1 = MigrateOneLegacyEmailsFile(sharedLegacy);
+    const bool s2 = (exeLegacy != sharedLegacy) && MigrateOneLegacyEmailsFile(exeLegacy);
+    LoadSupplierEmails(); // fill the view first so the save below keeps the migrated addresses
+    if (s1 || s2) {
+        if (SaveNameMaster()) {
+            if (s1) RetireLegacyEmailsFile(sharedLegacy);
+            if (s2) RetireLegacyEmailsFile(exeLegacy);
+        }
+    }
 }
 
 bool SaveNameMaster() {
+    SyncListEmails(g_nameMaster.suppliers, g_supplierEmails);
     std::string content;
     for (const std::wstring& l : BuildNameMasterLines(g_nameMaster)) content += WToUtf8(l) + "\n";
     const bool ok = WriteFileAtomicUtf8(NamesPath(), content);

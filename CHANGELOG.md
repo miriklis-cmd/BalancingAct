@@ -20,6 +20,31 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.16.0] - 2026-11-09
+
+### Added
+- Fix a wrong or missing book on rows already entered: select one or more rows on Data Entry, right-click, "Move N selected rows to book" > an existing book, a new Debtor / Cash book, or "No book". Right-clicking a row that is already selected keeps the whole selection. Not available on a finalized day. (Edit > Undo does not cover this; move them back the same way.)
+- The very first entry on a sheet with no book now asks which book it belongs in: start a Debtor book, start a Cash book, no book, or Cancel (go back and nothing is added). Only for a new row on an empty sheet; once the entry is added it never asks again on that sheet.
+
+## [0.15.0] - 2026-11-09
+
+### Changed
+- Supplier email addresses now live in names.txt, on the supplier's own line (`S|name|date|email`), instead of a separate emails.txt. On first run an existing emails.txt is merged in (suppliers missing from the list are added; an address already in names.txt is never overwritten) and renamed emails.txt.migrated. Removing a supplier from the list removes its address with it; saving an address for a supplier not yet in the list adds the supplier.
+- WinUI does the same migration (it shares the data folder with the Win32 app).
+
+### Changed
+- Adding an alias that differs from an existing one only in capitals/spaces/punctuation (e.g. `Smlt` over `S/Mlt`) says it replaced it. The rule itself is unchanged and is now written down in BUSINESS_RULES.md.
+
+### Fixed (WinUI)
+- Typing an alias (e.g. a shorthand for a species) into Supplier/Species on the second and later rows and pressing Tab made the text vanish. The boxes now handle the combo's TextSubmitted themselves: the typed text is kept and a remembered alias / different capitals is swapped for the real name straight away. (Written from the screen recording, not compiled or seen.) Second attempt (step 10e): Tab/click-away now reads the typed text from the combo's inner text box and checks again 120 ms later; the status-bar label now reads "WinUI prototype - step 10e" so the running build is obvious. Step 10h removes the TextSubmitted handler added in 10b (marking it handled stopped the combo committing typed text, so Species went blank every time). Third attempt (step 10g): Jack's debug log showed the typed text is already gone by the time the bubbling KeyDown / LosingFocus events run, so the text is now captured in PreviewKeyDown (Tab) before the combo clears it. Debug output lines starting [NameRestore] show what was typed vs what the combo held.
+- Possible crash on exit: several toolbar/menu handlers (Add, Edit, Delete, Duplicate, Repeat, Cancel, Open, Save, Save As, Finalize, Exit, tabs, price Enter) touched controls after the window had started closing; they now stop once it is closing, and the queued Close is protected too.
+
+## [WinUI step 9] - 2026-11-09 (separate FishBalanceWinUI project; written, not compiled or seen)
+
+### Changed
+- WinUI Manage Names rebuilt to match the Win32 design: names.txt in C:\BalancingAct\data (read at start, shared with Win32), tick boxes + Merge ticked with an inline option panel (incl. the "same thing spelled differently" box), duplicates strip, rename, add/remove from list, supplier email, "Also known as" column with add/remove alias, one level of Undo.
+- WinUI Add Entry: Supplier/Species checked against the master lists - case/spacing and remembered aliases corrected silently, near matches asked ("Did you mean...?"), new names added to names.txt after the entry; drop-downs use the master lists when names.txt exists.
+
 ## [0.14.4] - 2026-11-09
 
 ### Fixed

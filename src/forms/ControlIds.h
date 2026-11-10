@@ -27,6 +27,8 @@ enum {
     ID_DRILL_LIST = 700, ID_DRILL_CLOSE,
     // v0.12.0 Start Book... popup menu items (ID_BOOK_PICK_BASE + n = continue an existing book)
     ID_BOOK_NEW_DEBTOR = 990, ID_BOOK_NEW_CASH = 991, ID_BOOK_NONE = 992, ID_BOOK_PICK_BASE = 1000,
+    // v0.16.0 right-click on the entries list: Move selected rows to a book (ID_MOVE_PICK_BASE + n = an existing book)
+    ID_MOVE_NEW_DEBTOR = 993, ID_MOVE_NEW_CASH = 994, ID_MOVE_NONE = 995, ID_MOVE_PICK_BASE = 1100,
     // Up to 8 Recent Files slots
     ID_RECENT_BASE = 900,
     // One-shot delayed retries for the combo box first-paint fix (see

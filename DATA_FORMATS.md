@@ -206,21 +206,21 @@ Plain UTF-8, one record per line, `|` separated (names can never contain `|`). L
 needed, from the names on the open sheet. A line this app could not have written is skipped, not fatal. Tags:
 
 ```
-S|Port Fish Co.|2026-11-06        supplier, date added (may be empty)
+S|Port Fish Co.|2026-11-06|a@b.com supplier, date added (may be empty), email (optional 4th field, v0.15.0)
 P|Barramundi|2026-11-06           species, date added
 AS|Port Fish|Port Fish Co.        alias: this old supplier spelling means that supplier
 AP|Barra|Barramundi               alias for a species
 ```
 
 An alias whose target is not in the list is dropped on load. Aliases are created by merge/rename in Manage Names and removed if that spelling is
-added to the list again on purpose. Supplier email addresses stay in `emails.txt`, keyed by the supplier name.
+added to the list again on purpose. Since v0.15.0 a supplier's email address is the optional 4th field of its `S` line (an empty date is written `S|name||email`; a bad address is dropped but the name still loads). An older `emails.txt` is read ONCE on first run, its addresses are merged in (an address already in `names.txt` wins), and the file is renamed `emails.txt.migrated`.
 
 ## Where the small text files live (v0.13.2)
 
 `emails.txt`, `names.txt`, `settings.txt`, `recent.txt`, `autosave.fbd`, `backups\` and `history\` are all in `C:\BalancingAct\data\` (created on first use; falls back to the exe folder if it cannot
 be created). Since v0.14.0 autosave/backups/history are there too: on the first run any that still sit beside the exe are MOVED across (never overwriting a file already there).
 
-## `emails.txt` — supplier email addresses
+## `emails.txt` — supplier email addresses (RETIRED in v0.15.0: now in names.txt; format kept for the one-time migration)
 
 Plain UTF-8, pipe-delimited, one supplier per line:
 
