@@ -21,10 +21,30 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.17.1] - 2026-11-11
+
+### Added
+- Auto-complete in the Supplier / Species boxes now also matches on letters only, ignoring spaces, capitals and punctuation: typing `jtm` offers `J T Moyce`, `sm` offers `S/Mlt`. The part you did not type is highlighted, so the next key overwrites it and Tab/Enter accepts it. Exact-start matches (and alias completion) work as before and are tried first. (`FindNameByKeyPrefix` in FishBalanceCore.h; WinUI not changed yet.)
+
+## [0.17.0] - 2026-11-11
+
+### Changed
+- Reports now treat names that differ only in capitals, spaces or punctuation as ONE supplier / species: Total Overview, Breakdown, By Species, the drill-down, the print/PDF report, the supplier emails and the CSV export. Before, typing and merging ignored those differences but the reports grouped by exact spelling, so `lucas` and `Lucas` listed as two fishermen (found when the Excel sheet was imported). Each group shows its master-list spelling (e.g. `J T Moyce`), else its most common spelling. Nothing stored changes and no total changes. (`GroupKey`, `WithCanonicalNames`, `PreferredSupplierSpellings` in FishBalanceCore.h; Storage.cpp refreshes the preferred spellings when names.txt is loaded or saved.)
+- Typing `Jtmoyce` in Data Entry already snapped to the master-list `J T Moyce` when the entry was added; unchanged.
+- 315 unit tests.
+
 ## [0.16.2] - 2026-11-10
 
 ### Fixed
 - A difference of floating-point dust (e.g. -0.00000000001) showed as "-$0.00", and on the Books table that made a perfectly balanced book turn red (the red test compares the text with "$0.00"). `FormatMoney` now shows "$0.00" for any negative that rounds to zero; the Overview line "Difference: -$0.00" is fixed the same way. Found by loading the Excel-converted sheet.
+
+## [WinUI step 12c] - 2026-11-11 (written, not compiled or seen)
+
+### Changed
+- Manage Names: the name list height now follows the window (was a fixed 220 = about 3 rows) and rows are more compact.
+- Supplier / Species auto-complete also matches on letters only (`jtm` -> `J T Moyce`), the same as Win32 v0.17.1.
+- Taskbar icon: the window is given its big and small icons directly with WM_SETICON (taskbar showed a blank square).
+- Needs the updated shared `FishBalanceCore.h` (letters-only helper, same-name grouping). Label "step 12c".
 
 ## [WinUI step 12b] - 2026-11-10 (written, not compiled or seen)
 
