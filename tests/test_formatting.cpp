@@ -114,3 +114,10 @@ TEST_SUITE("ClampRectIntoArea") {
         CHECK(x == 0);
     }
 }
+
+TEST_CASE("FormatMoney: negative dust that rounds to zero shows no minus sign (v0.16.2)") {
+    CHECK(FormatMoney(-1e-11) == L"$0.00");
+    CHECK(FormatMoney(-0.004) == L"$0.00");
+    CHECK(FormatMoney(-0.01) == L"-$0.01");
+    CHECK(FormatMoney(0.0) == L"$0.00");
+}

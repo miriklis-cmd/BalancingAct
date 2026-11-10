@@ -33,6 +33,8 @@
 #include <cmath>
 #include <cstdint>
 #include <cwchar>
+#include <cwctype>
+#include <utility>
 #include <functional>
 
 // ---------------------------------------------------------------------------
@@ -157,6 +159,8 @@ inline std::wstring FormatMoney(double v) {
     bool neg = v < 0;
     if (neg) v = -v;
     std::wstring s = ToFixed(v, 2);
+    // v0.16.2: a tiny negative that rounds to 0.00 (floating-point dust, e.g. -1e-11) must not show as "-$0.00"
+    if (neg && s == L"0.00") neg = false;
     size_t dot = s.find(L'.');
     std::wstring intPart = s.substr(0, dot);
     std::wstring frac = s.substr(dot);
@@ -660,9 +664,92 @@ inline std::wstring KgsBoxText(const Entry& e, const std::wstring& formattedKgs)
 // Report aggregation
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// v0.17.0: names that differ only in capitals, spaces or punctuation are ONE supplier / species in every
+// report (Overview, Breakdown, By Species, drill-down, print, CSV). Typing and merging already worked that way
+// (NameKey in NameMaster.h); the reports used to group by exact spelling, so "lucas" and "Lucas" showed as two
+// fishermen. Nothing stored changes: each group is shown under its master-list spelling (J T Moyce), else its
+// most common spelling (ties: first seen).
+// GroupKey must stay identical to NameKey (a unit test checks it) - it is repeated here because NameMaster.h
+// includes this header, not the other way round.
+// ---------------------------------------------------------------------------
+inline std::wstring GroupKey(const std::wstring& s) {
+    std::wstring k;
+    for (wchar_t c : s)
+        if (std::iswalnum((wint_t)c)) k += (wchar_t)std::towlower((wint_t)c);
+    return k.empty() ? s : k; // a name with no letters or digits at all groups by its exact text
+}
+
+// v0.17.1: auto-complete that ignores spaces, capitals and punctuation, like the rest of name matching. Typing
+// "jtm" finds "J T Moyce"; "smlt" finds "S/Mlt". Returns the FIRST name (in the order given - the lists are
+// sorted) whose key starts with the typed key and is longer than it, or "" if none. `consumed` is the position
+// in that name just after the last typed letter/digit - the part from there on is the suggestion to highlight.
+inline std::wstring FindNameByKeyPrefix(const std::vector<std::wstring>& names, const std::wstring& typed, size_t& consumed) {
+    consumed = 0;
+    std::wstring tk;
+    for (wchar_t c : typed)
+        if (std::iswalnum((wint_t)c)) tk += (wchar_t)std::towlower((wint_t)c);
+    if (tk.empty()) return std::wstring();
+    for (const auto& n : names) {
+        size_t matched = 0, pos = 0;
+        for (; pos < n.size() && matched < tk.size(); pos++) {
+            if (!std::iswalnum((wint_t)n[pos])) continue;
+            if ((wchar_t)std::towlower((wint_t)n[pos]) != tk[matched]) break;
+            matched++;
+        }
+        if (matched != tk.size()) continue;
+        if (GroupKey(n).size() <= tk.size()) continue; // nothing left to suggest
+        consumed = pos;
+        return n;
+    }
+    return std::wstring();
+}
+
+// The master-list spellings the reports prefer (set by the app whenever names.txt is loaded or saved; empty in
+// tests unless a test sets them). A group whose key matches one of these is shown under that exact spelling.
+inline std::vector<std::wstring>& PreferredSupplierSpellings() { static std::vector<std::wstring> v; return v; }
+inline std::vector<std::wstring>& PreferredSpeciesSpellings() { static std::vector<std::wstring> v; return v; }
+
+// The spelling each group is shown under: the master-list spelling if there is one, else the most common
+// spelling (ties: the one seen first). group key -> spelling.
+inline std::map<std::wstring, std::wstring> CanonicalSpellings(const std::vector<std::wstring>& names,
+                                                               const std::vector<std::wstring>& preferred = {}) {
+    std::map<std::wstring, std::vector<std::pair<std::wstring, int>>> seen; // key -> spellings in first-seen order
+    for (const auto& n : names) {
+        auto& v = seen[GroupKey(n)];
+        bool found = false;
+        for (auto& p : v) if (p.first == n) { p.second++; found = true; break; }
+        if (!found) v.push_back({ n, 1 });
+    }
+    std::map<std::wstring, std::wstring> out;
+    for (const auto& kv : seen) {
+        const std::pair<std::wstring, int>* best = &kv.second[0];
+        for (const auto& p : kv.second) if (p.second > best->second) best = &p;
+        out[kv.first] = best->first;
+    }
+    for (const auto& p : preferred) {
+        auto it = out.find(GroupKey(p));
+        if (it != out.end()) it->second = p;
+    }
+    return out;
+}
+
+// A copy of the entries with every supplier and species replaced by its group's spelling. Totals are unchanged.
+inline std::vector<Entry> WithCanonicalNames(const std::vector<Entry>& entries) {
+    std::vector<std::wstring> sups, prods;
+    sups.reserve(entries.size()); prods.reserve(entries.size());
+    for (const auto& e : entries) { sups.push_back(e.supplier); prods.push_back(e.product); }
+    const auto cs = CanonicalSpellings(sups, PreferredSupplierSpellings());
+    const auto cp = CanonicalSpellings(prods, PreferredSpeciesSpellings());
+    std::vector<Entry> out = entries;
+    for (auto& e : out) { e.supplier = cs.at(GroupKey(e.supplier)); e.product = cp.at(GroupKey(e.product)); }
+    return out;
+}
+
 // Supplier -> Species -> Price grouping, used by the on-screen Breakdown
 // tab, the printed/PDF report, and the CSV export's Breakdown section.
-inline std::vector<SupplierGroup> BuildBreakdownData(const std::vector<Entry>& entries) {
+inline std::vector<SupplierGroup> BuildBreakdownData(const std::vector<Entry>& rawEntries) {
+    const std::vector<Entry> entries = WithCanonicalNames(rawEntries); // v0.17.0: lucas / Lucas are one group
     std::vector<SupplierGroup> result;
 
     std::vector<std::wstring> suppliers;
@@ -771,8 +858,8 @@ inline DrillDownResult ComputeDrillDown(const std::vector<Entry>& entries, const
     DrillDownResult r;
     for (size_t i = 0; i < entries.size(); i++) {
         const Entry& e = entries[i];
-        if (e.supplier != ref.supplier) continue;
-        if (ref.kind != BreakdownRowKind::SupplierTotal && e.product != ref.species) continue;
+        if (GroupKey(e.supplier) != GroupKey(ref.supplier)) continue; // v0.17.0: same name ignoring capitals/spaces
+        if (ref.kind != BreakdownRowKind::SupplierTotal && GroupKey(e.product) != GroupKey(ref.species)) continue;
         if (ref.kind == BreakdownRowKind::Price && e.price != ref.price) continue;
         r.indices.push_back(i);
     }
@@ -832,7 +919,8 @@ struct GroupedTotalsResult {
     double grandKgs = 0, grandAmt = 0;
 };
 
-inline GroupedTotalsResult ComputeGroupedTotals(const std::vector<Entry>& entries, bool bySupplier) {
+inline GroupedTotalsResult ComputeGroupedTotals(const std::vector<Entry>& rawEntries, bool bySupplier) {
+    const std::vector<Entry> entries = WithCanonicalNames(rawEntries); // v0.17.0
     GroupedTotalsResult result;
     std::vector<std::wstring> keys;
     std::map<std::wstring, double> kgsSum, amtSum;
@@ -873,7 +961,8 @@ struct SpeciesStatsResult {
     double grandKgs = 0, grandAmt = 0;
 };
 
-inline SpeciesStatsResult ComputeSpeciesStats(const std::vector<Entry>& entries) {
+inline SpeciesStatsResult ComputeSpeciesStats(const std::vector<Entry>& rawEntries) {
+    const std::vector<Entry> entries = WithCanonicalNames(rawEntries); // v0.17.0
     SpeciesStatsResult result;
     std::vector<std::wstring> keys;
     std::map<std::wstring, double> kgsSum, amtSum, priceSum, priceMax, priceMin;
@@ -932,7 +1021,7 @@ inline std::vector<double> GatherOtherPricesForSpeciesOnDate(
     std::vector<double> prices;
     for (size_t i = 0; i < entries.size(); i++) {
         if ((int)i == excludeIndex) continue;
-        if (entries[i].product == product && entries[i].date == date)
+        if (GroupKey(entries[i].product) == GroupKey(product) && entries[i].date == date)
             prices.push_back(entries[i].price);
     }
     return prices;
@@ -1007,7 +1096,7 @@ inline bool ComputeOutlierRange(std::vector<double> prices, OutlierRange& outRan
 inline void ReevaluateOutlierFlagsForSpeciesOnDate(std::vector<Entry>& entries,
         const std::wstring& product, const std::wstring& date) {
     for (size_t i = 0; i < entries.size(); i++) {
-        if (entries[i].product != product || entries[i].date != date) continue;
+        if (GroupKey(entries[i].product) != GroupKey(product) || entries[i].date != date) continue;
         std::vector<double> baseline = GatherOtherPricesForSpeciesOnDate(entries, product, date, (int)i);
         OutlierRange range;
         entries[i].priceFlagged = ComputeOutlierRange(baseline, range) &&
@@ -1036,14 +1125,14 @@ inline std::vector<double> GatherOtherPricesForSpecies(
     std::vector<double> prices;
     for (size_t i = 0; i < entries.size(); i++) {
         if ((int)i == excludeIndex) continue;
-        if (entries[i].product == product) prices.push_back(entries[i].price);
+        if (GroupKey(entries[i].product) == GroupKey(product)) prices.push_back(entries[i].price);
     }
     return prices;
 }
 
 inline void ReevaluateOutlierFlagsForSpecies(std::vector<Entry>& entries, const std::wstring& product) {
     for (size_t i = 0; i < entries.size(); i++) {
-        if (entries[i].product != product) continue;
+        if (GroupKey(entries[i].product) != GroupKey(product)) continue;
         std::vector<double> baseline = GatherOtherPricesForSpecies(entries, product, (int)i);
         OutlierRange range;
         entries[i].priceFlagged = ComputeOutlierRange(baseline, range) &&

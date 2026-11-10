@@ -2247,6 +2247,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     L"Recovered Unsaved Work", MB_OK | MB_ICONINFORMATION);
             }
         }
+        // v0.16.1: work recovered from autosave that is not tied to a named file exists nowhere else, so it counts as
+        // unsaved changes. (It used to be marked clean, so File > New / Open threw it away without asking.)
+        if (!autosaveLoadFailed && g_currentFile.empty() &&
+            (!g_entries.empty() || GetWindowTextLengthW(hEditDebtor) > 0 || GetWindowTextLengthW(hEditCash) > 0))
+            g_dirty = true;
         RefreshAll(!autosaveLoadFailed);
         UpdateTitle();
 

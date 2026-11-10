@@ -266,6 +266,9 @@ Nothing should have changed - these confirm it. Open a file with a few suppliers
 - [ ] Print Preview of a real day's Breakdown: about 3-4 pages instead of 6-7; text still readable; no row cut off at the bottom of a page; heading, summary and column headings look right on page 1 and the column headings repeat on later pages.
 - [ ] Print to PDF gives the same layout as the preview.
 
+## v0.16.1 check
+- [ ] Add a few entries on an unsaved sheet, close the app, reopen (entries come back). File > New should now ask "Discard the current data and start a new sheet?".
+
 ## v0.16.0 checks (book fixes)
 - [ ] New sheet (File > New), type a first entry, Add Entry: a "No Book Yet" box offers Debtor book / Cash book / No book / Cancel. Cancel adds nothing and keeps what you typed. Debtor book: the Book box shows Book1 and the row is in it. Second entry: no prompt.
 - [ ] No book: the row has no book; later entries don't ask again.
@@ -350,4 +353,7 @@ These were on the old roadmap's unticked list. Several were probably checked cas
 
 Run every checklist above from scratch, in order, using a fresh
 `autosave.fbd` (rename or delete the existing one first) so you're
-testing the real first-run experience, not a pre-populated one.
+testing the real first-run experience, not a pre-populated one.
+- [ ] (0.17.0) A sheet with `lucas` and `Lucas` (e.g. the Excel-converted pivot_test.fbd): Overview, Breakdown and By Species list ONE Lucas; double-click it in Breakdown - all rows listed; totals unchanged.
+- [ ] (0.17.0) Type `Jtmoyce` for a supplier whose master name is `J T Moyce`: the entry is stored as `J T Moyce`; an older entry saved as `Jtmoyce` shows under `J T Moyce` in the reports.
+- [ ] (0.17.1) Supplier box: type `jtm` - `J T Moyce` appears with the end highlighted; Tab accepts it; keep typing `o` instead - it carries on (`J T Mo...`); Backspace on the highlight just deletes it. Same in Species (e.g. a name with a slash or space).

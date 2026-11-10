@@ -436,3 +436,78 @@ TEST_SUITE("DistinctSheetDates / IsNewDateOnSheet") {
         CHECK_FALSE(IsNewDateOnSheet(sheet, L"2026-10-13", 0));
     }
 }
+
+// v0.17.0: names differing only in capitals/spaces/punctuation are one supplier / species in every report.
+TEST_CASE("Reports group lucas / Lucas as one supplier (v0.17.0)") {
+    std::vector<Entry> v;
+    auto add = [&](const wchar_t* s, const wchar_t* p, double kg, double pr) {
+        Entry e; e.supplier = s; e.product = p; e.kgs = kg; e.price = pr; v.push_back(e);
+    };
+    add(L"lucas", L"Garfish", 10, 5);
+    add(L"lucas", L"garfish", 5, 5);
+    add(L"Lucas", L"Garfish", 2, 5);
+    add(L"J Casement", L"S/Mullet", 4, 3);
+    add(L"Jcasement", L"S/Mullet", 6, 3);
+
+    auto sup = ComputeGroupedTotals(v, true);
+    REQUIRE(sup.rows.size() == 2);
+    CHECK(sup.rows[0].key == L"J Casement");        // tie (1 each): first seen
+    CHECK(sup.rows[0].kgs == doctest::Approx(10));
+    CHECK(sup.rows[1].key == L"lucas");             // 2 x lucas beats 1 x Lucas
+    CHECK(sup.rows[1].kgs == doctest::Approx(17));
+    CHECK(sup.grandAmt == doctest::Approx(sup.rows[0].amt + sup.rows[1].amt));
+
+    auto sp = ComputeSpeciesStats(v);
+    REQUIRE(sp.rows.size() == 2);                    // Garfish/garfish and S/Mullet
+    CHECK(sp.rows[0].kgs == doctest::Approx(17));
+
+    auto bd = BuildBreakdownData(v);
+    REQUIRE(bd.size() == 2);
+    REQUIRE(bd[1].products.size() == 1);
+    CHECK(bd[1].products[0].prices.size() == 1);
+    CHECK(bd[1].totalKgs == doctest::Approx(17));
+
+    // Drill-down on the grouped row returns all three of lucas's entries.
+    auto refs = BuildBreakdownRowRefs(bd);
+    size_t found = 0;
+    for (auto& r : refs)
+        if (r.kind == BreakdownRowKind::SupplierTotal && r.supplier == L"lucas") {
+            DrillDownResult d = ComputeDrillDown(v, r);
+            CHECK(d.indices.size() == 3);
+            CHECK(d.kgs == doctest::Approx(17));
+            found++;
+        }
+    CHECK(found == 1);
+}
+
+TEST_CASE("GroupKey matches NameKey rules (v0.17.0)") {
+    CHECK(GroupKey(L"Port Fish Co.") == L"portfishco");
+    CHECK(GroupKey(L"S/Mlt") == GroupKey(L"Smlt"));
+    CHECK(GroupKey(L"///") == L"///"); // no letters or digits: exact text
+}
+
+TEST_CASE("Reports prefer the master-list spelling (v0.17.0)") {
+    std::vector<Entry> v;
+    for (const wchar_t* s : { L"Jtmoyce", L"Jtmoyce", L"J T Moyce" }) {
+        Entry e; e.supplier = s; e.product = L"Garfish"; e.kgs = 1; e.price = 2; v.push_back(e);
+    }
+    PreferredSupplierSpellings() = { L"J T Moyce" };
+    auto r = ComputeGroupedTotals(v, true);
+    PreferredSupplierSpellings().clear();
+    REQUIRE(r.rows.size() == 1);
+    CHECK(r.rows[0].key == L"J T Moyce"); // not the more common "Jtmoyce"
+    CHECK(r.rows[0].kgs == doctest::Approx(3));
+}
+
+TEST_CASE("FindNameByKeyPrefix: auto-complete ignoring spaces/punctuation (v0.17.1)") {
+    const std::vector<std::wstring> names = { L"J T Moyce", L"Jcasement", L"S/Mlt", L"Wdowns" };
+    size_t c = 99;
+    CHECK(FindNameByKeyPrefix(names, L"jtm", c) == L"J T Moyce");
+    CHECK(c == 5);                       // "J T M" typed, "oyce" is the suggestion
+    CHECK(FindNameByKeyPrefix(names, L"smlt", c) == L"");   // whole name typed - nothing left to suggest
+    CHECK(FindNameByKeyPrefix(names, L"sm", c) == L"S/Mlt");
+    CHECK(c == 3);
+    CHECK(FindNameByKeyPrefix(names, L"J T", c) == L"J T Moyce"); // first in order wins
+    CHECK(FindNameByKeyPrefix(names, L"x", c) == L"");
+    CHECK(FindNameByKeyPrefix(names, L" / ", c) == L"");          // no letters or digits typed
+}

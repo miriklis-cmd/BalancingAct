@@ -211,6 +211,11 @@ static void RetireLegacyEmailsFile(const std::wstring& path) {
     MoveFileW(path.c_str(), dest.c_str());
 }
 
+static void UpdateReportNamePreferences() {
+    PreferredSupplierSpellings() = g_nameMaster.suppliers.names;
+    PreferredSpeciesSpellings() = g_nameMaster.species.names;
+}
+
 void LoadNameMaster() {
     CopyFromExeDirIfMissing(L"names.txt");
     std::vector<std::wstring> lines;
@@ -232,9 +237,11 @@ void LoadNameMaster() {
             if (s2) RetireLegacyEmailsFile(exeLegacy);
         }
     }
+    UpdateReportNamePreferences(); // v0.17.0
 }
 
 bool SaveNameMaster() {
+    UpdateReportNamePreferences(); // v0.17.0: reports show master-list spellings
     SyncListEmails(g_nameMaster.suppliers, g_supplierEmails);
     std::string content;
     for (const std::wstring& l : BuildNameMasterLines(g_nameMaster)) content += WToUtf8(l) + "\n";

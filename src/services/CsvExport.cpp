@@ -48,12 +48,13 @@ bool ExportToCsv(const std::wstring& path, std::wstring* outError) {
         csvRow({ e.date, e.supplier, e.product, FormatKg(e.kgs), FormatNum(e.price), FormatNum(e.Total()), e.notes });
     writeLine(L"");
 
+    const std::vector<Entry> reportEntries = WithCanonicalNames(g_entries); // v0.17.0: lucas / Lucas are one group in the reports
     writeLine(L"Overview by Supplier");
     csvRow({ L"Supplier", L"Kgs", L"Total" });
     {
         std::vector<std::wstring> keys;
         std::map<std::wstring, double> kgsSum, amtSum;
-        for (auto& e : g_entries) {
+        for (auto& e : reportEntries) {
             if (kgsSum.find(e.supplier) == kgsSum.end()) { kgsSum[e.supplier] = 0; amtSum[e.supplier] = 0; keys.push_back(e.supplier); }
             kgsSum[e.supplier] += e.kgs;
             amtSum[e.supplier] += e.Total();
@@ -71,7 +72,7 @@ bool ExportToCsv(const std::wstring& path, std::wstring* outError) {
         std::vector<std::wstring> keys;
         std::map<std::wstring, double> kgsSum, amtSum, priceSum, priceMax, priceMin;
         std::map<std::wstring, int> priceCount;
-        for (auto& e : g_entries) {
+        for (auto& e : reportEntries) {
             if (kgsSum.find(e.product) == kgsSum.end()) {
                 kgsSum[e.product] = 0; amtSum[e.product] = 0; priceSum[e.product] = 0; priceCount[e.product] = 0;
                 priceMax[e.product] = e.price; priceMin[e.product] = e.price;

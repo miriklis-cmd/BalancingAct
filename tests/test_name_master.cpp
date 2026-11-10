@@ -268,3 +268,8 @@ TEST_CASE("ParseNameMasterLines skips bad lines and dangling aliases") {
 }
 
 }
+
+TEST_CASE("GroupKey (reports) and NameKey (typing/merging) agree (v0.17.0)") {
+    for (const wchar_t* s : { L"Port Fish Co.", L"S/Mlt", L"J T Moyce", L"lucas", L"Lucas ", L"Wdowns" })
+        CHECK(GroupKey(s) == NameKey(s));
+}
