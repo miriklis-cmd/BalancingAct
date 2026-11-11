@@ -125,6 +125,7 @@ void LoadSettings(int dpi) {
         else if (key == L"H") g_settings.h = _wtoi(val.c_str());
         else if (key == L"MAX") g_settings.maximized = (val == L"1");
         else if (key == L"LASTFILE") g_settings.lastFile = val;
+        else if (key == L"DIRTY") g_settings.dirtyAtExit = (val == L"1");
     }
     if (g_settings.w < 640) g_settings.w = 1050;
     if (g_settings.h < 480) g_settings.h = 720;
@@ -141,7 +142,7 @@ void LoadSettings(int dpi) {
 // Writes settings.txt from already-gathered window placement (the caller,
 // SaveSettings() in main.cpp, reads the placement from the live window -
 // that part is UI and stays in the forms layer).
-void SaveSettingsFile(int x, int y, int w, int h, bool maximized, const std::wstring& lastFile) {
+void SaveSettingsFile(int x, int y, int w, int h, bool maximized, const std::wstring& lastFile, bool dirtyAtExit) {
     std::string content;
     auto writeLine = [&](const std::wstring& l) {
         content += WToUtf8(l) + "\n";
@@ -152,6 +153,7 @@ void SaveSettingsFile(int x, int y, int w, int h, bool maximized, const std::wst
     writeLine(L"H=" + std::to_wstring(h));
     writeLine(std::wstring(L"MAX=") + (maximized ? L"1" : L"0"));
     writeLine(L"LASTFILE=" + lastFile);
+    writeLine(std::wstring(L"DIRTY=") + (dirtyAtExit ? L"1" : L"0"));
 
     // Failure here stays silent (as it always has been) - losing
     // settings.txt only means window position/last-file aren't remembered

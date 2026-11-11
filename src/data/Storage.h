@@ -31,7 +31,7 @@ std::wstring BackupDir();
 std::wstring HistoryDir();
 
 void LoadSettings(int dpi);
-void SaveSettingsFile(int x, int y, int w, int h, bool maximized, const std::wstring& lastFile);
+void SaveSettingsFile(int x, int y, int w, int h, bool maximized, const std::wstring& lastFile, bool dirtyAtExit = false);
 
 void SaveRecentFiles();
 void LoadRecentFiles();

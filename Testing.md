@@ -356,4 +356,6 @@ Run every checklist above from scratch, in order, using a fresh
 testing the real first-run experience, not a pre-populated one.
 - [ ] (0.17.0) A sheet with `lucas` and `Lucas` (e.g. the Excel-converted pivot_test.fbd): Overview, Breakdown and By Species list ONE Lucas; double-click it in Breakdown - all rows listed; totals unchanged.
 - [ ] (0.17.0) Type `Jtmoyce` for a supplier whose master name is `J T Moyce`: the entry is stored as `J T Moyce`; an older entry saved as `Jtmoyce` shows under `J T Moyce` in the reports.
-- [ ] (0.17.1) Supplier box: type `jtm` - `J T Moyce` appears with the end highlighted; Tab accepts it; keep typing `o` instead - it carries on (`J T Mo...`); Backspace on the highlight just deletes it. Same in Species (e.g. a name with a slash or space).
+- [ ] (0.17.1) Supplier box: type `jtm` - `J T Moyce` appears with the end highlighted; Tab accepts it; keep typing `o` instead - it carries on (`J T Mo...`); Backspace on the highlight just deletes it. Same in Species (e.g. a name with a slash or space).
+- [ ] (0.17.2) With an alias `S/Mlt` and names like `Sml Garfish`: type `s/m` then `s/ml` in Species - it offers `S/Mlt`, not `Sml ...`.
+- [ ] (0.17.3) Open a saved file, add one entry, close the app WITHOUT saving, reopen: the entry is there and the title shows it as changed; File > New asks "Discard the current data...". After Save, close, reopen: File > New does not ask.

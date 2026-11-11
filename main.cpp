@@ -212,7 +212,7 @@ void SaveSettings() {
     GetWindowPlacement(g_hMainWnd, &wp);
     RECT rc = wp.rcNormalPosition;
     SaveSettingsFile(rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
-                     wp.showCmd == SW_SHOWMAXIMIZED, g_currentFile);
+                     wp.showCmd == SW_SHOWMAXIMIZED, g_currentFile, g_dirty);
 }
 
 // ---------------------------------------------------------------------------
@@ -2251,6 +2251,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // unsaved changes. (It used to be marked clean, so File > New / Open threw it away without asking.)
         if (!autosaveLoadFailed && g_currentFile.empty() &&
             (!g_entries.empty() || GetWindowTextLengthW(hEditDebtor) > 0 || GetWindowTextLengthW(hEditCash) > 0))
+            g_dirty = true;
+        // v0.17.3: ...and so does work that was recovered into a NAMED file's sheet when the app was last closed with
+        // unsaved changes (settings.txt DIRTY=1): the recovered sheet differs from the file on disk, so File > New / Open
+        // must ask first. (v0.16.1 only covered sheets with no file name; a sheet opened from a file and edited, then
+        // closed, still came back "clean".)
+        if (!autosaveLoadFailed && g_settings.dirtyAtExit && !g_entries.empty())
             g_dirty = true;
         RefreshAll(!autosaveLoadFailed);
         UpdateTitle();

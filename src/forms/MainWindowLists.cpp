@@ -80,7 +80,10 @@ void ComboAutoComplete(HWND combo, int& prevLen) {
     std::wstring fullText;
     size_t keyConsumed = 0; // >0 when the suggestion came from the letters-only match below
     LRESULT idx = SendMessageW(combo, CB_FINDSTRING, (WPARAM)-1, (LPARAM)text.c_str());
-    if (idx == CB_ERR) {
+    // v0.17.2: an ALIAS that starts with exactly what was typed ("s/m" -> alias "S/Mlt") beats the letters-only
+    // name match below, which would otherwise grab "Sml Garfish" for "s/m".
+    const NameList& acList = (combo == hCmbSupplier) ? g_nameMaster.suppliers : g_nameMaster.species;
+    if (idx == CB_ERR && FindAliasStartingWith(acList, text).empty()) {
         // v0.17.1: no name starts with the exact text, but one may start with the same LETTERS ("jtm" -> "J T Moyce").
         std::vector<std::wstring> items;
         const LRESULT n = SendMessageW(combo, CB_GETCOUNT, 0, 0);
