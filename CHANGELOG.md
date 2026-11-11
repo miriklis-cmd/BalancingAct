@@ -21,6 +21,16 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.17.3] - 2026-11-11
+
+### Fixed
+- File > New / Open did not ask when the app had been closed with unsaved changes to a sheet opened from a NAMED file (v0.16.1 only covered sheets with no file name): the recovered sheet came back marked clean although it differed from the file on disk. `settings.txt` now records `DIRTY=1` on a normal exit with unsaved changes, and the next start treats the recovered sheet as unsaved. (A crash does not write settings.txt, so after a crash the flag keeps its previous value.)
+
+## [0.17.2] - 2026-11-11
+
+### Fixed
+- Auto-complete: an alias that starts with exactly what you typed now beats the letters-only name match added in 0.17.1. Typing `s/m` or `s/ml` offers the alias `S/Mlt` (-> Sand Mullet) instead of grabbing `Sml Garfish` / `Sml Squid`. Order is now: name starting with the text, alias starting with the text, then letters-only name match.
+
 ## [0.17.1] - 2026-11-11
 
 ### Added
@@ -37,6 +47,20 @@ for prime time (released).
 
 ### Fixed
 - A difference of floating-point dust (e.g. -0.00000000001) showed as "-$0.00", and on the Books table that made a perfectly balanced book turn red (the red test compares the text with "$0.00"). `FormatMoney` now shows "$0.00" for any negative that rounds to zero; the Overview line "Difference: -$0.00" is fixed the same way. Found by loading the Excel-converted sheet.
+
+## [WinUI step 12d] - 2026-11-11 (written, not compiled or seen)
+
+### Fixed
+- Same auto-complete order as Win32 0.17.2 (alias beats letters-only name match: `s/m` -> `S/Mlt`).
+- Taskbar icon: `app.rc` compiles `app.ico` into the exe as its icon resource (the blank box with a cross was the default for an exe with no icon). Add it to the project as a resource file. Label "step 12d".
+
+## [WinUI step 12c] - 2026-11-11 (written, not compiled or seen)
+
+### Changed
+- Manage Names: the name list height now follows the window (was a fixed 220 = about 3 rows) and rows are more compact.
+- Supplier / Species auto-complete also matches on letters only (`jtm` -> `J T Moyce`), the same as Win32 v0.17.1.
+- Taskbar icon: the window is given its big and small icons directly with WM_SETICON (taskbar showed a blank square).
+- Needs the updated shared `FishBalanceCore.h` (letters-only helper, same-name grouping). Label "step 12c".
 
 ## [WinUI step 12b] - 2026-11-10 (written, not compiled or seen)
 

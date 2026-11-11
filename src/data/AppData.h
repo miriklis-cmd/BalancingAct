@@ -82,5 +82,6 @@ struct AppSettings {
     int x = CW_USEDEFAULT, y = CW_USEDEFAULT, w = 1050, h = 720;
     bool maximized = false;
     std::wstring lastFile;
+    bool dirtyAtExit = false; // v0.17.3: the app was closed with unsaved changes (they live on in autosave.fbd)
 };
 extern AppSettings g_settings;

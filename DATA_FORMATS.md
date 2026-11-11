@@ -177,10 +177,12 @@ W=1400
 H=900
 MAX=0
 LASTFILE=C:\Users\jack\Documents\august-week1.fbd
+DIRTY=0
 ```
 
 - `X`/`Y`/`W`/`H` — window position and size (physical pixels).
 - `MAX` — `1` if the window was maximized, `0` otherwise.
+- `DIRTY` — (v0.17.3) `1` if the app was closed with unsaved changes, `0` otherwise. Written on a clean exit only. At startup `1` makes the recovered sheet count as unsaved, so File > New / Open ask before discarding it.
 - `LASTFILE` — path of the last-open named file. Only ever written on a
   clean exit (`SaveSettings`, called from `WM_DESTROY`), so after a crash
   or a forced close it still holds whatever it was at the *previous*
