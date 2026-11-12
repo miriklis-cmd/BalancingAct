@@ -4,7 +4,13 @@ This is the current plan: where we are, what is next, what is not built, and wha
 (every version's test checklist, the 0.9.x status notes) is frozen in `ROADMAP_ARCHIVE.md`; version-by-version detail
 is in `CHANGELOG.md`; manual checks still to do are in `Testing.md`.
 
-## Where we are (v0.15.0, 2026-11-09)
+## Where we are (v0.18.0, 2026-11-12)
+
+**v0.18.0 (written, not yet seen) + WinUI step 13: autosave, recovery and rolling backups for WinUI in the SAME shared folder as Win32 (`C:\BalancingAct\data\autosave.fbd`, `backups\`), with an ownership lock so two open apps cannot overwrite each other (first app to start owns autosave; a second starts blank and says so).** Tested OK by Jack: v0.16.x/v0.17.0-v0.17.3 (same-name grouping in reports, letters-only + alias-first auto-complete, recovered sheets count as unsaved, WinUI steps 11-12d). Still open: WinUI CSV export, WinUI settings/recent files, Excel Import menu, shared repository (Postgres), installer. Checks: Testing.md "v0.18.0 checks".
+
+**v0.16.0 tested OK by Jack (2026-11-09; price-flagged row's Clear flag not re-checked), v0.15.0 (emails in names.txt) tested OK; v0.16.1 (recovered autosave counts as unsaved) written, not yet seen:** right-click Move to book for selected rows; first-entry "No Book Yet" prompt (Debtor / Cash / none / Cancel). Checks: Testing.md "v0.16.0 checks". WinUI port of both is next (Win32 first, per Jack).
+
+Earlier (v0.15.0):
 
 **v0.15.0 written (strict build + 311 tests pass), NOT yet run by Jack:** supplier emails moved into `names.txt` (`S|name|date|email`); old `emails.txt` migrates once (renamed `.migrated`). WinUI gets the same plus exit-crash guards. Checks: Testing.md. Next: Jack's book questions (fix wrong/missing book on entered rows; first-entry "no book" prompt).
 

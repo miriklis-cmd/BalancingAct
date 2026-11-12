@@ -358,4 +358,11 @@ testing the real first-run experience, not a pre-populated one.
 - [ ] (0.17.0) Type `Jtmoyce` for a supplier whose master name is `J T Moyce`: the entry is stored as `J T Moyce`; an older entry saved as `Jtmoyce` shows under `J T Moyce` in the reports.
 - [ ] (0.17.1) Supplier box: type `jtm` - `J T Moyce` appears with the end highlighted; Tab accepts it; keep typing `o` instead - it carries on (`J T Mo...`); Backspace on the highlight just deletes it. Same in Species (e.g. a name with a slash or space).
 - [ ] (0.17.2) With an alias `S/Mlt` and names like `Sml Garfish`: type `s/m` then `s/ml` in Species - it offers `S/Mlt`, not `Sml ...`.
-- [ ] (0.17.3) Open a saved file, add one entry, close the app WITHOUT saving, reopen: the entry is there and the title shows it as changed; File > New asks "Discard the current data...". After Save, close, reopen: File > New does not ask.
+- [ ] (0.17.3) Open a saved file, add one entry, close the app WITHOUT saving, reopen: the entry is there and the title shows it as changed; File > New asks "Discard the current data...". After Save, close, reopen: File > New does not ask.
+
+## v0.18.0 / WinUI step 13 checks (shared autosave)
+- [ ] WinUI alone: add a few entries, wait 2 seconds, close with X and choose Exit-without-saving. Reopen WinUI: the entries are back ("Recovered your last session..."), title shows unsaved changes, File > New asks.
+- [ ] WinUI then Win32: with WinUI closed, start Win32: it recovers the same sheet. And the reverse (Win32 closed with entries, start WinUI).
+- [ ] Both open: start Win32 first, then WinUI (and the reverse): the second shows "Another Copy Is Open", starts blank. Closing the second must not change what the first autosaves. Close both, start one: it recovers the FIRST copy's work.
+- [ ] Open a saved file in WinUI, add an entry, close without saving, reopen: the entry is there and the sheet counts as unsaved.
+- [ ] Save, close, reopen WinUI: File > New does not ask. Look in C:\BalancingAct\data\backups after 3+ minutes of editing: backup_*.fbd files appear (from either app).
