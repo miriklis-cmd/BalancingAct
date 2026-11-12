@@ -21,6 +21,28 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.18.0] - 2026-11-12
+
+### Added
+- `src/data/AutosaveShared.h`: the shared data folder, an **autosave ownership lock** (`autosave.lock`, opened exclusively and held while the app runs; released by the OS on exit or crash, so never stale) and helpers to read/set single keys in `settings.txt`.
+- Win32: only the first running copy uses `autosave.fbd`. If another copy (the WinUI app or a second Win32) is already open, this one shows "Another Copy Is Open", starts with a blank sheet, and neither reads nor writes autosave.fbd.
+
+### Changed
+- Nothing else in Win32; v0.17.3 behaviour (unsaved flag in settings.txt) unchanged.
+
+## [WinUI step 13] - 2026-11-12 (written, not compiled or seen)
+
+### Added
+- WinUI now autosaves to the shared `C:\BalancingAct\data\autosave.fbd` (about 1.5 s after any change, and on exit), in the same format as Win32 (incl. `SOURCE_FILE=`), and recovers it at start (`RecoverFromAutosave`): same identity rule as Win32 (linked to a named file only when SOURCE_FILE matches settings.txt `LASTFILE`; otherwise an unsaved sheet), and a recovered sheet counts as unsaved when it is not linked or settings.txt has `DIRTY=1`.
+- Rolling snapshots in the shared `backups\` folder every 3 minutes when the content changed (newest 50 kept), same file naming as Win32. The existing per-file `backups` next to a named file are unchanged.
+- On exit WinUI sets `LASTFILE` and `DIRTY` in settings.txt (only those two keys; it never touches Win32's window position) so Win32 starts correctly after a WinUI session.
+- Needs `src/data/AutosaveShared.h` copied into the shared `src/data` folder. Label "step 13".
+
+## [0.17.3] - 2026-11-11
+
+### Fixed
+- File > New / Open did not ask when the app had been closed with unsaved changes to a sheet opened from a NAMED file (v0.16.1 only covered sheets with no file name): the recovered sheet came back marked clean although it differed from the file on disk. `settings.txt` now records `DIRTY=1` on a normal exit with unsaved changes, and the next start treats the recovered sheet as unsaved. (A crash does not write settings.txt, so after a crash the flag keeps its previous value.)
+
 ## [0.17.2] - 2026-11-11
 
 ### Fixed

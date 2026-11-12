@@ -182,6 +182,7 @@ DIRTY=0
 
 - `X`/`Y`/`W`/`H` — window position and size (physical pixels).
 - `MAX` — `1` if the window was maximized, `0` otherwise.
+- `autosave.lock` (v0.18.0, same folder) - empty file held open exclusively by the app that owns autosave.fbd; deleted when it exits.
 - `DIRTY` — (v0.17.3) `1` if the app was closed with unsaved changes, `0` otherwise. Written on a clean exit only. At startup `1` makes the recovered sheet count as unsaved, so File > New / Open ask before discarding it.
 - `LASTFILE` — path of the last-open named file. Only ever written on a
   clean exit (`SaveSettings`, called from `WM_DESTROY`), so after a crash

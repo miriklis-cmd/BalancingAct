@@ -74,6 +74,7 @@
 // src/data/AppData.cpp and src/forms/UiState.cpp).
 #include "src/data/AppData.h"
 #include "src/data/Storage.h"
+#include "src/data/AutosaveShared.h" // v0.18.0: who owns autosave.fbd when both apps are open
 #include "src/data/Backups.h"
 #include "src/services/CsvExport.h"
 #include "src/services/Email.h"
@@ -312,6 +313,10 @@ std::string BuildFbdSaveContent(const std::wstring& finalizedDateOverride = L"",
 // finalizing so the open named file is written WITH its FINALIZED= marker (v0.10.13 -
 // before that, g_finalizedDate was only set after this save, so the file was re-saved
 // as an unfinalized day).
+// v0.18.0: false when ANOTHER copy of the app (the WinUI one, or a second Win32) was already running at startup and owns
+// autosave.fbd - this copy then neither reads nor writes it (see src/data/AutosaveShared.h).
+static bool g_autosaveOwner = true;
+
 bool SaveToFile(const std::wstring& path, std::wstring* outError = nullptr,
                 const std::wstring& finalizedDateOverride = L"") {
     // Only the autosave write includes SOURCE_FILE= - see BuildFbdSaveContent's
@@ -319,6 +324,7 @@ bool SaveToFile(const std::wstring& path, std::wstring* outError = nullptr,
     // check itself compares paths (_wcsicmp), for the same reason: Windows
     // paths are case-insensitive.
     bool isAutosave = (_wcsicmp(path.c_str(), AutosavePath().c_str()) == 0);
+    if (isAutosave && !g_autosaveOwner) return true; // the other copy owns autosave.fbd - never overwrite it
     return WriteFileAtomicUtf8(path, BuildFbdSaveContent(finalizedDateOverride, isAutosave), outError);
 }
 
@@ -2173,10 +2179,19 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // instead, so the unreadable file is left exactly as it was for a
         // chance at manual recovery.
         bool autosaveLoadFailed = false;
+        // v0.18.0: only ONE running copy may use autosave.fbd (the first to start). A second copy starts blank and does
+        // not touch it, so two open apps can never overwrite or "recover" each other's live sheet.
+        g_autosaveOwner = autosave_shared::TryAcquireOwnership(GetSharedDataDir());
+        if (!g_autosaveOwner)
+            MessageBoxW(hwnd,
+                L"Another copy of Fish Balance Manager is already open and is using the automatic backup (autosave).\n\n"
+                L"This window starts with a blank sheet and will NOT autosave or recover anything. Save your work with "
+                L"File > Save As, or close the other copy first.",
+                L"Another Copy Is Open", MB_OK | MB_ICONINFORMATION);
         {
             std::wstring autosavePath = AutosavePath();
             DWORD attrs = GetFileAttributesW(autosavePath.c_str());
-            bool autosaveExists = (attrs != INVALID_FILE_ATTRIBUTES) && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
+            bool autosaveExists = g_autosaveOwner && (attrs != INVALID_FILE_ATTRIBUTES) && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
             std::wstring loadErr;
             if (autosaveExists && !LoadFromFile(autosavePath, &loadErr)) {
                 autosaveLoadFailed = true;
