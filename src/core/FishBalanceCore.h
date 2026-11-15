@@ -2151,15 +2151,38 @@ inline std::wstring PadRight(const std::wstring& s, size_t width) {
 // specifically so this function has no Win32 dependency and can be tested
 // directly with any hour value - main.cpp's call site passes the real
 // current hour.
-inline std::wstring BuildSupplierEmailBody(const SupplierGroup& sg, int currentHour) {
+// Pads a string with leading spaces to at least `width` characters (right-aligns numbers in the email table).
+inline std::wstring PadLeft(const std::wstring& s, size_t width) {
+    std::wstring out = s;
+    while (out.size() < width) out.insert(out.begin(), L' ');
+    return out;
+}
+
+// v0.18.1-v0.18.4: dated intro line, then a KG / SPECIES / PRICE table, then the sign-off. Columns are separated with
+// TAB characters, not runs of spaces: Outlook writes drafts in a proportional font and collapses repeated spaces, so a
+// space-aligned table fell apart, whereas tab stops survive. The number of tabs after each species is chosen so the
+// PRICE column starts at the same tab stop for every row (a tab stop is taken to be 8 characters wide - proportional
+// fonts only approximate that, so very wide or very narrow names can be one stop out). dateText is optional.
+inline std::wstring BuildSupplierEmailBody(const SupplierGroup& sg, int currentHour, const std::wstring& dateText = L"") {
+    const size_t kStop = 8; // characters per tab stop (approximate)
+    size_t maxLen = 7;      // length of the "SPECIES" heading
+    for (auto& pg : sg.products) if (pg.species.size() > maxLen) maxLen = pg.species.size();
+    const size_t targetStops = maxLen / kStop + 1; // tab stops needed to get past the longest species name
+    auto tabsAfter = [&](size_t len) { return std::wstring(targetStops - (len / kStop), L'\t'); };
+
     std::wstring body = GreetingForHour(currentHour) + L",\r\n\r\n";
-    body += L"Please see prices below\r\n";
-    body += PadRight(L"KG", 7) + PadRight(L"Species", 18) + L"Price\r\n";
+    body += dateText.empty() ? std::wstring(L"Please find below the prices for today's sale:")
+                              : (L"Please find below the prices for today's sale (" + dateText + L"):");
+    body += L"\r\n\r\n";
+    body += L"KG\tSPECIES" + tabsAfter(7) + L"PRICE\r\n";
+    const std::wstring rule = std::wstring(7, L'-') + L"\t" + std::wstring(maxLen, L'-') + L"\t" + std::wstring(9, L'-');
+    body += rule + L"\r\n";
     for (auto& pg : sg.products) {
         for (auto& pl : pg.prices) {
-            body += PadRight(FormatKg(pl.kgs), 7) + PadRight(pg.species, 18) + FormatMoney(pl.price) + L"\r\n";
+            body += FormatKg(pl.kgs) + L"\t" + pg.species + tabsAfter(pg.species.size()) + FormatMoney(pl.price) + L"\r\n";
         }
     }
+    body += rule + L"\r\n";
     body += L"\r\nKind regards,";
 
     // mailto: bodies are practically capped well under the URL length some

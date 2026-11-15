@@ -179,6 +179,24 @@ TEST_SUITE("BuildSupplierEmailBody") {
         CHECK(body.find(L"Kind regards,") != std::wstring::npos);
     }
 
+    TEST_CASE("v0.18.4: dated intro, KG / SPECIES / PRICE separated by tabs, price column on the same tab stop") {
+        std::vector<Entry> entries;
+        Entry a; a.supplier = L"Lucas"; a.product = L"Garfish"; a.kgs = 13.8; a.price = 25.0; entries.push_back(a);
+        Entry b; b.supplier = L"Lucas"; b.product = L"Fantail Mullet"; b.kgs = 1.3; b.price = 70.0; entries.push_back(b);
+        auto bd = BuildBreakdownData(entries);
+        REQUIRE(bd.size() == 1);
+        const std::wstring body = BuildSupplierEmailBody(bd[0], 14, L"12 November 2026");
+        CHECK(body.find(L"Good afternoon,") == 0);
+        CHECK(body.find(L"Please find below the prices for today's sale (12 November 2026):") != std::wstring::npos);
+        // longest species is 14 chars -> 2 stops; "SPECIES" (7) and "Garfish" (7) need 2 tabs, "Fantail Mullet" needs 1
+        CHECK(body.find(L"KG\tSPECIES\t\tPRICE\r\n") != std::wstring::npos);
+        CHECK(body.find(L"13.8\tGarfish\t\t$25.00\r\n") != std::wstring::npos);
+        CHECK(body.find(L"1.3\tFantail Mullet\t$70.00\r\n") != std::wstring::npos);
+        CHECK(body.find(L"  ") == std::wstring::npos); // no runs of spaces anywhere - Outlook collapses them
+        CHECK(body.find(L"kg in total") == std::wstring::npos);
+        CHECK(BuildSupplierEmailBody(bd[0], 9).find(L"Please find below the prices for today's sale:") != std::wstring::npos);
+    }
+
     TEST_CASE("an unusually long list of line items falls back to a shortened "
               "summary instead of an oversized mailto: body") {
         // Synthesize a SupplierGroup with enough distinct price lines to

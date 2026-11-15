@@ -365,4 +365,6 @@ testing the real first-run experience, not a pre-populated one.
 - [ ] WinUI then Win32: with WinUI closed, start Win32: it recovers the same sheet. And the reverse (Win32 closed with entries, start WinUI).
 - [ ] Both open: start Win32 first, then WinUI (and the reverse): the second shows "Another Copy Is Open", starts blank. Closing the second must not change what the first autosaves. Close both, start one: it recovers the FIRST copy's work.
 - [ ] Open a saved file in WinUI, add an entry, close without saving, reopen: the entry is there and the sheet counts as unsaved.
-- [ ] Save, close, reopen WinUI: File > New does not ask. Look in C:\BalancingAct\data\backups after 3+ minutes of editing: backup_*.fbd files appear (from either app).
+- [ ] Save, close, reopen WinUI: File > New does not ask. Look in C:\BalancingAct\data\backups after 3+ minutes of editing: backup_*.fbd files appear (from either app).
+- [ ] (0.18.1) Email All Suppliers (or one supplier): the draft body has a dated intro, a ruled KG / SPECIES / PRICE table with the numbers lined up, and "kg in total" at the foot. Check it in your real email app - if it looks ragged there (proportional font), tell me.
+- [ ] (0.18.4) Open a supplier email draft in Outlook: KG / SPECIES / PRICE separated by tabs; check the PRICE column lines up on rows with short and long species names (long names may be one stop out).
