@@ -21,6 +21,26 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.18.4] - 2026-11-13
+
+### Changed
+- Supplier price email: columns are now separated with TAB characters instead of runs of spaces. Outlook (new Outlook, proportional font) collapses repeated spaces, so the space-aligned table of 0.18.1-0.18.3 lost its alignment. The tabs after each species are chosen so PRICE starts at the same tab stop on every row (a stop is assumed to be 8 characters; proportional fonts only approximate that). Not seen in a real email app yet.
+
+## [0.18.3] - 2026-11-13
+
+### Changed
+- Supplier price email: removed the "kg in total" line; the table is just aligned KG / SPECIES / PRICE under a ruled header and closes with a ruled line.
+
+## [0.18.2] - 2026-11-12
+
+### Changed
+- Supplier price email wording: "Please find below the prices for today's sale (12 November 2026):" (was "Here are the prices for ..."). The wording is the first lines of `BuildSupplierEmailBody` in FishBalanceCore.h if it needs changing again.
+
+## [0.18.1] - 2026-11-12
+
+### Changed
+- Supplier price email: tidier plain-text layout. Dated intro line ("Here are the prices for 12 November 2026:"), a ruled header, right-aligned KG and PRICE columns, and the total weight at the foot. Still `mailto:` (one draft per supplier that you send yourself); plain text only, so it lines up best in a fixed-width font. `BuildSupplierEmailBody` takes an optional date text; the long-list fallback is unchanged. 318 unit tests.
+
 ## [0.18.0] - 2026-11-12
 
 ### Added

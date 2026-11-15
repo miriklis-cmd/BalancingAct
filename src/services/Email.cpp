@@ -33,7 +33,7 @@ bool EmailSupplier(const std::wstring& email, const SupplierGroup& sg, std::wstr
     // there was no To address). Safe for any supplier text: BuildMailtoUri
     // percent-encodes the subject independently of the other components.
     std::wstring subject = L"Prices - " + TodayDateString() + L" - " + sg.supplier;
-    std::wstring body = BuildSupplierEmailBody(sg, st.wHour);
+    std::wstring body = BuildSupplierEmailBody(sg, st.wHour, TodayDateString());
 
     MailtoBuildResult built = BuildMailtoUri(email, subject, body);
     if (!built.ok) {
