@@ -59,7 +59,7 @@ bool ReadBinary(const std::wstring& path, std::string& out) {
     HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE) return false;
     out.clear();
-    char buf[8192]; DWORD got = 0;
+    char buf[8192] = {}; DWORD got = 0;
     while (ReadFile(h, buf, sizeof(buf), &got, nullptr) && got > 0) out.append(buf, got);
     CloseHandle(h);
     return true;
@@ -177,7 +177,8 @@ bool HttpsPost(const std::string& url, const std::string& contentType, const std
 
 std::string RandomUrlSafe(size_t nBytes) {
     std::string raw(nBytes, '\0');
-    BCryptGenRandom(nullptr, (PUCHAR)&raw[0], (ULONG)nBytes, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    // The verifier and state protect the sign-in, so never fall back to predictable bytes: empty means "failed".
+    if (BCryptGenRandom(nullptr, (PUCHAR)&raw[0], (ULONG)nBytes, BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) return std::string();
     return gmail::Base64Url(raw);
 }
 
@@ -221,6 +222,7 @@ GmailResult SignIn(HWND owner, const gmail::ClientFile& client, const std::wstri
     }
     const std::string redirect = "http://127.0.0.1:" + std::to_string(ntohs(addr.sin_port));
     const std::string verifier = RandomUrlSafe(48), state = RandomUrlSafe(16);
+    if (verifier.empty() || state.empty()) { *err = L"Windows couldn't supply secure random numbers for the sign-in."; return GmailResult::Failed; }
     const std::string url = gmail::BuildAuthUrl(client.authUri, client.clientId, redirect, kScope,
                                                 gmail::PkceChallenge(verifier), state, Narrow(loginHint));
     AllowSetForegroundWindow(ASFW_ANY);
@@ -241,7 +243,7 @@ GmailResult SignIn(HWND owner, const gmail::ClientFile& client, const std::wstri
         SOCKET cs = accept(ls, nullptr, nullptr);
         if (cs == INVALID_SOCKET) continue;
         DWORD rto = 2000; setsockopt(cs, SOL_SOCKET, SO_RCVTIMEO, (const char*)&rto, sizeof(rto));
-        char buf[4096]; int n = recv(cs, buf, sizeof(buf) - 1, 0);
+        char buf[4096] = {}; int n = recv(cs, buf, sizeof(buf) - 1, 0);
         std::string line;
         if (n > 0) { buf[n] = 0; line = std::string(buf, buf + n); line = line.substr(0, line.find("\r\n")); }
         std::string c = gmail::QueryParamFromRequestLine(line, "code"), e = gmail::QueryParamFromRequestLine(line, "error");
