@@ -8,6 +8,7 @@
 #include <string>
 
 void RefreshAll(bool doAutosave = true);
+void SaveSettings(); // v0.22.0: writes settings.txt (window placement + every setting)
 void UpdateSelectionStatus(); // v0.12.0: selected-rows total in the status bar
 void SetCurrentBook(const std::wstring& name, wchar_t type); // v0.12.0
 void CancelEdit();

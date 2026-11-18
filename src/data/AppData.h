@@ -14,6 +14,7 @@
 #include <vector>
 #include <map>
 #include "../core/FishBalanceCore.h"
+#include "../services/PrintJob.h" // PrintDefaults (v0.23.0)
 #include "../core/NameMaster.h"
 
 extern std::vector<Entry> g_entries;
@@ -57,8 +58,8 @@ extern bool g_dirty;
 // named-file Save/Save As (a deliberate user action, not just a keystroke).
 extern ULONGLONG g_lastBackupTick;
 extern std::string g_lastBackupContent; // content of the most recent backup snapshot - see MaybeBackupOnTimer's no-change skip (v0.9.26)
-const ULONGLONG kBackupIntervalMs = 3ULL * 60ULL * 1000ULL; // 3 minutes (was 10 - tightened 2026-09-24 after a real data-loss incident; cap stayed at 50 by choice, so this trades full-day rolling coverage for ~2.5hr of more frequent snapshots)
-const int kMaxBackups = 50; // rolling cap - oldest snapshots pruned beyond this
+const ULONGLONG kBackupIntervalMsDefault = 3ULL * 60ULL * 1000ULL; // 3 minutes (was 10 - tightened 2026-09-24 after a real data-loss incident; cap stayed at 50 by choice, so this trades full-day rolling coverage for ~2.5hr of more frequent snapshots)
+const int kMaxBackupsDefault = 50; // rolling cap - oldest snapshots pruned beyond this (v0.22.0: both now come from Settings)
 
 // Single-level undo for the last deleted row.
 extern bool g_hasUndo;
@@ -84,6 +85,33 @@ struct AppSettings {
     std::wstring lastFile;
     bool dirtyAtExit = false; // v0.17.3: the app was closed with unsaved changes (they live on in autosave.fbd)
     std::wstring gmailAccount; // v0.21.0: settings.txt GMAILACCOUNT=<address> - pre-selects this Google account at sign-in (optional)
-    EmailMode emailMode = EmailMode::Mailto; // v0.20.0: settings.txt EMAILMODE=mailto|eml|gmail (Tools > Email method)
+    EmailMode emailMode = EmailMode::Mailto; // v0.20.0: settings.txt EMAILMODE=mailto|eml|gmail (Tools > Settings > Email)
+    // v0.22.0 (Tools > Settings). Blank wording = default; see EmailWording in FishBalanceCore.h.
+    std::wstring emailSubject, emailIntro, emailSignoff;   // EMAILSUBJECT= / EMAILINTRO= / EMAILSIGNOFF=
+    int backupMinutes = 3;                                  // BACKUPMINUTES= (1-60)
+    int backupKeep = 50;                                    // BACKUPKEEP= (10-500)
+    int outlierSensitivity = 1;                             // OUTLIERSENS= 0 relaxed, 1 normal, 2 strict
+    // v0.23.0
+    int dateStyle = 0;                                      // DATESTYLE= 0 long, 1 short month, 2 dd/mm/yyyy (emails)
+    int textPercent = 100;                                  // TEXTSIZE= 100 / 125 / 150 (list text; applied at start-up)
+    std::wstring printer;                                   // PRINTER= printer name; blank = the Windows default printer
+    int printOrientation = 0;                               // PRINTORIENT= 0 printer default, 1 portrait, 2 landscape
+    int printPaper = 0;                                     // PRINTPAPER= 0 printer default, 1 A4, 2 A3
 };
 extern AppSettings g_settings;
+inline ULONGLONG BackupIntervalMs() { return (ULONGLONG)ClampBackupMinutes(g_settings.backupMinutes) * 60ULL * 1000ULL; }
+inline int MaxBackups() { return ClampBackupKeep(g_settings.backupKeep); }
+inline EmailWording CurrentEmailWording() {
+    EmailWording w = ResolveEmailWording(g_settings.emailSubject, g_settings.emailIntro, g_settings.emailSignoff);
+    SYSTEMTIME st; GetLocalTime(&st);
+    w.dateText = EmailDateText(g_entries, g_settings.dateStyle, SimpleDate{ st.wYear, st.wMonth, st.wDay }); // v0.23.0: sheet date, not today
+    return w;
+}
+inline PrintDefaults CurrentPrintDefaults() {
+    PrintDefaults d;
+    d.printer = g_settings.printer;
+    d.orientation = ClampPrintOrientation(g_settings.printOrientation);
+    d.paper = ClampPrintPaper(g_settings.printPaper);
+    return d;
+}
+inline void ApplyOutlierSensitivitySetting() { g_outlierFence = OutlierFenceForSensitivity(ClampOutlierSensitivity(g_settings.outlierSensitivity)); }

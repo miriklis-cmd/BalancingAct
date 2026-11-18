@@ -149,6 +149,17 @@ void LoadSettings(int dpi) {
         else if (key == L"DIRTY") g_settings.dirtyAtExit = (val == L"1");
         else if (key == L"EMAILMODE") g_settings.emailMode = ParseEmailMode(val);
         else if (key == L"GMAILACCOUNT") g_settings.gmailAccount = val;
+        else if (key == L"EMAILSUBJECT") g_settings.emailSubject = val;
+        else if (key == L"EMAILINTRO") g_settings.emailIntro = val;
+        else if (key == L"EMAILSIGNOFF") g_settings.emailSignoff = val;
+        else if (key == L"BACKUPMINUTES") g_settings.backupMinutes = ClampBackupMinutes(_wtoi(val.c_str()));
+        else if (key == L"BACKUPKEEP") g_settings.backupKeep = ClampBackupKeep(_wtoi(val.c_str()));
+        else if (key == L"OUTLIERSENS") g_settings.outlierSensitivity = ClampOutlierSensitivity(_wtoi(val.c_str()));
+        else if (key == L"DATESTYLE") g_settings.dateStyle = ClampDateStyle(_wtoi(val.c_str()));
+        else if (key == L"TEXTSIZE") g_settings.textPercent = ClampTextPercent(_wtoi(val.c_str()));
+        else if (key == L"PRINTER") g_settings.printer = val;
+        else if (key == L"PRINTORIENT") g_settings.printOrientation = ClampPrintOrientation(_wtoi(val.c_str()));
+        else if (key == L"PRINTPAPER") g_settings.printPaper = ClampPrintPaper(_wtoi(val.c_str()));
     }
     if (g_settings.w < 640) g_settings.w = 1050;
     if (g_settings.h < 480) g_settings.h = 720;
@@ -179,6 +190,19 @@ void SaveSettingsFile(int x, int y, int w, int h, bool maximized, const std::wst
     writeLine(std::wstring(L"DIRTY=") + (dirtyAtExit ? L"1" : L"0"));
     writeLine(std::wstring(L"EMAILMODE=") + EmailModeToString(g_settings.emailMode)); // v0.20.0 (must be rewritten here or a save would drop it)
     if (!g_settings.gmailAccount.empty()) writeLine(L"GMAILACCOUNT=" + g_settings.gmailAccount);
+    // v0.22.0 Settings: blank wording is simply not written (= default). Single-line values only (cleaned before saving).
+    if (!g_settings.emailSubject.empty()) writeLine(L"EMAILSUBJECT=" + g_settings.emailSubject);
+    if (!g_settings.emailIntro.empty()) writeLine(L"EMAILINTRO=" + g_settings.emailIntro);
+    if (!g_settings.emailSignoff.empty()) writeLine(L"EMAILSIGNOFF=" + g_settings.emailSignoff);
+    writeLine(L"BACKUPMINUTES=" + std::to_wstring(ClampBackupMinutes(g_settings.backupMinutes)));
+    writeLine(L"BACKUPKEEP=" + std::to_wstring(ClampBackupKeep(g_settings.backupKeep)));
+    writeLine(L"OUTLIERSENS=" + std::to_wstring(ClampOutlierSensitivity(g_settings.outlierSensitivity)));
+    // v0.23.0
+    writeLine(L"DATESTYLE=" + std::to_wstring(ClampDateStyle(g_settings.dateStyle)));
+    writeLine(L"TEXTSIZE=" + std::to_wstring(ClampTextPercent(g_settings.textPercent)));
+    if (!g_settings.printer.empty()) writeLine(L"PRINTER=" + g_settings.printer);
+    writeLine(L"PRINTORIENT=" + std::to_wstring(ClampPrintOrientation(g_settings.printOrientation)));
+    writeLine(L"PRINTPAPER=" + std::to_wstring(ClampPrintPaper(g_settings.printPaper)));
 
     // Failure here stays silent (as it always has been) - losing
     // settings.txt only means window position/last-file aren't remembered
@@ -294,7 +318,7 @@ std::wstring BackupDir() { MigrateWritableDataOnce(); return GetSharedDataDir() 
 // safety-net copies.
 std::wstring HistoryDir() { MigrateWritableDataOnce(); return GetSharedDataDir() + L"\\history"; }
 
-// Deletes the oldest backup snapshots once there are more than kMaxBackups
+// Deletes the oldest backup snapshots once there are more than MaxBackups()
 // of them. Filenames embed a sortable YYYYMMDD_HHMMSS timestamp (see
 // WriteBackupSnapshot), so a plain lexicographic sort is also a
 // chronological sort - oldest names sort first.
@@ -310,9 +334,9 @@ void PruneOldBackups() {
     } while (FindNextFileW(h, &fd));
     FindClose(h);
 
-    if ((int)names.size() <= kMaxBackups) return;
+    if ((int)names.size() <= MaxBackups()) return;
     std::sort(names.begin(), names.end());
-    size_t toDelete = names.size() - (size_t)kMaxBackups;
+    size_t toDelete = names.size() - (size_t)MaxBackups();
     for (size_t i = 0; i < toDelete; i++) {
         _wremove((dir + L"\\" + names[i]).c_str());
     }

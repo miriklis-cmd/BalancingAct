@@ -5,16 +5,114 @@
 #include <commdlg.h>   // PrintDlgW (explicit: some projects define WIN32_LEAN_AND_MEAN)
 #include <winspool.h>  // GetDefaultPrinterW
 #include <algorithm>
+#include <cstring>
 #include <string>
+#include <vector>
 
 #include "ReportRender.h"
 
+std::vector<std::wstring> ListInstalledPrinters() {
+    std::vector<std::wstring> out;
+    DWORD needed = 0, count = 0;
+    const DWORD flags = PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS;
+    EnumPrintersW(flags, nullptr, 4, nullptr, 0, &needed, &count);
+    if (needed == 0) return out;
+    std::vector<BYTE> buf(needed);
+    if (!EnumPrintersW(flags, nullptr, 4, buf.data(), needed, &needed, &count)) return out;
+    const PRINTER_INFO_4W* info = reinterpret_cast<const PRINTER_INFO_4W*>(buf.data());
+    for (DWORD i = 0; i < count; i++) if (info[i].pPrinterName) out.push_back(info[i].pPrinterName);
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+namespace {
+// v0.23.0: the printer to start from: the saved one if it is still installed, else the Windows default ("" if none).
+std::wstring ResolvePrinterName(const PrintDefaults& d) {
+    if (!d.printer.empty()) {
+        for (const auto& n : ListInstalledPrinters()) if (n == d.printer) return n;
+    }
+    wchar_t name[256];
+    DWORD size = 256;
+    return GetDefaultPrinterW(name, &size) ? std::wstring(name) : std::wstring();
+}
+
+// A DEVMODE for `printer` with the saved orientation/paper applied (returned in a movable global block, the form
+// PrintDlgW takes and frees). Returns nullptr on any failure - callers then simply don't pre-fill.
+HGLOBAL BuildDevMode(const std::wstring& printer, const PrintDefaults& d) {
+    if (printer.empty()) return nullptr;
+    HANDLE hPrinter = nullptr;
+    if (!OpenPrinterW(const_cast<LPWSTR>(printer.c_str()), &hPrinter, nullptr) || !hPrinter) return nullptr;
+    HGLOBAL result = nullptr;
+    LONG size = DocumentPropertiesW(nullptr, hPrinter, const_cast<LPWSTR>(printer.c_str()), nullptr, nullptr, 0);
+    if (size > 0) {
+        std::vector<BYTE> buf((size_t)size);
+        DEVMODEW* dm = reinterpret_cast<DEVMODEW*>(buf.data());
+        if (DocumentPropertiesW(nullptr, hPrinter, const_cast<LPWSTR>(printer.c_str()), dm, nullptr, DM_OUT_BUFFER) == IDOK) {
+            if (d.orientation == 1 || d.orientation == 2) {
+                dm->dmFields |= DM_ORIENTATION;
+                dm->dmOrientation = (short)(d.orientation == 2 ? DMORIENT_LANDSCAPE : DMORIENT_PORTRAIT);
+            }
+            if (d.paper == 1 || d.paper == 2) {
+                dm->dmFields |= DM_PAPERSIZE;
+                dm->dmFields &= ~(DWORD)(DM_PAPERLENGTH | DM_PAPERWIDTH);
+                dm->dmPaperSize = (short)(d.paper == 2 ? DMPAPER_A3 : DMPAPER_A4);
+            }
+            // Let the driver validate/merge the changes; if it refuses, we simply use the untouched printer default.
+            if (DocumentPropertiesW(nullptr, hPrinter, const_cast<LPWSTR>(printer.c_str()), dm, dm, DM_IN_BUFFER | DM_OUT_BUFFER) == IDOK) {
+                HGLOBAL g = GlobalAlloc(GMEM_MOVEABLE, (SIZE_T)size);
+                if (g) {
+                    void* dst = GlobalLock(g);
+                    if (dst) { memcpy(dst, dm, (size_t)size); GlobalUnlock(g); result = g; }
+                    else GlobalFree(g);
+                }
+            }
+        }
+    }
+    ClosePrinter(hPrinter);
+    return result;
+}
+
+// A DEVNAMES block naming `printer` so the Print dialog opens with it selected. nullptr on failure.
+HGLOBAL BuildDevNames(const std::wstring& printer) {
+    if (printer.empty()) return nullptr;
+    const std::wstring driver = L"winspool";
+    const size_t headerWords = sizeof(DEVNAMES) / sizeof(wchar_t);
+    const size_t totalWords = headerWords + driver.size() + 1 + printer.size() + 1 + 1;
+    HGLOBAL g = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, totalWords * sizeof(wchar_t));
+    if (!g) return nullptr;
+    DEVNAMES* dn = static_cast<DEVNAMES*>(GlobalLock(g));
+    if (!dn) { GlobalFree(g); return nullptr; }
+    wchar_t* base = reinterpret_cast<wchar_t*>(dn);
+    size_t pos = headerWords;
+    dn->wDriverOffset = (WORD)pos;
+    memcpy(base + pos, driver.c_str(), (driver.size() + 1) * sizeof(wchar_t));
+    pos += driver.size() + 1;
+    dn->wDeviceOffset = (WORD)pos;
+    memcpy(base + pos, printer.c_str(), (printer.size() + 1) * sizeof(wchar_t));
+    pos += printer.size() + 1;
+    dn->wOutputOffset = (WORD)pos; // empty port name (already zeroed)
+    dn->wDefault = 0;
+    GlobalUnlock(g);
+    return g;
+}
+} // namespace
+
 void PrintBreakdownJob(HWND owner, const std::vector<Entry>& entries,
-                       const std::wstring& debtorText, const std::wstring& cashText) {
+                       const std::wstring& debtorText, const std::wstring& cashText,
+                       const PrintDefaults& defaults) {
     PRINTDLGW pd{};
     pd.lStructSize = sizeof(pd);
     pd.hwndOwner = owner;
     pd.Flags = PD_RETURNDC | PD_NOPAGENUMS | PD_NOSELECTION;
+    // v0.23.0: start from the saved printer / paper / orientation. Only pre-fill when BOTH blocks were built; the
+    // dialog frees whatever is in pd.hDevMode/hDevNames, so they must never be left half-set.
+    {
+        const std::wstring name = ResolvePrinterName(defaults);
+        HGLOBAL dm = BuildDevMode(name, defaults);
+        HGLOBAL dn = dm ? BuildDevNames(name) : nullptr;
+        if (dm && dn) { pd.hDevMode = dm; pd.hDevNames = dn; }
+        else { if (dm) GlobalFree(dm); if (dn) GlobalFree(dn); }
+    }
     if (!PrintDlgW(&pd)) return; // user cancelled, or no printers installed
 
     // PrintDlgW allocates these two blocks; we're responsible for freeing
@@ -114,16 +212,20 @@ void PrintBreakdownJob(HWND owner, const std::vector<Entry>& entries,
     }
 }
 
-bool GetPreviewPageSpec(PreviewPageSpec& spec, std::wstring* error) {
+bool GetPreviewPageSpec(PreviewPageSpec& spec, std::wstring* error, const PrintDefaults& defaults) {
     // Size the preview to the default printer's page, so it's a realistic representation of what will
     // actually print. If there's no default printer configured at all (e.g. a fresh machine with none
     // installed), or getting its info fails, fall back to a generic Letter-sized page (the PreviewPageSpec
     // defaults) so preview still works.
     int pageWidthPx = spec.widthPx, pageHeightPx = spec.heightPx, dpiX = spec.dpiX, dpiY = spec.dpiY;
-    wchar_t printerName[256];
-    DWORD nameSize = 256;
-    if (GetDefaultPrinterW(printerName, &nameSize)) {
-        HDC icDC = CreateICW(L"WINSPOOL", printerName, nullptr, nullptr);
+    // v0.23.0: the saved printer (if still installed, else the default) with the saved paper/orientation, so the
+    // preview's page shape matches what will print.
+    const std::wstring printerName = ResolvePrinterName(defaults);
+    if (!printerName.empty()) {
+        HGLOBAL hdm = BuildDevMode(printerName, defaults);
+        const DEVMODEW* dm = hdm ? static_cast<const DEVMODEW*>(GlobalLock(hdm)) : nullptr;
+        HDC icDC = CreateICW(L"WINSPOOL", printerName.c_str(), nullptr, dm);
+        if (hdm) { if (dm) GlobalUnlock(hdm); GlobalFree(hdm); }
         if (icDC) {
             pageWidthPx = GetDeviceCaps(icDC, HORZRES);
             pageHeightPx = GetDeviceCaps(icDC, VERTRES);

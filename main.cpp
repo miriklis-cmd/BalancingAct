@@ -79,6 +79,7 @@
 #include "src/services/CsvExport.h"
 #include "src/services/Email.h"
 #include "src/services/GmailDraft.h"
+#include "src/forms/SettingsWindow.h"
 #include "src/services/PrintJob.h"
 #include "src/services/ReportRender.h"
 #include "src/forms/MainWindowApi.h"
@@ -487,7 +488,7 @@ void WriteBackupSnapshot() { WriteBackupSnapshot(BuildFbdSaveContent()); }
 // idle or the user was only browsing/sorting without editing anything.
 void MaybeBackupOnTimer() {
     ULONGLONG now = GetTickCount64();
-    if (!BackupIntervalElapsed(g_lastBackupTick, now, kBackupIntervalMs)) return;
+    if (!BackupIntervalElapsed(g_lastBackupTick, now, BackupIntervalMs())) return;
 
     std::string content = BuildFbdSaveContent();
     if (content == g_lastBackupContent) {
@@ -1827,7 +1828,7 @@ void GetDebtorCashText(std::wstring& debtor, std::wstring& cash) {
 void PrintBreakdownReport(HWND owner) {
     std::wstring debtorText, cashText;
     GetDebtorCashText(debtorText, cashText);
-    PrintBreakdownJob(owner, g_entries, debtorText, cashText);
+    PrintBreakdownJob(owner, g_entries, debtorText, cashText, CurrentPrintDefaults());
 }
 
 // ---------------------------------------------------------------------------
@@ -1844,20 +1845,6 @@ void PrintBreakdownReport(HWND owner) {
 // there takes the current hour as an explicit parameter instead of reading
 // the clock internally, so it can be unit-tested with any hour value - the
 // call site in EmailSupplier below passes the real current hour in).
-
-// v0.20.0: Tools > Email method - the check mark follows g_settings.emailMode.
-static HMENU g_hToolsMenu = nullptr;
-static void UpdateEmailModeMenu() {
-    if (!g_hToolsMenu) return;
-    const UINT id = g_settings.emailMode == EmailMode::Eml ? ID_TOOLS_EMAIL_EML
-                  : (g_settings.emailMode == EmailMode::Gmail ? ID_TOOLS_EMAIL_GMAIL : ID_TOOLS_EMAIL_MAILTO);
-    CheckMenuRadioItem(g_hToolsMenu, ID_TOOLS_EMAIL_MAILTO, ID_TOOLS_EMAIL_GMAIL, id, MF_BYCOMMAND);
-}
-static void SetEmailMode(EmailMode m) {
-    g_settings.emailMode = m;
-    UpdateEmailModeMenu();
-    SaveSettings();
-}
 
 // v0.21.0: Gmail mode - one draft per supplier is created in Gmail (nothing is sent; no window opens per supplier,
 // so there is no one-at-a-time confirmation like the mailto/.eml paths need).
@@ -1881,13 +1868,14 @@ static void DoEmailSuppliersGmail(const std::vector<SupplierGroup>& data) {
 
     SYSTEMTIME st;
     GetLocalTime(&st);
+    const EmailWording wording = CurrentEmailWording();
     size_t made = 0;
     std::wstring problem;
     for (auto& sg : data) {
         auto it = g_supplierEmails.find(sg.supplier);
         std::wstring email = (it != g_supplierEmails.end()) ? it->second : L"";
-        EmlBuildResult built = BuildSupplierEml(sg, st.wHour, TodayDateString(), email,
-                                                L"Prices - " + TodayDateString() + L" - " + sg.supplier, false);
+        EmlBuildResult built = BuildSupplierEml(sg, st.wHour, wording.dateText.empty() ? TodayDateString() : wording.dateText, email,
+                                                FormatEmailSubject(wording.subject, wording.dateText.empty() ? TodayDateString() : wording.dateText, sg.supplier), false, wording);
         if (!built.ok) { problem = sg.supplier + L": " + built.error; break; }
         std::wstring err;
         GmailResult r = GmailCreateDraft(g_hMainWnd, built.content, g_settings.gmailAccount, &err);
@@ -1897,7 +1885,7 @@ static void DoEmailSuppliersGmail(const std::vector<SupplierGroup>& data) {
     if (!problem.empty()) {
         std::wstring m = problem + L"\n\n" + std::to_wstring(made) + L" of " + std::to_wstring(data.size()) +
                          L" draft(s) were created before this stopped." +
-                         L"\n\nTip: Tools > Email method lets you switch back to mailto or the Outlook (.eml) option.";
+                         L"\n\nTip: Tools > Settings > Email lets you switch back to mailto or the Outlook (.eml) option.";
         MessageBoxW(g_hMainWnd, m.c_str(), L"Gmail drafts", MB_OK | MB_ICONWARNING);
         return;
     }
@@ -1951,7 +1939,7 @@ void DoEmailSuppliers() {
         std::wstring email = (it != g_supplierEmails.end()) ? it->second : L"";
 
         std::wstring emailErr;
-        if (!EmailSupplierWith(g_settings.emailMode, email, sg, &emailErr)) {
+        if (!EmailSupplierWith(g_settings.emailMode, email, sg, &emailErr, CurrentEmailWording())) {
             std::wstring failMsg = L"Couldn't open an email draft for " + sg.supplier + L":\n\n" + emailErr +
                 L"\n\nClick OK to try the next supplier, or Cancel to stop here.";
             if (MessageBoxW(g_hMainWnd, failMsg.c_str(), L"Email Couldn't Open", MB_OKCANCEL | MB_ICONWARNING) == IDCANCEL)
@@ -2660,18 +2648,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case ID_BTN_EMAIL_SUPPLIERS: DoEmailSuppliers(); return 0;
         case ID_EDIT_UNDO_DELETE: UndoDelete(); return 0;
         case ID_TOOLS_MANAGE_NAMES: OpenManageNamesWindow(); return 0;
-        case ID_TOOLS_EMAIL_MAILTO: SetEmailMode(EmailMode::Mailto); return 0;
-        case ID_TOOLS_EMAIL_EML: SetEmailMode(EmailMode::Eml); return 0;
-        case ID_TOOLS_EMAIL_GMAIL: SetEmailMode(EmailMode::Gmail); return 0;
-        case ID_TOOLS_GMAIL_FORGET:
-            if (!GmailHasSavedSignIn()) {
-                MessageBoxW(hwnd, L"This PC has no saved Gmail sign-in.", L"Gmail", MB_OK | MB_ICONINFORMATION);
-            } else if (MessageBoxW(hwnd, L"Forget this PC's saved Gmail sign-in? You will be asked to sign in to Google "
-                                         L"again the next time you create Gmail drafts. (Your Google account is not changed.)",
-                                   L"Gmail", MB_YESNO | MB_ICONQUESTION) == IDYES) {
-                GmailForgetSignIn();
-            }
-            return 0;
+        case ID_TOOLS_SETTINGS: OpenSettingsWindow(); return 0;
         case ID_FILE_EXIT: DestroyWindow(hwnd); return 0;
         case ID_FILE_ABOUT: DoAbout(); return 0;
         }
@@ -2785,14 +2762,8 @@ HWND CreateFishBalanceMainWindow(HINSTANCE hInstance, int nCmdShow) {
 
     HMENU hToolsMenu = CreatePopupMenu();
     AppendMenuW(hToolsMenu, MF_STRING, ID_TOOLS_MANAGE_NAMES, L"&Manage Supplier / Species Names...");
-    // v0.20.0: how "Email All Suppliers" opens each draft (saved in settings.txt EMAILMODE)
     AppendMenuW(hToolsMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hToolsMenu, MF_STRING, ID_TOOLS_EMAIL_MAILTO, L"Email method: open in my &mail program (mailto)");
-    AppendMenuW(hToolsMenu, MF_STRING, ID_TOOLS_EMAIL_EML, L"Email method: Outlook draft with a &table (.eml)");
-    AppendMenuW(hToolsMenu, MF_STRING, ID_TOOLS_EMAIL_GMAIL, L"Email method: &Gmail draft (saved in Gmail Drafts)");
-    AppendMenuW(hToolsMenu, MF_STRING, ID_TOOLS_GMAIL_FORGET, L"Gmail: forget this PC's &sign-in");
-    g_hToolsMenu = hToolsMenu;
-    UpdateEmailModeMenu();
+    AppendMenuW(hToolsMenu, MF_STRING, ID_TOOLS_SETTINGS, L"&Settings..."); // v0.22.0: email method + wording, backups, price flags, data folder
     AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hToolsMenu, L"&Tools");
 
     HMENU hHelpMenu = CreatePopupMenu();
@@ -2845,6 +2816,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     }
 
     LoadSettings(g_dpi); // window size/position + last-file, read before creating the window
+    ApplyOutlierSensitivitySetting(); // v0.22.0: Settings > Price-flag sensitivity
 
     HWND hwnd = CreateFishBalanceMainWindow(hInstance, nCmdShow);
 

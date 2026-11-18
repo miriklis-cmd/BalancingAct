@@ -47,6 +47,6 @@ Thumbs.db
 
 # v0.18.5 portable test copy: marker file and its data folder must never be committed
 portable.txt
-data/
+/data/
 client_secret*.json
 gmail_refresh.bin

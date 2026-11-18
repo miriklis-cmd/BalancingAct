@@ -411,3 +411,36 @@ Needs the Google client file (client_secret.json) in `C:\BalancingAct\private\` 
 7. Cancel the browser sign-in (close the tab, wait 3 min or click Cancel in Google): the app reports it, no crash, window usable.
 8. Unplug the network, Email All Suppliers: clear "couldn't reach Google" message; saved sign-in is NOT thrown away (works again when online).
 9. Do steps 3-5 on the laptop too (each PC signs in once).
+
+## v0.22.0 checks (Tools > Settings)
+
+1. Tools menu now has Manage Names and "Settings..."; the old Email method lines are gone.
+2. Settings opens centred, main window is disabled behind it; three tabs switch cleanly; Esc/X/Cancel close without changes.
+3. Email tab: change method, press OK, reopen - choice kept; restart - still kept. Email All Suppliers follows it.
+4. Change subject/opening/sign-off, OK, run an email (mailto/.eml/Gmail): wording appears; {supplier}/{date} are filled. Blank boxes restore standard wording.
+5. "Forget this PC's Gmail sign-in" asks first; says so if there is none.
+6. Backups tab: 0 or 61 minutes, or 5 snapshots, shows a warning and stays open; valid values are kept after restart.
+7. Price-flag sensitivity: switch to Strict - more yellow/flagged prices appear immediately; Relaxed - fewer. Survives restart.
+7a. Data tab: path matches your data folder; Open folder opens it; version is correct (portable copy says so).
+8. Window looks right at 125%/150% display scaling (no clipped text).
+
+## v0.23.0 checks
+
+1. Enter a sheet dated a few days ago (date picker), Email All Suppliers (any method): subject and opening line show THAT date, not today. Try each date format in Settings > Display & printing.
+2. Settings > Display & printing: Large, OK - message says it applies next start; restart: lists (entries, Overview, Breakdown, By Species, drill-down) have bigger text with columns still readable; buttons/labels unchanged. Back to Normal restores.
+3. Printer drop-down lists your installed printers plus "Windows default printer". Pick one, A4, Landscape, OK. Print Breakdown: the dialog opens on that printer; Print Preview page is landscape A4 shaped.
+4. Choose Printer default / Printer default: behaves as before. Remove or rename the saved printer in settings.txt: falls back to the Windows default with no error.
+5. Microsoft Print to PDF as the saved printer works the same way.
+6. Settings tabs: four tabs fit in the window at 125%/150% display scaling.
+
+## WinUI step 14 checks (Tools > Settings)
+
+0. Add `src/services/GmailDraft.cpp` to the WinUI project (Add > Existing Item; C/C++ > Precompiled Headers: Not Using). Build. If anything fails to compile, send me the first error.
+1. Tools menu now has "Settings...". It opens a dialog with four tabs; Cancel changes nothing, OK says "Settings saved." in the status bar.
+2. Change something in WinUI, close, open the Win32 app: Tools > Settings shows the same value (and the other way round).
+3. Text size Large / Extra large: lists on all tabs grow at once; check long names are not cut off badly (column widths are fixed).
+4. Email All Suppliers with each method: mailto (plain), .eml (Outlook table), Gmail (drafts created, offer to open Drafts). The date in the subject/opening line is the SHEET date; wording matches what you typed.
+5. Price-flag sensitivity Strict/Relaxed: flags on the Entries list change immediately.
+6. Backups: set 1 minute and 10 snapshots, add entries over a few minutes: new backup_*.fbd appear about every minute and only 10 are kept.
+7. Print Preview / Print Breakdown start on the chosen printer, paper and orientation.
+8. Dialog fits at your usual display scaling and scrolls if the window is short.

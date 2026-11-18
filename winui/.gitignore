@@ -1,0 +1,23 @@
+# WinUI project: source only. Everything Visual Studio generates stays out of Git.
+.vs/
+packages/
+**/Generated Files/
+x64/
+x86/
+ARM64/
+Debug/
+Release/
+bin/
+obj/
+*.user
+*.suo
+*.aps
+
+# Signing key VS creates for local MSIX packaging - private to each machine, never commit.
+*.pfx
+
+# Packaged output
+AppPackages/
+BundleArtifacts/
+*.msix
+*.appx

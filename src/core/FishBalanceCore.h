@@ -1070,6 +1070,15 @@ static const size_t kMinBaselineForOutlierCheck = 4;
 // flagged a genuinely normal $12 sixth entry (IQR=0 without this floor).
 static const double kOutlierFloorPercent = 0.20;
 
+// v0.22.0: Tukey fence multiplier, set from Settings > Price-flag sensitivity (Relaxed / Normal / Strict).
+// Normal (1.5) is the original behaviour and the default. Set once at startup and when Settings is saved.
+enum class OutlierSensitivity { Relaxed = 0, Normal = 1, Strict = 2 };
+inline double OutlierFenceForSensitivity(int s) { return s <= 0 ? 2.5 : (s == 1 ? 1.5 : 1.0); }
+inline double g_outlierFence = 1.5;
+inline int ClampOutlierSensitivity(int s) { return s < 0 ? 1 : (s > 2 ? 1 : s); } // unknown value = Normal
+inline int ClampBackupMinutes(int m) { return m < 1 ? 1 : (m > 60 ? 60 : m); }
+inline int ClampBackupKeep(int k) { return k < 10 ? 10 : (k > 500 ? 500 : k); }
+
 inline bool ComputeOutlierRange(std::vector<double> prices, OutlierRange& outRange) {
     if (prices.size() < kMinBaselineForOutlierCheck) return false;
     std::sort(prices.begin(), prices.end());
@@ -1098,8 +1107,8 @@ inline bool ComputeOutlierRange(std::vector<double> prices, OutlierRange& outRan
     double median = medianOfRange(0, n);
     double effectiveIqr = std::max(iqr, kOutlierFloorPercent * median);
 
-    outRange.low = q1 - 1.5 * effectiveIqr;
-    outRange.high = q3 + 1.5 * effectiveIqr;
+    outRange.low = q1 - g_outlierFence * effectiveIqr;
+    outRange.high = q3 + g_outlierFence * effectiveIqr;
     return true;
 }
 
@@ -2152,6 +2161,43 @@ inline std::wstring GreetingForHour(int hour) {
     return L"Good evening"; // covers evening hours too, beyond just morning/afternoon
 }
 
+// v0.23.0 (Tools > Settings): date style for emails. 0 = "18 November 2026" (default), 1 = "18 Nov 2026", 2 = "18/11/2026".
+inline int ClampDateStyle(int v) { return (v >= 0 && v <= 2) ? v : 0; }
+// v0.23.0: list text size in percent. Only 100 / 125 / 150 are offered; anything else is treated as 100.
+inline int ClampTextPercent(int v) { return (v == 125 || v == 150) ? v : 100; }
+// v0.23.0: print defaults. Orientation 0 = printer default, 1 = portrait, 2 = landscape. Paper 0 = printer default, 1 = A4, 2 = A3.
+inline int ClampPrintOrientation(int v) { return (v >= 0 && v <= 2) ? v : 0; }
+inline int ClampPrintPaper(int v) { return (v >= 0 && v <= 2) ? v : 0; }
+
+inline std::wstring FormatLongDate(const SimpleDate& d);
+inline std::wstring FormatDateStyle(const SimpleDate& d, int style) {
+    style = ClampDateStyle(style);
+    if (style == 2) {
+        auto two = [](int v) { return (v < 10 ? L"0" : L"") + std::to_wstring(v); };
+        return two(d.day) + L"/" + two(d.month) + L"/" + std::to_wstring(d.year);
+    }
+    if (style == 1) {
+        static const wchar_t* abbr[] = { L"Jan", L"Feb", L"Mar", L"Apr", L"May", L"Jun", L"Jul", L"Aug", L"Sep", L"Oct", L"Nov", L"Dec" };
+        std::wstring m = (d.month >= 1 && d.month <= 12) ? abbr[d.month - 1] : L"";
+        return std::to_wstring(d.day) + L" " + m + L" " + std::to_wstring(d.year);
+    }
+    return FormatLongDate(d);
+}
+
+// v0.23.0: the date an email should carry = the sheet's own date (the date picker value on its entries), NOT the
+// day the email is sent: Saturday's sales entered on Monday are sent as Saturday's. A sheet is one day in practice;
+// if it ever holds several, the latest is used. No dated entries -> `today`.
+inline std::wstring EmailDateText(const std::vector<Entry>& entries, int style, const SimpleDate& today) {
+    bool have = false;
+    SimpleDate best;
+    for (const auto& e : entries) {
+        SimpleDate d;
+        if (!ParseISODate(e.date, d)) continue;
+        if (!have || e.date > FormatDateISO(best)) { best = d; have = true; }
+    }
+    return FormatDateStyle(have ? best : today, style);
+}
+
 inline std::wstring FormatLongDate(const SimpleDate& d) {
     static const wchar_t* months[] = { L"January", L"February", L"March", L"April", L"May", L"June",
                                         L"July", L"August", L"September", L"October", L"November", L"December" };
@@ -2185,7 +2231,43 @@ inline std::wstring PadLeft(const std::wstring& s, size_t width) {
 // space-aligned table fell apart, whereas tab stops survive. The number of tabs after each species is chosen so the
 // PRICE column starts at the same tab stop for every row (a tab stop is taken to be 8 characters wide - proportional
 // fonts only approximate that, so very wide or very narrow names can be one stop out). dateText is optional.
-inline std::wstring BuildSupplierEmailBody(const SupplierGroup& sg, int currentHour, const std::wstring& dateText = L"") {
+// v0.22.0: the wording of supplier emails, editable in Settings > Email. Blank/whitespace-only means "use the default".
+// Single line each; {supplier} and {date} in the subject are filled in. Intro has no trailing colon (the date, if any, and a
+// colon are added after it).
+struct EmailWording {
+    std::wstring subject = L"Prices - {date} - {supplier}";
+    std::wstring intro = L"Please find below the prices for today's sale";
+    std::wstring signoff = L"Kind regards,";
+    std::wstring dateText; // v0.23.0: the date to print (the sheet date, already formatted). Empty = today (caller falls back).
+};
+inline std::wstring CleanWordingLine(const std::wstring& raw, const std::wstring& fallback) {
+    std::wstring o;
+    for (wchar_t ch : raw) o += (ch < 0x20 || ch == 0x7F) ? L' ' : ch; // no line breaks / control characters (blocks header injection)
+    o = TrimW(o);
+    if (o.size() > 150) o.resize(150);
+    o = TrimW(o);
+    return o.empty() ? fallback : o;
+}
+inline EmailWording ResolveEmailWording(const std::wstring& subject, const std::wstring& intro, const std::wstring& signoff) {
+    const EmailWording d;
+    EmailWording w;
+    w.subject = CleanWordingLine(subject, d.subject);
+    w.intro = CleanWordingLine(intro, d.intro);
+    w.signoff = CleanWordingLine(signoff, d.signoff);
+    return w;
+}
+inline std::wstring FormatEmailSubject(const std::wstring& tmpl, const std::wstring& dateText, const std::wstring& supplier) {
+    std::wstring out;
+    for (size_t i = 0; i < tmpl.size();) {
+        if (tmpl.compare(i, 10, L"{supplier}") == 0) { out += supplier; i += 10; }
+        else if (tmpl.compare(i, 6, L"{date}") == 0) { out += dateText; i += 6; }
+        else out += tmpl[i++];
+    }
+    return CleanWordingLine(out, L"Prices");
+}
+
+inline std::wstring BuildSupplierEmailBody(const SupplierGroup& sg, int currentHour, const std::wstring& dateText = L"",
+                                           const EmailWording& wording = EmailWording()) {
     const size_t kStop = 8; // characters per tab stop (approximate)
     size_t maxLen = 7;      // length of the "SPECIES" heading
     for (auto& pg : sg.products) if (pg.species.size() > maxLen) maxLen = pg.species.size();
@@ -2193,8 +2275,8 @@ inline std::wstring BuildSupplierEmailBody(const SupplierGroup& sg, int currentH
     auto tabsAfter = [&](size_t len) { return std::wstring(targetStops - (len / kStop), L'\t'); };
 
     std::wstring body = GreetingForHour(currentHour) + L",\r\n\r\n";
-    body += dateText.empty() ? std::wstring(L"Please find below the prices for today's sale:")
-                              : (L"Please find below the prices for today's sale (" + dateText + L"):");
+    body += dateText.empty() ? (wording.intro + L":")
+                              : (wording.intro + L" (" + dateText + L"):");
     body += L"\r\n\r\n";
     body += L"KG\tSPECIES" + tabsAfter(7) + L"PRICE\r\n";
     const std::wstring rule = std::wstring(7, L'-') + L"\t" + std::wstring(maxLen, L'-') + L"\t" + std::wstring(9, L'-');
@@ -2205,7 +2287,7 @@ inline std::wstring BuildSupplierEmailBody(const SupplierGroup& sg, int currentH
         }
     }
     body += rule + L"\r\n";
-    body += L"\r\nKind regards,";
+    body += L"\r\n" + wording.signoff;
 
     // mailto: bodies are practically capped well under the URL length some
     // mail clients/OS versions tolerate - if a supplier has an unusually
@@ -2215,8 +2297,8 @@ inline std::wstring BuildSupplierEmailBody(const SupplierGroup& sg, int currentH
         body = GreetingForHour(currentHour) + L",\r\n\r\nPlease see prices below - " +
                std::to_wstring(sg.products.size()) + L" species, total weight " +
                FormatKg(sg.totalKgs) + L" kg.\r\n\r\n(Full line-by-line pricing is in the app - "
-               L"this summary was shortened because the full list was too long for email.)\r\n\r\n"
-               L"Kind regards,";
+               L"this summary was shortened because the full list was too long for email.)\r\n\r\n" +
+               wording.signoff;
     }
     return body;
 }
@@ -2275,7 +2357,8 @@ struct EmlBuildResult {
 // a non-empty address must pass LooksLikeEmail() (this also blocks header injection). The subject may not contain
 // control characters; non-ASCII subjects are encoded per RFC 2047.
 inline EmlBuildResult BuildSupplierEml(const SupplierGroup& sg, int currentHour, const std::wstring& dateText,
-                                       const std::wstring& email, const std::wstring& subject, bool unsent = true) {
+                                       const std::wstring& email, const std::wstring& subject, bool unsent = true,
+                                       const EmailWording& wording = EmailWording()) {
     // unsent=false (the Gmail API path): the same message without the "X-Unsent: 1" line - Gmail makes it a draft itself.
     EmlBuildResult r;
     if (!email.empty() && !LooksLikeEmail(email)) {
@@ -2293,7 +2376,7 @@ inline EmlBuildResult BuildSupplierEml(const SupplierGroup& sg, int currentHour,
     const std::wstring td = L"<td style=\"padding:3px 18px 3px 0;";
     std::wstring h = L"<html><body style=\"font-family:Calibri,Arial,sans-serif;font-size:11pt\">\r\n";
     h += L"<p>" + HtmlEscapeW(GreetingForHour(currentHour)) + L",</p>\r\n";
-    h += L"<p>Please find below the prices for today's sale" +
+    h += L"<p>" + HtmlEscapeW(wording.intro) +
          (dateText.empty() ? std::wstring() : L" (" + HtmlEscapeW(dateText) + L")") + L":</p>\r\n";
     h += L"<table style=\"border-collapse:collapse\">\r\n";
     h += L"<tr style=\"border-bottom:1px solid #000\"><th style=\"text-align:right;padding:3px 18px 3px 0\">KG</th>"
@@ -2304,7 +2387,7 @@ inline EmlBuildResult BuildSupplierEml(const SupplierGroup& sg, int currentHour,
             h += L"<tr>" + td + L"text-align:right\">" + HtmlEscapeW(FormatKg(pl.kgs)) + L"</td>" +
                  td + L"\">" + HtmlEscapeW(pg.species) + L"</td>" +
                  L"<td style=\"padding:3px 0;text-align:right\">" + HtmlEscapeW(FormatMoney(pl.price)) + L"</td></tr>\r\n";
-    h += L"</table>\r\n<p>Kind regards,</p></body></html>\r\n";
+    h += L"</table>\r\n<p>" + HtmlEscapeW(wording.signoff) + L"</p></body></html>\r\n";
 
     r.content = std::string(unsent ? "X-Unsent: 1\r\n" : "") + "To: " + PortableWToUtf8(email) + "\r\nSubject: " + subjHeader +
                 "\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n" +

@@ -280,3 +280,94 @@ TEST_CASE("v0.21.0: BuildSupplierEml(unsent=false) has no X-Unsent line (Gmail A
     CHECK(r.content.find("X-Unsent") == std::string::npos);
     CHECK(r.content.rfind("To: a@b.com\r\nSubject: S\r\n", 0) == 0);
 }
+
+TEST_SUITE("v0.22.0 email wording + settings clamps") {
+    TEST_CASE("blank wording falls back to the defaults") {
+        auto w = ResolveEmailWording(L"", L"   ", L"");
+        CHECK(w.subject == L"Prices - {date} - {supplier}");
+        CHECK(w.intro == L"Please find below the prices for today's sale");
+        CHECK(w.signoff == L"Kind regards,");
+    }
+    TEST_CASE("wording is single-line and capped (no header injection)") {
+        auto w = ResolveEmailWording(L"Hi\r\nBcc: x@y.com", L"A\tB", std::wstring(400, L'x'));
+        CHECK(w.subject == L"Hi  Bcc: x@y.com");
+        CHECK(w.intro == L"A B");
+        CHECK(w.signoff.size() == 150);
+        CHECK(w.subject.find(L'\r') == std::wstring::npos);
+    }
+    TEST_CASE("subject placeholders") {
+        CHECK(FormatEmailSubject(L"Prices - {date} - {supplier}", L"18 Nov", L"Alpha") == L"Prices - 18 Nov - Alpha");
+        CHECK(FormatEmailSubject(L"{supplier} prices", L"d", L"A&B") == L"A&B prices");
+        CHECK(FormatEmailSubject(L"No placeholders", L"d", L"S") == L"No placeholders");
+        CHECK(FormatEmailSubject(L"{supplier}", L"d", L"") == L"Prices"); // empty result -> safe fallback
+    }
+    TEST_CASE("custom wording reaches the mailto body and the eml") {
+        SupplierGroup sg; sg.supplier = L"A";
+        ProductGroup pg; pg.species = L"Flathead"; pg.prices.push_back({14.0, 12.5, 175.0}); sg.products.push_back(pg);
+        EmailWording w; w.intro = L"Today's numbers"; w.signoff = L"Cheers, Jack";
+        auto body = BuildSupplierEmailBody(sg, 9, L"18 Nov", w);
+        CHECK(body.find(L"Today's numbers (18 Nov):") != std::wstring::npos);
+        CHECK(body.find(L"Cheers, Jack") != std::wstring::npos);
+        CHECK(body.find(L"Kind regards") == std::wstring::npos);
+        auto r = BuildSupplierEml(sg, 9, L"18 Nov", L"", L"S", true, w);
+        REQUIRE(r.ok);
+        CHECK(r.content.find("Today's numbers (18 Nov):") != std::string::npos);
+        CHECK(r.content.find("Cheers, Jack") != std::string::npos);
+        // defaults unchanged
+        CHECK(BuildSupplierEmailBody(sg, 9, L"18 Nov").find(L"Please find below the prices for today's sale (18 Nov):") != std::wstring::npos);
+    }
+    TEST_CASE("clamps and sensitivity mapping") {
+        CHECK(ClampBackupMinutes(0) == 1); CHECK(ClampBackupMinutes(3) == 3); CHECK(ClampBackupMinutes(999) == 60);
+        CHECK(ClampBackupKeep(1) == 10); CHECK(ClampBackupKeep(50) == 50); CHECK(ClampBackupKeep(9999) == 500);
+        CHECK(ClampOutlierSensitivity(-1) == 1); CHECK(ClampOutlierSensitivity(0) == 0); CHECK(ClampOutlierSensitivity(7) == 1);
+        CHECK(OutlierFenceForSensitivity(0) == doctest::Approx(2.5));
+        CHECK(OutlierFenceForSensitivity(1) == doctest::Approx(1.5));
+        CHECK(OutlierFenceForSensitivity(2) == doctest::Approx(1.0));
+    }
+    TEST_CASE("sensitivity changes what gets flagged") {
+        std::vector<double> prices = {10, 11, 12, 13, 14, 15};
+        const double saved = g_outlierFence;
+        OutlierRange normal, relaxed, strict;
+        g_outlierFence = 1.5; REQUIRE(ComputeOutlierRange(prices, normal));
+        g_outlierFence = 2.5; REQUIRE(ComputeOutlierRange(prices, relaxed));
+        g_outlierFence = 1.0; REQUIRE(ComputeOutlierRange(prices, strict));
+        g_outlierFence = saved;
+        CHECK(relaxed.high > normal.high); CHECK(normal.high > strict.high);
+        CHECK(relaxed.low < normal.low);   CHECK(normal.low < strict.low);
+    }
+}
+
+TEST_CASE("v0.23.0: email date style and sheet date") {
+    const SimpleDate d{ 2026, 11, 7 };
+    CHECK(FormatDateStyle(d, 0) == L"7 November 2026");
+    CHECK(FormatDateStyle(d, 1) == L"7 Nov 2026");
+    CHECK(FormatDateStyle(d, 2) == L"07/11/2026");
+    CHECK(FormatDateStyle(d, 99) == L"7 November 2026"); // unknown style = long
+    CHECK(ClampDateStyle(-1) == 0); CHECK(ClampDateStyle(2) == 2); CHECK(ClampDateStyle(3) == 0);
+    CHECK(ClampTextPercent(125) == 125); CHECK(ClampTextPercent(150) == 150); CHECK(ClampTextPercent(110) == 100); CHECK(ClampTextPercent(0) == 100);
+    CHECK(ClampPrintOrientation(2) == 2); CHECK(ClampPrintOrientation(3) == 0);
+    CHECK(ClampPrintPaper(2) == 2); CHECK(ClampPrintPaper(-5) == 0);
+
+    const SimpleDate today{ 2026, 11, 18 };
+    std::vector<Entry> none;
+    CHECK(EmailDateText(none, 0, today) == L"18 November 2026"); // no entries -> today
+    std::vector<Entry> sat(2);
+    sat[0].date = L"2026-11-14"; sat[1].date = L"2026-11-14"; // Saturday entered on Wednesday
+    CHECK(EmailDateText(sat, 0, today) == L"14 November 2026");
+    CHECK(EmailDateText(sat, 2, today) == L"14/11/2026");
+    sat[1].date = L"2026-11-16"; // mixed (should not happen) -> latest
+    CHECK(EmailDateText(sat, 1, today) == L"16 Nov 2026");
+    std::vector<Entry> bad(1); bad[0].date = L"garbage"; // undated / unparseable -> today
+    CHECK(EmailDateText(bad, 0, today) == L"18 November 2026");
+}
+
+TEST_CASE("v0.23.0: the email uses EmailWording::dateText when the caller supplies the sheet date") {
+    SupplierGroup sg; sg.supplier = L"Acme";
+    ProductGroup pg; pg.species = L"Bonito"; pg.prices.push_back({ 5.0, 10.0, 50.0 });
+    sg.products.push_back(pg);
+    EmailWording w;
+    w.dateText = L"14 November 2026";
+    CHECK(FormatEmailSubject(w.subject, w.dateText, sg.supplier) == L"Prices - 14 November 2026 - Acme");
+    std::wstring body = BuildSupplierEmailBody(sg, 9, w.dateText, w);
+    CHECK(body.find(L"(14 November 2026):") != std::wstring::npos);
+}

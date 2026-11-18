@@ -1,0 +1,10 @@
+<Solution>
+  <Configurations>
+    <Platform Name="ARM64" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="FishBalanceWinUI/FishBalanceWinUI.vcxproj" Id="a574eba7-edac-4ad3-9a4a-c66f895d8f4f">
+    <Deploy />
+  </Project>
+</Solution>
