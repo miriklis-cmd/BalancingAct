@@ -79,7 +79,7 @@ longer fails silently (0.10.15) and always opens in `backups\` (0.10.16); `*.fbd
 - **Price history / trend per species** (item 5 spec below) - table first, chart second.
 - **Highlight cheapest supplier per species** (Breakdown or By Species tab).
 - **Print / PDF for the Total Overview and By Species tabs** - only Breakdown prints today.
-- **Filter / search on the summary tabs** - only the entries list has a filter box.
+- ~~Filter / search on the summary tabs~~ - done in v0.19.0 (Win32; WinUI port not done).
 - **Multi-machine, encryption, shared hosting (Bucket C)** - designed in `NETWORK_ARCHITECTURE.md`, nothing built.
 - **Encrypting `.fbd` / `emails.txt` / `settings.txt`** - v2 only; plaintext by decision for v1.
 - **Audit items still open** (`AuditFindings_2026-09-30.md`): F7 (data files live next to the exe, not in
@@ -351,3 +351,9 @@ Proposed internal order, with dependencies noted:
    single-writer chain (see NETWORK_ARCHITECTURE.md for why the locking
    design is what makes the ingested data reliable, not just the live
    view).
+
+- v0.21.0 (2026-11-18): Gmail draft option built (Gmail API, Internal OAuth, drafts.create only). Written, not yet run live by Jack.
+- v0.20.0 (2026-11-18): Tools > Email method (mailto / .eml). Gmail draft option greyed out pending the Gmail API test (Cloud project + Internal OAuth client created; test script with Jack).
+- v0.19.0 (2026-11-17): shared Filter box on Overview / Breakdown / By Species (filtered totals). Written, not yet run by Jack.
+- v0.18.6 (2026-11-16): manifest embedded in exe (copied exe keeps themed buttons/combos).
+- v0.18.5 (2026-11-16): portable/deletable Win32 test copy via portable.txt marker. Supplier-email `.eml` approach still waiting on main-PC test.

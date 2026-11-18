@@ -178,11 +178,14 @@ H=900
 MAX=0
 LASTFILE=C:\Users\jack\Documents\august-week1.fbd
 DIRTY=0
+EMAILMODE=mailto
 ```
 
 - `X`/`Y`/`W`/`H` — window position and size (physical pixels).
 - `MAX` — `1` if the window was maximized, `0` otherwise.
 - `autosave.lock` (v0.18.0, same folder) - empty file held open exclusively by the app that owns autosave.fbd; deleted when it exits.
+- `GMAILACCOUNT` — (v0.21.0) optional Google account address used as the sign-in hint and for the "open Gmail Drafts" link. Written back only when set.
+- `EMAILMODE` — (v0.20.0) how Email All Suppliers opens drafts: `mailto` (default; also used when missing or unknown), `eml` (Outlook draft with an HTML table), `gmail` (v0.21.0: drafts created in Gmail via the API). Set from Tools > Email method. Win32 rewrites it with the other keys; WinUI leaves it alone.
 - `DIRTY` — (v0.17.3) `1` if the app was closed with unsaved changes, `0` otherwise. Written on a clean exit only. At startup `1` makes the recovered sheet count as unsaved, so File > New / Open ask before discarding it.
 - `LASTFILE` — path of the last-open named file. Only ever written on a
   clean exit (`SaveSettings`, called from `WM_DESTROY`), so after a crash
@@ -424,3 +427,6 @@ entry-record limit exceeded, a malformed entry row (wrong field count), an
 invalid numeric field, and an empty required field. The message never
 echoes a full field's content verbatim, so a long or unusual Supplier/
 Notes/Debtor value can't end up rendered straight into a dialog box.
+
+## Portable mode (v0.18.5)
+A zero-byte `portable.txt` beside the exe switches the data folder to `<exe folder>\data` (created on start). Same file set as `C:\BalancingAct\data`. Without the marker nothing changes.

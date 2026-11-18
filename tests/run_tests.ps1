@@ -27,6 +27,7 @@ $sources = @(
     "test_aggregation.cpp",
     "test_csv_export.cpp",
     "test_email.cpp",
+    "test_gmail.cpp",
     "test_recovery_and_finalize.cpp",
     "test_phase2_numeric_and_layout.cpp",
     "test_drilldown.cpp",

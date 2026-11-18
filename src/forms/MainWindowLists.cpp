@@ -182,19 +182,12 @@ void RefreshEntriesList() {
 
     wchar_t fbuf[256];
     GetWindowTextW(hEditFilter, fbuf, 256);
-    std::wstring filter = TrimW(fbuf);
-    std::transform(filter.begin(), filter.end(), filter.begin(), ::towlower);
+    std::wstring filter = NormalizeFilterText(fbuf);
 
     int row = 0;
     for (size_t i = 0; i < g_entries.size(); i++) {
         auto& e = g_entries[i];
-        if (!filter.empty()) {
-            std::wstring sup = e.supplier, prod = e.product;
-            std::transform(sup.begin(), sup.end(), sup.begin(), ::towlower);
-            std::transform(prod.begin(), prod.end(), prod.begin(), ::towlower);
-            if (sup.find(filter) == std::wstring::npos && prod.find(filter) == std::wstring::npos)
-                continue;
-        }
+        if (!EntryMatchesFilter(e, filter)) continue; // v0.19.0: same rule as the summary tabs
         g_filteredIndices.push_back((int)i);
 
         LVITEMW item{};
@@ -368,7 +361,7 @@ void RecalcTotals() {
 // (unit-tested there); this function is now just the ListView rendering.
 void PopulateGroupedTotalsList(HWND lv, bool bySupplier) {
     ListView_DeleteAllItems(lv);
-    GroupedTotalsResult totals = ComputeGroupedTotals(g_entries, bySupplier);
+    GroupedTotalsResult totals = ComputeGroupedTotals(FilterEntries(g_entries, g_summaryFilter), bySupplier); // v0.19.0: shared summary filter
 
     int idx = 0;
     for (auto& row : totals.rows) {
@@ -388,7 +381,7 @@ void PopulateGroupedTotalsList(HWND lv, bool bySupplier) {
     gitem.mask = LVIF_TEXT;
     gitem.iItem = idx;
     gitem.iSubItem = 0;
-    std::wstring lbl = L"GRAND TOTAL";
+    std::wstring lbl = NormalizeFilterText(g_summaryFilter).empty() ? L"GRAND TOTAL" : L"GRAND TOTAL (filtered)";
     gitem.pszText = const_cast<LPWSTR>(lbl.c_str());
     ListView_InsertItem(lv, &gitem);
     std::wstring gk = FormatKg(totals.grandKgs);
@@ -464,7 +457,7 @@ void RefreshBooksList() {
 // function is now just the ListView rendering.
 void RefreshBySpeciesList() {
     ListView_DeleteAllItems(hListBySpecies);
-    SpeciesStatsResult stats = ComputeSpeciesStats(g_entries);
+    SpeciesStatsResult stats = ComputeSpeciesStats(FilterEntries(g_entries, g_summaryFilter)); // v0.19.0
 
     int idx = 0;
     for (auto& row : stats.rows) {
@@ -494,7 +487,7 @@ void RefreshBySpeciesList() {
     gitem.mask = LVIF_TEXT;
     gitem.iItem = idx;
     gitem.iSubItem = 0;
-    std::wstring lbl = L"GRAND TOTAL";
+    std::wstring lbl = NormalizeFilterText(g_summaryFilter).empty() ? L"GRAND TOTAL" : L"GRAND TOTAL (filtered)";
     gitem.pszText = const_cast<LPWSTR>(lbl.c_str());
     ListView_InsertItem(hListBySpecies, &gitem);
     std::wstring gk = FormatKg(stats.grandKgs);
@@ -529,7 +522,7 @@ void RefreshBreakdownList() {
     ListView_DeleteAllItems(hListBreakdown);
     SendMessageW(hListBreakdown, LVM_REMOVEALLGROUPS, 0, 0);
 
-    auto data = BuildBreakdownData(g_entries);
+    auto data = BuildBreakdownData(FilterEntries(g_entries, g_summaryFilter)); // v0.19.0
 
     int groupId = 0;
     int itemIdx = 0;

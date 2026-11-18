@@ -232,9 +232,9 @@ An old, vestigial file (`1 24 "app.manifest"` — raw RC syntax to
 **embed** the manifest as a resource) was found still sitting in the
 repo, unreferenced by any of the three build paths. This directly
 conflicts with the deliberate approach all three actually use: the
-manifest ships as an external side-by-side file specifically because an
-embedded manifest takes priority over an external one (see the
-`/MANIFEST:NO` comment in `CMakeLists.txt`). `app.rc` wasn't doing
+manifest shipped as an external side-by-side file (superseded in v0.18.6:
+it is now embedded via `app_icon.rc`, `1 24 "app.manifest"`, with
+`/MANIFEST:NO` kept so the linker adds no second one). `app.rc` wasn't doing
 anything active, but its presence was a latent footgun — if it were ever
 added to a build's sources without this context, it would silently
 reintroduce the exact manifest conflict already engineered around,

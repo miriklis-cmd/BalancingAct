@@ -368,3 +368,46 @@ testing the real first-run experience, not a pre-populated one.
 - [ ] Save, close, reopen WinUI: File > New does not ask. Look in C:\BalancingAct\data\backups after 3+ minutes of editing: backup_*.fbd files appear (from either app).
 - [ ] (0.18.1) Email All Suppliers (or one supplier): the draft body has a dated intro, a ruled KG / SPECIES / PRICE table with the numbers lined up, and "kg in total" at the foot. Check it in your real email app - if it looks ragged there (proportional font), tell me.
 - [ ] (0.18.4) Open a supplier email draft in Outlook: KG / SPECIES / PRICE separated by tabs; check the PRICE column lines up on rows with short and long species names (long names may be one stop out).
+
+### Portable copy (v0.18.5)
+1. Put FishBalanceManager.exe in a new folder with an empty `portable.txt`; run it. Title shows [PORTABLE TEST COPY]; a `data` folder appears beside the exe.
+2. Add entries, save, close, reopen: data comes back from `data\autosave.fbd`; `C:\BalancingAct\data` is untouched (check timestamps).
+3. With the real app open, start the portable copy: both run at once.
+4. Delete the whole folder: nothing left behind.
+
+## Embedded manifest (v0.18.6)
+
+1. Copy ONLY FishBalanceManager.exe to a new folder (no .manifest file); run it. Buttons are rounded/tinted, tabs themed, Supplier/Species boxes draw correctly.
+2. Delete any old FishBalanceManager.exe.manifest beside the exe; behaviour is unchanged.
+
+## v0.19.0 checks (summary-tab filter)
+
+1. Enter entries for 2+ suppliers/species. On Total Overview, type part of a supplier name in Filter (top right): only matching suppliers show; GRAND TOTAL (filtered) equals the sum of what is shown.
+2. Switch to Breakdown and By Species: the same text is already in their Filter boxes and both lists are narrowed. Type a species instead: matching rows only.
+3. Clear the box: everything returns, label goes back to GRAND TOTAL.
+4. With a filter active: Books table, the Balanced check on Data Entry, Print Preview, Email Suppliers still cover the WHOLE day.
+5. Add/delete an entry while filtered: lists stay filtered and update. The entries list's own Filter (Data Entry tab) is unaffected.
+6. Narrow the window: the Filter box on Overview never overlaps the three labels.
+
+## v0.20.0 checks (Tools > Email method)
+
+1. Tools menu shows three Email method lines; "open in my mail program (mailto)" is ticked by default; the Gmail line is greyed out.
+2. Choose "Outlook draft with a table (.eml)": the tick moves. Close and reopen the app: still ticked (settings.txt has EMAILMODE=eml).
+3. With entries for 2+ suppliers, Breakdown > Email All Suppliers: the confirmation says "as Outlook drafts (with a price table)"; each supplier's draft opens in Outlook as an unsent message with the To address filled in and a neat three-column table; the next one only after OK.
+4. A supplier with no saved address opens with To blank.
+5. Switch back to mailto: behaves exactly as before.
+6. If Outlook is not the .eml default: a clear message appears, and mailto still works.
+
+## v0.21.0 checks (Gmail drafts)
+
+Needs the Google client file (client_secret.json) in `C:\BalancingAct\private\` (or pick it when asked). Optional: add `GMAILACCOUNT=accounts@jackmiriklis.com` as a line in settings.txt (close the app first).
+
+1. Tools > Email method > "Gmail draft": tick moves; restart keeps it.
+2. Breakdown > Email All Suppliers: confirmation says "create N draft emails in Gmail ... Nothing is sent". Yes.
+3. First time on this PC: info box, then the browser opens; sign in as the drafts mailbox, Allow (only "compose new draft emails" permission listed). Tab says signed in; the app continues by itself.
+4. "Created N drafts ... Open Gmail Drafts now?" Yes: Gmail Drafts shows one draft per supplier, To filled in, subject "Prices - <date> - <supplier>", neat table. Edit one and send it normally.
+5. Run it again: NO browser this time (saved sign-in); drafts are created straight away.
+6. Tools > Gmail: forget this PC's sign-in, then Email All Suppliers again: the browser sign-in comes back.
+7. Cancel the browser sign-in (close the tab, wait 3 min or click Cancel in Google): the app reports it, no crash, window usable.
+8. Unplug the network, Email All Suppliers: clear "couldn't reach Google" message; saved sign-in is NOT thrown away (works again when online).
+9. Do steps 3-5 on the laptop too (each PC signs in once).

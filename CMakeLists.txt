@@ -23,6 +23,7 @@ set(APP_SOURCES
     src/data/Backups.cpp
     src/services/CsvExport.cpp
     src/services/Email.cpp
+    src/services/GmailDraft.cpp
     src/services/ReportRender.cpp
     src/services/PrintJob.cpp
     src/forms/UiState.cpp
@@ -34,7 +35,7 @@ set(APP_SOURCES
 )
 
 add_executable(FishBalanceManager WIN32 ${APP_SOURCES} app_icon.rc)
-target_link_libraries(FishBalanceManager PRIVATE comctl32 comdlg32 shell32 ole32 uuid winspool)
+target_link_libraries(FishBalanceManager PRIVATE comctl32 comdlg32 shell32 ole32 uuid winspool ws2_32 winhttp bcrypt crypt32)
 
 # Phase 1 (2026-09-30) warning-gate tightening: /W4 /WX for MSVC,
 # -Wall -Wextra -Wpedantic -Werror for MinGW/GCC, applied to BOTH the app
@@ -44,23 +45,12 @@ target_link_libraries(FishBalanceManager PRIVATE comctl32 comdlg32 shell32 ole32
 # failure rather than something easy to miss in scrollback.
 if (MSVC)
     target_compile_options(FishBalanceManager PRIVATE /W4 /WX /EHsc)
-    # We ship app.manifest as an external side-by-side manifest instead of an
-    # embedded resource (avoids the RC/CVTRES toolchain entirely). An embedded
-    # manifest would take priority over the external one, so make sure MSVC
-    # doesn't auto-generate/embed its own.
+    # v0.18.6: app.manifest is embedded by app_icon.rc. Make sure MSVC does not
+    # auto-generate a second one.
     target_link_options(FishBalanceManager PRIVATE /MANIFEST:NO)
 else()
     target_compile_options(FishBalanceManager PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
-
-# Copy app.manifest next to the built exe as "<exe-name>.exe.manifest" — Windows
-# picks this up automatically as a side-by-side manifest (needed for ListView
-# groups / Common Controls v6) with no resource-compiler step required.
-add_custom_command(TARGET FishBalanceManager POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_CURRENT_SOURCE_DIR}/app.manifest
-        $<TARGET_FILE:FishBalanceManager>.manifest
-)
 
 # Also copy app.ico next to the exe. It's normally embedded via app_icon.rc,
 # but this gives LoadAppIcon() in main.cpp a file-based fallback if the
@@ -88,6 +78,7 @@ add_executable(FishBalanceTests
     tests/test_aggregation.cpp
     tests/test_csv_export.cpp
     tests/test_email.cpp
+    tests/test_gmail.cpp
     tests/test_recovery_and_finalize.cpp
     tests/test_phase2_numeric_and_layout.cpp
     tests/test_drilldown.cpp
@@ -119,7 +110,7 @@ add_executable(FishBalanceIntegrationTests
     tests/win32_integration/test_integration_main.cpp
 )
 target_compile_definitions(FishBalanceIntegrationTests PRIVATE FBM_BUILDING_TESTS)
-target_link_libraries(FishBalanceIntegrationTests PRIVATE comctl32 comdlg32 shell32 ole32 uuid winspool)
+target_link_libraries(FishBalanceIntegrationTests PRIVATE comctl32 comdlg32 shell32 ole32 uuid winspool ws2_32 winhttp bcrypt crypt32)
 if (MSVC)
     target_compile_options(FishBalanceIntegrationTests PRIVATE /W4 /WX /EHsc)
     target_link_options(FishBalanceIntegrationTests PRIVATE /MANIFEST:NO)

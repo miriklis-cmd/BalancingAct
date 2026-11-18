@@ -182,7 +182,7 @@ build_msvc.bat
 | `src/forms/MainWindowLists.*` | The main window's list views, combo refresh/autocomplete and balance totals (v0.10.8) |
 | `src/core/FishBalanceControlLimits.h` | Shared control/input limits |
 | `tests/`          | The automated test suites (doctest): portable unit tests for `FishBalanceCore.h`, plus `tests/win32_integration/` for real file I/O and an end-to-end smoke test - see "Note on testing" below |
-| `app.manifest`    | Requests Common Controls v6 (needed for grouped list). Shipped as an external side-by-side manifest (`FishBalanceManager.exe.manifest`) rather than embedded via the resource compiler, to avoid RC/CVTRES toolchain issues. |
+| `app.manifest`    | Requests Common Controls v6 (needed for grouped list). Embedded in the exe by `app_icon.rc` (v0.18.6), so a copied exe keeps its styling. |
 | `app.ico`         | The application icon (multi-resolution: 16–256px), embedded into the exe via `app_icon.rc` |
 | `resource.h`       | Shared resource ID (`IDI_APPICON`) used by both `main.cpp` and `app_icon.rc` |
 | `app_icon.rc`     | Minimal resource script that embeds only the icon — kept separate from the manifest so it can't cause the duplicate-resource conflict a combined script hit earlier |
@@ -191,10 +191,7 @@ build_msvc.bat
 | `build_msvc.bat`  | Quick build with MSVC (the one in regular use)       |
 | `ROADMAP.md`, `ROADMAP_ARCHIVE.md` | The current plan; and the frozen history of the old roadmap (v0.10.18) |
 
-**Important:** `FishBalanceManager.exe` and `FishBalanceManager.exe.manifest`
-must stay together in the same folder — if you copy the exe elsewhere, copy
-the `.manifest` file alongside it, or the app will still run but the
-Breakdown tab's grouped list may lose its modern styling. The icon itself is
+**Note (v0.18.6):** the manifest (visual styles) and the icon are both embedded in the .exe, so it can be copied anywhere on its own. The icon is
 embedded directly in the .exe, so it doesn't need `app.ico` alongside it —
 that file is only a fallback the app checks if the embedded icon is ever
 missing.

@@ -23,6 +23,8 @@ HWND hLblOvBook, hLblOvGrand, hLblOvDiff, hListOverview;
 HWND hListBooks = nullptr;
 HWND hListBreakdown, hBtnPrintBreakdown, hBtnEmailSuppliers, hBtnPrintPreview;
 HWND hListBySpecies;
+HWND hLblSumFilter[3], hEditSumFilter[3];
+std::wstring g_summaryFilter;
 std::vector<HWND> g_tab1Ctrls, g_tab2Ctrls, g_tab3Ctrls, g_tab4Ctrls;
 bool g_diffOk = true;
 bool g_ovDiffOk = true;

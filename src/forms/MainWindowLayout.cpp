@@ -313,6 +313,14 @@ void LayoutAll(HWND hwnd) {
     MoveWindow(hLblOvBook, left, top, S(300), S(22), TRUE);
     MoveWindow(hLblOvGrand, left + S(310), top, S(300), S(22), TRUE);
     MoveWindow(hLblOvDiff, left + S(620), top, S(300), S(22), TRUE);
+    // v0.19.0: shared summary filter, right end of the top row of tabs 2-4 (tab 4 gets its own row)
+    int sfW = S(260);
+    int sfX = right - sfW;
+    if (sfX < left + S(930)) sfX = left + S(930); // keep clear of the three labels on narrow windows
+    for (int i = 0; i < 3; i++) {
+        MoveWindow(hEditSumFilter[i], sfX, top, sfW, boxH, TRUE);
+        MoveWindow(hLblSumFilter[i], sfX - S(50), top + S(4), S(45), lblH, TRUE);
+    }
     // v0.12.0: supplier table on the left (the bigger share), Books table on the right
     {
         int ovTop = top + S(32);
@@ -333,7 +341,8 @@ void LayoutAll(HWND hwnd) {
     MoveWindow(hListBreakdown, left, bdListTop, right - left, disp.bottom - bdListTop - S(5), TRUE);
 
     // ---- Tab 4 - By Species ----
-    MoveWindow(hListBySpecies, left, top, right - left, disp.bottom - top - S(5), TRUE);
+    int spTop = top + S(32); // v0.19.0: room for the filter row
+    MoveWindow(hListBySpecies, left, spTop, right - left, disp.bottom - spTop - S(5), TRUE);
 }
 
 void ShowTab(int idx) {

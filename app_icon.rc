@@ -1,3 +1,8 @@
 #include "resource.h"
 
 IDI_APPICON ICON "app.ico"
+
+// v0.18.6: the Common Controls v6 / DPI manifest is now EMBEDDED in the exe (resource type 24 = RT_MANIFEST, id 1 =
+// the application manifest). It used to ship as a separate FishBalanceManager.exe.manifest file, so copying the exe
+// alone gave classic square buttons and badly drawn combo boxes.
+1 24 "app.manifest"

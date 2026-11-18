@@ -21,6 +21,10 @@ std::wstring GetExeDir();
 // C:\BalancingAct\data, created on first use. If it cannot be created it falls back to the exe folder so
 // the app still works. With a test override set, that override is used (tests never touch real data).
 std::wstring GetSharedDataDir();
+// v0.18.5: true when a file named portable.txt sits beside the exe. All data (names, settings, autosave, backups, history,
+// recent files) then lives in a "data" folder beside the exe instead of C:\BalancingAct\data, so a copy of the app can be
+// run for testing on any PC and removed by deleting its folder, leaving the real data folder untouched.
+bool IsPortableMode();
 
 std::wstring AutosavePath();
 std::wstring SettingsPath();
