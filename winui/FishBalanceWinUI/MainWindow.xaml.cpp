@@ -15,6 +15,7 @@
 #include "src/services/ReportRender.cpp"    // RenderReportPages, FreeRenderedPages
 #include "src/services/PrintJob.cpp"        // PrintBreakdownJob, GetPreviewPageSpec
 #include "src/services/Email.cpp"           // EmailSupplier / EmailSupplierWith (mailto: or .eml draft), TodayDateString - the Win32 app's own code
+#include "version.h"                           // APP_VERSION - the same number as the Win32 app (one shared version)
 #include "src/data/UserSettings.h"         // step 14: Tools > Settings values in settings.txt (same keys as the Win32 app)
 #include "src/services/GmailDraft.h"        // step 14: Gmail drafts. src/services/GmailDraft.cpp must be an item in the project (precompiled header: Not Using)
 #pragma comment(lib, "gdi32.lib")      // CreateDIBSection, TextOutW, StartDocW ... (a WinUI project does not link it by default)
@@ -313,6 +314,7 @@ namespace
         {
             Controls::TextBlock tb;
             tb.Text(hstring{ cells[0] });
+            tb.FontSize(g_listFontSize); // the supplier heading row was the one row type that missed the list size
             tb.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
             tb.VerticalAlignment(VerticalAlignment::Center);
             tb.Margin(ThicknessHelper::FromLengths(16, 0, 16, 0));
@@ -446,18 +448,9 @@ namespace winrt::FishBalanceWinUI::implementation
             BooksList().FontSize(fs);
             BreakdownList().FontSize(fs);
             TabPage3().FontSize(fs);
-            // The tab names and the status bar have their own fixed sizes in the XAML, so scale those too.
-            TabText0().FontSize(13.0 * pct);
-            TabText1().FontSize(13.0 * pct);
-            TabText2().FontSize(13.0 * pct);
-            TabText3().FontSize(13.0 * pct);
-            CountText().FontSize(12.0 * pct);
-            FileText().FontSize(12.0 * pct);
-            StatusMsg().FontSize(12.0 * pct);
-            SelText().FontSize(12.0 * pct);
-            VersionText().FontSize(12.0 * pct);
         };
         applyTextSize();
+        VersionText().Text(L"Fish Balance Manager (WinUI) v" APP_VERSION);
 
         auto openSettings = [this, applyTextSize]() -> winrt::fire_and_forget
         {
@@ -502,7 +495,7 @@ namespace winrt::FishBalanceWinUI::implementation
                 return p;
             };
             // Tall enough to show a whole tab on a normal monitor, shorter on a laptop (then it scrolls).
-            const double svHeight = (std::max)(300.0, (std::min)(720.0, RootGrid().ActualHeight() - 190.0));
+            const double svHeight = (std::max)(280.0, (std::min)(620.0, RootGrid().ActualHeight() - 300.0));
             auto scroller = [svHeight](Controls::StackPanel const& content) {
                 Controls::ScrollViewer sv;
                 sv.Content(content);
@@ -620,6 +613,7 @@ namespace winrt::FishBalanceWinUI::implementation
             auto displayPage = page();
             displayPage.Children().Append(label(L"Text size in the lists", 4));
             displayPage.Children().Append(rbText);
+            displayPage.Children().Append(note(L"Only the tables change size, as in the Win32 app. The tabs, buttons, entry form and status bar stay as they are."));
             displayPage.Children().Append(label(L"Date format in emails"));
             displayPage.Children().Append(rbDate);
             displayPage.Children().Append(label(L"Printing - where the Print dialog and Print Preview start", 20));
@@ -644,7 +638,7 @@ namespace winrt::FishBalanceWinUI::implementation
             dataPage.Children().Append(label(L"Your data folder (entries, backups, names, settings)", 4));
             dataPage.Children().Append(tbPath);
             dataPage.Children().Append(openFolder);
-            dataPage.Children().Append(label(L"Fish Balance Manager - WinUI prototype, step 14", 24));
+            dataPage.Children().Append(label(L"Fish Balance Manager (WinUI) v" APP_VERSION, 24));
             dataPage.Children().Append(note(L"These settings are saved in settings.txt in the data folder and are shared with the Win32 app."));
 
             Controls::Pivot pivot;
@@ -668,6 +662,8 @@ namespace winrt::FishBalanceWinUI::implementation
             dlg.CloseButtonText(L"Cancel");
             dlg.DefaultButton(Controls::ContentDialogButton::Primary);
             dlg.Resources().Insert(box_value(L"ContentDialogMaxWidth"), box_value(780.0)); // default 548 cut the text boxes off at the right
+            // The default height cap (756) was clipping the bottom of the tab (the last note line was cut off).
+            dlg.Resources().Insert(box_value(L"ContentDialogMaxHeight"), box_value((std::max)(500.0, RootGrid().ActualHeight() - 20.0)));
             const Controls::ContentDialogResult result = co_await dlg.ShowAsync();
             if (self->m_closed || result != Controls::ContentDialogResult::Primary)
                 co_return;

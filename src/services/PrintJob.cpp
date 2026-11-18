@@ -48,6 +48,7 @@ HGLOBAL BuildDevMode(const std::wstring& printer, const PrintDefaults& d) {
         std::vector<BYTE> buf((size_t)size);
         DEVMODEW* dm = reinterpret_cast<DEVMODEW*>(buf.data());
         if (DocumentPropertiesW(nullptr, hPrinter, const_cast<LPWSTR>(printer.c_str()), dm, nullptr, DM_OUT_BUFFER) == IDOK) {
+            const std::vector<BYTE> untouched = buf; // the driver's own default, used if it refuses our changes
             if (d.orientation == 1 || d.orientation == 2) {
                 dm->dmFields |= DM_ORIENTATION;
                 dm->dmOrientation = (short)(d.orientation == 2 ? DMORIENT_LANDSCAPE : DMORIENT_PORTRAIT);
@@ -58,13 +59,13 @@ HGLOBAL BuildDevMode(const std::wstring& printer, const PrintDefaults& d) {
                 dm->dmPaperSize = (short)(d.paper == 2 ? DMPAPER_A3 : DMPAPER_A4);
             }
             // Let the driver validate/merge the changes; if it refuses, we simply use the untouched printer default.
-            if (DocumentPropertiesW(nullptr, hPrinter, const_cast<LPWSTR>(printer.c_str()), dm, dm, DM_IN_BUFFER | DM_OUT_BUFFER) == IDOK) {
-                HGLOBAL g = GlobalAlloc(GMEM_MOVEABLE, (SIZE_T)size);
-                if (g) {
-                    void* dst = GlobalLock(g);
-                    if (dst) { memcpy(dst, dm, (size_t)size); GlobalUnlock(g); result = g; }
-                    else GlobalFree(g);
-                }
+            const bool accepted = DocumentPropertiesW(nullptr, hPrinter, const_cast<LPWSTR>(printer.c_str()), dm, dm, DM_IN_BUFFER | DM_OUT_BUFFER) == IDOK;
+            const BYTE* src = accepted ? buf.data() : untouched.data();
+            HGLOBAL g = GlobalAlloc(GMEM_MOVEABLE, (SIZE_T)size);
+            if (g) {
+                void* dst = GlobalLock(g);
+                if (dst) { memcpy(dst, src, (size_t)size); GlobalUnlock(g); result = g; }
+                else GlobalFree(g);
             }
         }
     }
@@ -72,12 +73,31 @@ HGLOBAL BuildDevMode(const std::wstring& printer, const PrintDefaults& d) {
     return result;
 }
 
+// The port the printer is attached to (e.g. "USB001", "WSD-..."), or "" if unknown. Network printers need it filled in.
+std::wstring PortOf(const std::wstring& printer) {
+    HANDLE h = nullptr;
+    if (!OpenPrinterW(const_cast<LPWSTR>(printer.c_str()), &h, nullptr) || !h) return std::wstring();
+    std::wstring port;
+    DWORD need = 0;
+    GetPrinterW(h, 5, nullptr, 0, &need);
+    if (need > 0) {
+        std::vector<BYTE> pb(need);
+        if (GetPrinterW(h, 5, pb.data(), need, &need)) {
+            const PRINTER_INFO_5W* pi = reinterpret_cast<const PRINTER_INFO_5W*>(pb.data());
+            if (pi->pPortName) port = pi->pPortName;
+        }
+    }
+    ClosePrinter(h);
+    return port;
+}
+
 // A DEVNAMES block naming `printer` so the Print dialog opens with it selected. nullptr on failure.
 HGLOBAL BuildDevNames(const std::wstring& printer) {
     if (printer.empty()) return nullptr;
     const std::wstring driver = L"winspool";
+    const std::wstring port = PortOf(printer);
     const size_t headerWords = sizeof(DEVNAMES) / sizeof(wchar_t);
-    const size_t totalWords = headerWords + driver.size() + 1 + printer.size() + 1 + 1;
+    const size_t totalWords = headerWords + driver.size() + 1 + printer.size() + 1 + port.size() + 1;
     HGLOBAL g = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, totalWords * sizeof(wchar_t));
     if (!g) return nullptr;
     DEVNAMES* dn = static_cast<DEVNAMES*>(GlobalLock(g));
@@ -90,7 +110,8 @@ HGLOBAL BuildDevNames(const std::wstring& printer) {
     dn->wDeviceOffset = (WORD)pos;
     memcpy(base + pos, printer.c_str(), (printer.size() + 1) * sizeof(wchar_t));
     pos += printer.size() + 1;
-    dn->wOutputOffset = (WORD)pos; // empty port name (already zeroed)
+    dn->wOutputOffset = (WORD)pos;
+    memcpy(base + pos, port.c_str(), (port.size() + 1) * sizeof(wchar_t));
     dn->wDefault = 0;
     GlobalUnlock(g);
     return g;
@@ -108,10 +129,12 @@ void PrintBreakdownJob(HWND owner, const std::vector<Entry>& entries,
     // dialog frees whatever is in pd.hDevMode/hDevNames, so they must never be left half-set.
     {
         const std::wstring name = ResolvePrinterName(defaults);
-        HGLOBAL dm = BuildDevMode(name, defaults);
-        HGLOBAL dn = dm ? BuildDevNames(name) : nullptr;
-        if (dm && dn) { pd.hDevMode = dm; pd.hDevNames = dn; }
-        else { if (dm) GlobalFree(dm); if (dn) GlobalFree(dn); }
+        HGLOBAL dn = BuildDevNames(name);
+        HGLOBAL dm = dn ? BuildDevMode(name, defaults) : nullptr; // may be null: the dialog then uses the printer's defaults
+        if (dn) { pd.hDevNames = dn; pd.hDevMode = dm; }
+        // Visible in Visual Studio's Output window while debugging: which pre-fill step worked.
+        OutputDebugStringW((L"[print] saved='" + defaults.printer + L"' using='" + name + L"' devnames=" +
+                            (dn ? L"ok" : L"FAILED") + L" devmode=" + (dm ? L"ok" : L"none") + L"\n").c_str());
     }
     if (!PrintDlgW(&pd)) return; // user cancelled, or no printers installed
 

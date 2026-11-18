@@ -1,4 +1,4 @@
-# Fish Balance Manager - WinUI 3 prototype
+# Fish Balance Manager - WinUI 3 edition
 
 A WinUI 3 (C++/WinRT) front end that shares its logic with the Win32 app. It reads and writes the same
 `.fbd` files and the same data folder (`C:\BalancingAct\data`), so the two apps can be used side by side.
@@ -8,7 +8,7 @@ A WinUI 3 (C++/WinRT) front end that shares its logic with the Win32 app. It rea
     repo root
       src\                       shared code (used by BOTH apps) - never copy it; the WinUI project includes it directly
       winui\
-        FishBalanceWinUI.sln
+        FishBalanceWinUI.slnx
         FishBalanceWinUI\        the WinUI project (XAML, MainWindow.xaml.cpp/.h, .idl, manifests, assets)
         packages\                NuGet packages - created by restore, NOT in Git
 
@@ -17,7 +17,7 @@ The project finds the shared code through `$(ProjectDir)..\..` (the repo root), 
 ## Build
 
 1. Visual Studio 2022 or later with the "Desktop development with C++" and "Windows App SDK" workloads.
-2. Open `winui\FishBalanceWinUI.sln`.
+2. Open `winui\FishBalanceWinUI.slnx`.
 3. Right-click the solution > Restore NuGet Packages (first time only).
 4. Choose Debug | x64 and press F5.
 
