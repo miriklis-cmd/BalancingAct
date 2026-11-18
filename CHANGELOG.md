@@ -29,7 +29,15 @@ for prime time (released).
 
 ## [WinUI in the repo] - 2026-11-18
 
-- The WinUI 3 prototype is now kept in Git under `winui/` (solution, project, XAML, `MainWindow.xaml.h/.cpp`, `.idl`, manifests, assets). It includes the shared code through `$(ProjectDir)..\..` instead of the absolute `C:\Users\jackm\Desktop\claude`, and `src/services/GmailDraft.cpp` is now a project item (Precompiled Header: Not Using). `winui/.gitignore` keeps `.vs`, `packages`, `Generated Files`, build folders, `*.user` and `*.pfx` out. See `winui/README.md` for how to build.
+- The WinUI 3 prototype is now kept in Git under `winui/` (solution, project, XAML, `MainWindow.xaml.h/.cpp`, `.idl`, manifests, assets). It includes the shared code through `$(ProjectDir)..\..` instead of the absolute `C:\Users\jackm\Desktop\claude`, and `src/services/GmailDraft.cpp` is now a project item (Precompiled Header: Not Using). `winui/.gitignore` keeps `.vs`, `packages`, `Generated Files`, build folders, `*.user` and `*.pfx` out. See `winui/README.md` for how to build. The WinUI app is no longer labelled "prototype" or "step N": it uses the same version number as the Win32 app (`version.h`, one shared number because the two share their code), shown in the status bar and in Tools > Settings > Data & about. WinUI changes from now on go in the normal version entries, marked "(WinUI)".
+
+## [Printer default fix] - 2026-11-18
+
+- Print dialog ignored the printer chosen in Settings and opened on the Windows default (seen in WinUI with a network printer). Fixed in `PrintJob.cpp` (both apps): the printer name now pre-fills the dialog even when the driver will not give a DEVMODE (before, any DEVMODE failure meant no pre-fill at all, and the code returned nothing when the driver refused the "validate" call although its comment said it used the untouched default), and the printer's port name is filled in too, which network printers need. Needs a real printer to check: set a printer in Tools > Settings > Display & printing, then Print.
+
+- WinUI: the bottom of the Settings tabs is no longer clipped by the dialog (the dialog's height cap is lifted and the scroll area sized to fit).
+
+- The Windows print dialog says "This app doesn't support print preview": that is the dialog's own preview pane, which the classic print dialog never fills in. The app's own Print Preview button is the preview.
 
 ## [Gmail sign-in hardening] - 2026-11-18
 
@@ -37,7 +45,7 @@ for prime time (released).
 
 ## [WinUI step 14b] - 2026-11-18
 
-- Settings dialog layout (first run on the new project, step 14 compiles and opens): the dialog is wider (780), the tab headers use a smaller font so all four fit, each tab is a vertically scrolling area sized to the window, and the text boxes no longer run off the right edge. The two backup number boxes keep their labels in separate text blocks (a NumberBox header wraps at the box width, which squashed them into a narrow column). Text size: list rows now follow the size too (a list row does not inherit the list's font size, only the header row did, so Large looked half-applied), and the tab names and status bar scale with it. Only `MainWindow.xaml.cpp` changed.
+- Settings dialog layout (first run on the new project, step 14 compiles and opens): the dialog is wider (780), the tab headers use a smaller font so all four fit, each tab is a vertically scrolling area sized to the window, and the text boxes no longer run off the right edge. The two backup number boxes keep their labels in separate text blocks (a NumberBox header wraps at the box width, which squashed them into a narrow column). Text size: list rows now follow the size too (a list row does not inherit the list's font size, only the header row did, so Large looked half-applied), including the supplier heading rows on the Breakdown tab. Text size scales the tables only (rows and headers together); tabs, buttons, the entry form and the status bar deliberately stay as they are, because scaling only some of the window squeezed the fixed-width parts at 150%. The table header cells now wrap instead of cutting off ("ows", "ntered ($)"). Only `MainWindow.xaml.cpp` changed.
 
 ## [WinUI step 14] - 2026-11-18 (written, not compiled or seen)
 

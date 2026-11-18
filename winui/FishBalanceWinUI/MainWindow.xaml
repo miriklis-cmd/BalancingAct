@@ -100,13 +100,13 @@
                 <MenuFlyoutItem Text="Exit" Click="Exit_Click" />
             </MenuBarItem>
             <MenuBarItem Title="Edit">
-                <MenuFlyoutItem Text="Not in this prototype" IsEnabled="False" />
+                <MenuFlyoutItem Text="Not in the WinUI edition yet" IsEnabled="False" />
             </MenuBarItem>
             <MenuBarItem x:Name="ToolsMenu" Title="Tools">
                 <MenuFlyoutItem Text="Manage Supplier / Species Names..." Click="ManageNames_Click" />
             </MenuBarItem>
             <MenuBarItem Title="Help">
-                <MenuFlyoutItem Text="Not in this prototype" IsEnabled="False" />
+                <MenuFlyoutItem Text="Not in the WinUI edition yet" IsEnabled="False" />
             </MenuBarItem>
         </MenuBar>
 
@@ -207,9 +207,9 @@
                                         <ColumnDefinition Width="1.5*" />
                                         <ColumnDefinition Width="2*" />
                                     </Grid.ColumnDefinitions>
-                                    <Border Grid.Column="0" Padding="16,5" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Supplier" HorizontalAlignment="Left" /></Border>
-                                    <Border Grid.Column="1" Padding="16,5" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Kgs" HorizontalAlignment="Right" /></Border>
-                                    <Border Grid.Column="2" Padding="16,5" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Total ($)" HorizontalAlignment="Right" /></Border>
+                                    <Border Grid.Column="0" Padding="16,5" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Supplier" HorizontalAlignment="Left" TextWrapping="Wrap" /></Border>
+                                    <Border Grid.Column="1" Padding="16,5" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Kgs" HorizontalAlignment="Right" TextWrapping="Wrap" TextAlignment="Right" /></Border>
+                                    <Border Grid.Column="2" Padding="16,5" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Total ($)" HorizontalAlignment="Right" TextWrapping="Wrap" TextAlignment="Right" /></Border>
                                 </Grid>
                             </ListView.Header>
                             <ListView.ItemContainerStyle>
@@ -235,12 +235,12 @@
                                         <ColumnDefinition Width="1.8*" />
                                         <ColumnDefinition Width="1.5*" />
                                     </Grid.ColumnDefinitions>
-                                    <Border Grid.Column="0" Padding="10,5" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Book" HorizontalAlignment="Left" /></Border>
-                                    <Border Grid.Column="1" Padding="10,5" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Rows" HorizontalAlignment="Right" /></Border>
-                                    <Border Grid.Column="2" Padding="10,5" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Kgs" HorizontalAlignment="Right" /></Border>
-                                    <Border Grid.Column="3" Padding="10,5" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Entered ($)" HorizontalAlignment="Right" /></Border>
-                                    <Border Grid.Column="4" Padding="10,5" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="From the book ($)" HorizontalAlignment="Right" /></Border>
-                                    <Border Grid.Column="5" Padding="10,5" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Difference ($)" HorizontalAlignment="Right" /></Border>
+                                    <Border Grid.Column="0" Padding="10,5" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Book" HorizontalAlignment="Left" TextWrapping="Wrap" /></Border>
+                                    <Border Grid.Column="1" Padding="10,5" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Rows" HorizontalAlignment="Right" TextWrapping="Wrap" TextAlignment="Right" /></Border>
+                                    <Border Grid.Column="2" Padding="10,5" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Kgs" HorizontalAlignment="Right" TextWrapping="Wrap" TextAlignment="Right" /></Border>
+                                    <Border Grid.Column="3" Padding="10,5" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Entered ($)" HorizontalAlignment="Right" TextWrapping="Wrap" TextAlignment="Right" /></Border>
+                                    <Border Grid.Column="4" Padding="10,5" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="From the book ($)" HorizontalAlignment="Right" TextWrapping="Wrap" TextAlignment="Right" /></Border>
+                                    <Border Grid.Column="5" Padding="10,5" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Difference ($)" HorizontalAlignment="Right" TextWrapping="Wrap" TextAlignment="Right" /></Border>
                                 </Grid>
                             </ListView.Header>
                             <ListView.ItemContainerStyle>
@@ -281,10 +281,10 @@
                                         <ColumnDefinition Width="1.5*" />
                                         <ColumnDefinition Width="2*" />
                                     </Grid.ColumnDefinitions>
-                                    <Border Grid.Column="0" Padding="16,2" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Species" HorizontalAlignment="Left" /></Border>
-                                    <Border Grid.Column="1" Padding="16,2" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Price ($/kg)" HorizontalAlignment="Right" /></Border>
-                                    <Border Grid.Column="2" Padding="16,2" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Kgs" HorizontalAlignment="Right" /></Border>
-                                    <Border Grid.Column="3" Padding="16,2" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Total ($)" HorizontalAlignment="Right" /></Border>
+                                    <Border Grid.Column="0" Padding="16,2" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Species" HorizontalAlignment="Left" TextWrapping="Wrap" /></Border>
+                                    <Border Grid.Column="1" Padding="16,2" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Price ($/kg)" HorizontalAlignment="Right" TextWrapping="Wrap" TextAlignment="Right" /></Border>
+                                    <Border Grid.Column="2" Padding="16,2" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Kgs" HorizontalAlignment="Right" TextWrapping="Wrap" TextAlignment="Right" /></Border>
+                                    <Border Grid.Column="3" Padding="16,2" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Total ($)" HorizontalAlignment="Right" TextWrapping="Wrap" TextAlignment="Right" /></Border>
                                 </Grid>
                             </ListView.Header>
                             <ListView.ItemContainerStyle>
@@ -312,12 +312,12 @@
                                         <ColumnDefinition Width="1.5*" />
                                         <ColumnDefinition Width="1.5*" />
                                 </Grid.ColumnDefinitions>
-                                    <Border Grid.Column="0" Padding="16,2" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Species" HorizontalAlignment="Left" /></Border>
-                                    <Border Grid.Column="1" Padding="16,2" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Kgs" HorizontalAlignment="Right" /></Border>
-                                    <Border Grid.Column="2" Padding="16,2" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Total ($)" HorizontalAlignment="Right" /></Border>
-                                    <Border Grid.Column="3" Padding="16,2" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Avg Price" HorizontalAlignment="Right" /></Border>
-                                    <Border Grid.Column="4" Padding="16,2" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Highest Price" HorizontalAlignment="Right" /></Border>
-                                    <Border Grid.Column="5" Padding="16,2" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Lowest Price" HorizontalAlignment="Right" /></Border>
+                                    <Border Grid.Column="0" Padding="16,2" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Species" HorizontalAlignment="Left" TextWrapping="Wrap" /></Border>
+                                    <Border Grid.Column="1" Padding="16,2" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Kgs" HorizontalAlignment="Right" TextWrapping="Wrap" TextAlignment="Right" /></Border>
+                                    <Border Grid.Column="2" Padding="16,2" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Total ($)" HorizontalAlignment="Right" TextWrapping="Wrap" TextAlignment="Right" /></Border>
+                                    <Border Grid.Column="3" Padding="16,2" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Avg Price" HorizontalAlignment="Right" TextWrapping="Wrap" TextAlignment="Right" /></Border>
+                                    <Border Grid.Column="4" Padding="16,2" BorderThickness="0,0,1,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Highest Price" HorizontalAlignment="Right" TextWrapping="Wrap" TextAlignment="Right" /></Border>
+                                    <Border Grid.Column="5" Padding="16,2" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource LineBrush}"><TextBlock Text="Lowest Price" HorizontalAlignment="Right" TextWrapping="Wrap" TextAlignment="Right" /></Border>
                             </Grid>
                         </ListView.Header>
                         <ListView.ItemContainerStyle>
@@ -559,7 +559,7 @@
             <Rectangle Grid.Column="3" Width="1" Height="14" Fill="{ThemeResource LineBrush}" />
             <TextBlock x:Name="StatusMsg" Grid.Column="4" Text="Prototype - open or save a .fbd file from the File menu." FontSize="12" />
             <TextBlock x:Name="SelText" Grid.Column="5" Text="" FontSize="12" FontWeight="SemiBold" Margin="0,0,16,0" />
-            <TextBlock x:Name="VersionText" Grid.Column="6" Text="WinUI prototype - step 14" FontSize="12" Opacity="0.7" />
+            <TextBlock x:Name="VersionText" Grid.Column="6" Text="WinUI" FontSize="12" Opacity="0.7" />
         </Grid>
     </Grid>
     </Grid>
