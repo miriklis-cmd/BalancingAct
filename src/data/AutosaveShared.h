@@ -57,11 +57,15 @@ inline std::wstring ReadSetting(const std::wstring& dir, const wchar_t* key) {
     return std::wstring();
 }
 
-// Sets one key (adding it if missing). Does nothing if settings.txt does not exist yet (the Win32 app creates it).
+// Sets one key (adding it if missing). Creates settings.txt if it does not exist yet (v0.23.0).
 inline void WriteSetting(const std::wstring& dir, const wchar_t* key, const std::wstring& value) {
     const std::wstring path = dir + L"\\settings.txt";
     std::vector<std::wstring> lines;
-    if (!ReadAllLines(path, lines)) return;
+    if (!ReadAllLines(path, lines)) {
+        // v0.23.0: settings.txt not there yet (a fresh PC where only the WinUI app has run): start it. If the file EXISTS but
+        // could not be read (locked, unreadable) do nothing - writing one line over it would lose every other setting.
+        if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) return;
+    }
     const std::wstring prefix = std::wstring(key) + L"=";
     bool found = false;
     for (auto& l : lines)

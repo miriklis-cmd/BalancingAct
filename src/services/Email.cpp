@@ -14,6 +14,9 @@
 // FishBalanceCore.h, which takes the current hour as an explicit
 // parameter from EmailSupplier() below and calls GreetingForHour()
 // directly, so GreetingForNow() had no remaining caller.)
+// v0.23.0: the date an email carries - the sheet date handed in via EmailWording::dateText; today only as a fallback.
+static std::wstring EmailDate(const EmailWording& w) { return w.dateText.empty() ? TodayDateString() : w.dateText; }
+
 std::wstring TodayDateString() {
     SYSTEMTIME st;
     GetLocalTime(&st);
@@ -27,14 +30,14 @@ std::wstring TodayDateString() {
 // LooksLikeEmail() - see that function's comment. outError, when non-null,
 // is set to a short, user-facing reason on any failure (an invalid stored
 // address, or ShellExecuteW failing to launch a mail client).
-bool EmailSupplier(const std::wstring& email, const SupplierGroup& sg, std::wstring* outError) {
+bool EmailSupplier(const std::wstring& email, const SupplierGroup& sg, std::wstring* outError, const EmailWording& wording) {
     SYSTEMTIME st;
     GetLocalTime(&st);
     // v0.9.58: supplier name is always in the subject (was only added when
     // there was no To address). Safe for any supplier text: BuildMailtoUri
     // percent-encodes the subject independently of the other components.
-    std::wstring subject = L"Prices - " + TodayDateString() + L" - " + sg.supplier;
-    std::wstring body = BuildSupplierEmailBody(sg, st.wHour, TodayDateString());
+    std::wstring subject = FormatEmailSubject(wording.subject, EmailDate(wording), sg.supplier);
+    std::wstring body = BuildSupplierEmailBody(sg, st.wHour, EmailDate(wording), wording);
 
     MailtoBuildResult built = BuildMailtoUri(email, subject, body);
     if (!built.ok) {
@@ -68,13 +71,14 @@ static std::wstring SafeFileStem(const std::wstring& s) {
     return o.empty() ? std::wstring(L"supplier") : o;
 }
 
-bool EmailSupplierWith(EmailMode mode, const std::wstring& email, const SupplierGroup& sg, std::wstring* outError) {
-    if (mode != EmailMode::Eml) return EmailSupplier(email, sg, outError);
+bool EmailSupplierWith(EmailMode mode, const std::wstring& email, const SupplierGroup& sg, std::wstring* outError,
+                       const EmailWording& wording) {
+    if (mode != EmailMode::Eml) return EmailSupplier(email, sg, outError, wording);
 
     SYSTEMTIME st;
     GetLocalTime(&st);
-    std::wstring subject = L"Prices - " + TodayDateString() + L" - " + sg.supplier;
-    EmlBuildResult built = BuildSupplierEml(sg, st.wHour, TodayDateString(), email, subject);
+    std::wstring subject = FormatEmailSubject(wording.subject, EmailDate(wording), sg.supplier);
+    EmlBuildResult built = BuildSupplierEml(sg, st.wHour, EmailDate(wording), email, subject, true, wording);
     if (!built.ok) { if (outError) *outError = built.error; return false; }
 
     wchar_t tmp[MAX_PATH] = {};

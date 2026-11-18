@@ -185,7 +185,14 @@ EMAILMODE=mailto
 - `MAX` — `1` if the window was maximized, `0` otherwise.
 - `autosave.lock` (v0.18.0, same folder) - empty file held open exclusively by the app that owns autosave.fbd; deleted when it exits.
 - `GMAILACCOUNT` — (v0.21.0) optional Google account address used as the sign-in hint and for the "open Gmail Drafts" link. Written back only when set.
-- `EMAILMODE` — (v0.20.0) how Email All Suppliers opens drafts: `mailto` (default; also used when missing or unknown), `eml` (Outlook draft with an HTML table), `gmail` (v0.21.0: drafts created in Gmail via the API). Set from Tools > Email method. Win32 rewrites it with the other keys; WinUI leaves it alone.
+- `EMAILMODE` — (v0.20.0) how Email All Suppliers opens drafts: `mailto` (default; also used when missing or unknown), `eml` (Outlook draft with an HTML table), `gmail` (v0.21.0: drafts created in Gmail via the API). Set from Tools > Settings > Email. Win32 rewrites it with the other keys; WinUI leaves it alone.
+- `EMAILSUBJECT`, `EMAILINTRO`, `EMAILSIGNOFF` - (v0.22.0) email wording; written only when customised. Subject may contain `{supplier}` and `{date}`. Single line, max 150 chars; missing/blank = standard wording.
+- `BACKUPMINUTES` (1-60, default 3), `BACKUPKEEP` (10-500, default 50) - (v0.22.0) backup throttle and number of snapshots kept.
+- `OUTLIERSENS` - (v0.22.0) price-flag sensitivity: 0 relaxed, 1 normal (default), 2 strict.
+- `DATESTYLE` - (v0.23.0) date format in emails: 0 long "18 November 2026" (default), 1 "18 Nov 2026", 2 "18/11/2026".
+- `TEXTSIZE` - (v0.23.0) list text size in percent: 100 (default), 125, 150. Read at start-up.
+- `PRINTER` - (v0.23.0) printer name the Print dialog/preview start from; absent = the Windows default printer.
+- `PRINTORIENT` (0 printer default, 1 portrait, 2 landscape), `PRINTPAPER` (0 printer default, 1 A4, 2 A3) - (v0.23.0).
 - `DIRTY` — (v0.17.3) `1` if the app was closed with unsaved changes, `0` otherwise. Written on a clean exit only. At startup `1` makes the recovered sheet count as unsaved, so File > New / Open ask before discarding it.
 - `LASTFILE` — path of the last-open named file. Only ever written on a
   clean exit (`SaveSettings`, called from `WM_DESTROY`), so after a crash

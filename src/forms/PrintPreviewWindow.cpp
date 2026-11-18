@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "../core/FishBalanceCore.h"
+#include "../data/AppData.h" // CurrentPrintDefaults (v0.23.0)
 #include "../core/FishBalanceControlLimits.h"
 #include "../data/AppData.h"
 #include "../data/FishBalanceWin32IO.h"
@@ -157,7 +158,7 @@ void OpenPrintPreview(HWND owner) {
     // Page size comes from the default printer (capped DPI, validated) - shared with the WinUI prototype.
     PreviewPageSpec spec;
     std::wstring budgetError;
-    if (!GetPreviewPageSpec(spec, &budgetError)) {
+    if (!GetPreviewPageSpec(spec, &budgetError, CurrentPrintDefaults())) {
         MessageBoxW(owner, budgetError.c_str(), L"Print Preview", MB_OK | MB_ICONERROR);
         return;
     }

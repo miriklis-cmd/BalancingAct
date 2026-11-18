@@ -32,6 +32,7 @@ set(APP_SOURCES
     src/forms/ManageNamesWindow.cpp
     src/forms/PrintPreviewWindow.cpp
     src/forms/DrillDownWindow.cpp
+    src/forms/SettingsWindow.cpp
 )
 
 add_executable(FishBalanceManager WIN32 ${APP_SOURCES} app_icon.rc)

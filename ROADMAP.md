@@ -353,6 +353,9 @@ Proposed internal order, with dependencies noted:
    view).
 
 - v0.21.0 (2026-11-18): Gmail draft option built (Gmail API, Internal OAuth, drafts.create only). Written, not yet run live by Jack.
+- v0.23.1 (2026-11-18) + WinUI step 14: Tools > Settings in WinUI (same keys as Win32), written not compiled.
+- v0.23.0 (2026-11-18): emails use the sheet date (fix); Settings > Display & printing: list text size, email date format, print defaults (printer / A4-A3 / orientation).
+- v0.22.0 (2026-11-18): Tools > Settings modal window (email method + wording, backups, price-flag sensitivity, data folder). Replaced the Tools > Email method items.
 - v0.20.0 (2026-11-18): Tools > Email method (mailto / .eml). Gmail draft option greyed out pending the Gmail API test (Cloud project + Internal OAuth client created; test script with Jack).
 - v0.19.0 (2026-11-17): shared Filter box on Overview / Breakdown / By Species (filtered totals). Written, not yet run by Jack.
 - v0.18.6 (2026-11-16): manifest embedded in exe (copied exe keeps themed buttons/combos).

@@ -21,6 +21,49 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.23.1] - 2026-11-18
+
+### Changed
+- Win32: the Gmail failure message now points to Tools > Settings > Email (it still named the old Tools > Email method menu).
+- Shared code for the WinUI prototype's Settings (WinUI step 14): new `src/data/UserSettings.h` (reads/writes the Tools > Settings keys one at a time through `autosave_shared`), and `autosave_shared::WriteSetting` now creates `settings.txt` when it does not exist yet (it still refuses to touch a file that exists but cannot be read). The Win32 app does not use `UserSettings.h`.
+
+## [WinUI step 14b] - 2026-11-18
+
+- Settings dialog layout (first run on the new project, step 14 compiles and opens): the dialog is wider (780), the tab headers use a smaller font so all four fit, each tab is a vertically scrolling area sized to the window, and the text boxes no longer run off the right edge. Only `MainWindow.xaml.cpp` changed.
+
+## [WinUI in the repo] - 2026-11-18
+
+- The WinUI 3 prototype is now kept in Git under `winui/` (solution, project, XAML, `MainWindow.xaml.h/.cpp`, `.idl`, manifests, assets). It includes the shared code through `$(ProjectDir)..\..` instead of the absolute `C:\Users\jackm\Desktop\claude`, and `src/services/GmailDraft.cpp` is now a project item (Precompiled Header: Not Using). `winui/.gitignore` keeps `.vs`, `packages`, `Generated Files`, build folders, `*.user` and `*.pfx` out. See `winui/README.md` for how to build.
+
+## [WinUI step 14] - 2026-11-18 (written, not compiled or seen)
+
+### Added
+- **Tools > Settings...** in WinUI, a dialog with the same four tabs and the same `settings.txt` keys as Win32 (so a setting changed in either app is seen by the other): Email (method mailto / Outlook .eml / Gmail draft, Gmail account, Forget this PC's Gmail sign-in, subject / opening line / sign-off), Backups & flags (backup interval and snapshots kept, price-flag sensitivity - re-checks the whole sheet at once), Display & printing (list text size - applied immediately here, email date format, printer / paper / orientation defaults), Data & about (data folder + Open folder).
+- WinUI now honours them: Email All Suppliers uses the chosen method (mailto, .eml, or Gmail drafts with the same flow as Win32), your wording and the SHEET date; autosave snapshots use your interval and count; Print / Print Preview start from your printer, paper and orientation; price flags use your sensitivity.
+- Needs: `src/services/GmailDraft.cpp` added to the WinUI project as an item (precompiled header: Not Using) - it cannot be unity-included because it must include winsock2.h before windows.h. The shared `src` folder must be the v0.23.1 one. XAML: `x:Name="ToolsMenu"` on the Tools menu; the menu item itself is added in code (no .h change needed).
+
+## [0.23.0] - 2026-11-18
+
+### Fixed
+- **Emails now carry the sheet date, not today's date.** Subject and opening line used the day the email was sent, so Saturday's sales entered on Monday said Monday. The date now comes from the entries' own date (the date-picker value); with no dated entries it falls back to today. Applies to mailto, .eml and Gmail drafts.
+
+### Added (Tools > Settings)
+- New tab **Display & printing**: list text size (Normal / Large 125% / Extra large 150%, used at next start-up; only the lists and their column widths scale, so the fixed layout never clips), email date format (18 November 2026 / 18 Nov 2026 / 18/11/2026), and print defaults - printer (installed printers, or the Windows default), paper (printer default / A4 / A3) and orientation (printer default / portrait / landscape). The Print dialog and Print Preview start from these; everything can still be changed in the dialog. A saved printer that is no longer installed falls back to the Windows default.
+- Tabs renamed: Email, Backups & flags, Display & printing, Data & about.
+- New settings.txt keys: `DATESTYLE`, `TEXTSIZE`, `PRINTER`, `PRINTORIENT`, `PRINTPAPER` (DATA_FORMATS.md).
+- `PrintBreakdownJob` / `GetPreviewPageSpec` take an optional `PrintDefaults` (default = old behaviour), so the WinUI prototype is unaffected. New `ListInstalledPrinters()`.
+- Tests: 345 portable (date style, sheet-date selection, clamps, email body). Strict MinGW build clean. The print defaults and text size need a real printer / screen: see Testing.md "v0.23.0 checks".
+
+## [0.22.0] - 2026-11-18
+
+### Added
+- **Tools > Settings...** (modal window, replaces the four Email method items in the Tools menu). Three tabs:
+  - *Email*: method (mailto / Outlook .eml / Gmail draft), Gmail account, "Forget this PC's Gmail sign-in", and editable wording - subject (`{supplier}` and `{date}` are filled in), opening line, sign-off. Blank = standard wording. Applies to all three methods.
+  - *Backups & price flags*: backup interval (1-60 min, default 3), snapshots kept (10-500, default 50), price-flag sensitivity Relaxed / Normal / Strict (Tukey fence 2.5 / 1.5 / 1.0). Changing sensitivity re-checks every entry on the sheet immediately.
+  - *Data folder & about*: shows the data folder path, Open folder button, version.
+- New settings.txt keys: `EMAILSUBJECT`, `EMAILINTRO`, `EMAILSIGNOFF`, `BACKUPMINUTES`, `BACKUPKEEP`, `OUTLIERSENS` (see DATA_FORMATS.md).
+- New: `src/forms/SettingsWindow.{h,cpp}` (added to build_msvc.bat, build_mingw.bat, CMakeLists.txt, run_integration_tests.ps1). Core: `EmailWording`, `FormatEmailSubject`, clamps, `g_outlierFence`. 343 portable tests; strict MinGW build clean. The window itself is checked by hand (Testing.md "v0.22.0 checks").
+
 ## [0.21.0] - 2026-11-18
 ### Added
 - **Gmail drafts** (Tools > Email method > "Gmail draft"): Email All Suppliers creates one draft per supplier in Gmail through the Gmail API; nothing is sent - you review and send from Gmail's Drafts folder (the app offers to open it). The To address comes from Manage Names, same wording and HTML table as the `.eml` option. A supplier with no address gets a draft with To blank.

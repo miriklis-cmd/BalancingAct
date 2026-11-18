@@ -11,6 +11,7 @@
 #include "../services/ReportRender.h" // UniqueFont / UniqueDC / ScopedSelect
 #include "UiState.h"
 #include "MainWindowApi.h" // MakeControl
+#include "../data/AppData.h" // g_settings (v0.23.0 text size)
 
 // ---------------------------------------------------------------------------
 // Control creation helpers
@@ -27,7 +28,9 @@ void AddColumn(HWND lv, int idx, LPCWSTR text, int width) {
     LVCOLUMNW col{};
     col.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
     col.pszText = const_cast<LPWSTR>(text);
-    col.cx = S(width); // v0.9.61: DPI-scaled like every other layout dimension (columns were fixed pixels, so text truncated at 125-150% scaling)
+    // v0.23.0: lists use g_listFont (Settings > text size), set before the first column goes in; column widths grow with it.
+    if (idx == 0 && g_listFont) SendMessageW(lv, WM_SETFONT, (WPARAM)g_listFont, TRUE);
+    col.cx = MulDiv(S(width), g_textPercent, 100); // v0.9.61: DPI-scaled like every other layout dimension (columns were fixed pixels, so text truncated at 125-150% scaling)
     col.iSubItem = idx;
     ListView_InsertColumn(lv, idx, &col);
 }
@@ -40,6 +43,12 @@ void InitFonts() {
     LOGFONTW lfBold = ncm.lfMessageFont;
     lfBold.lfWeight = FW_BOLD;
     g_boldFont = CreateFontIndirectW(&lfBold);
+    // v0.23.0: list text size. Only the lists (the text read all day) scale; buttons/labels/entry boxes keep the system
+    // size so the fixed layout never clips. Negative lfHeight = character height, so scaling it scales the text.
+    g_textPercent = ClampTextPercent(g_settings.textPercent);
+    LOGFONTW lfList = ncm.lfMessageFont;
+    lfList.lfHeight = MulDiv(lfList.lfHeight, g_textPercent, 100);
+    g_listFont = CreateFontIndirectW(&lfList);
 }
 
 // ---------------------------------------------------------------------------

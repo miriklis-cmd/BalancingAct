@@ -26,6 +26,8 @@ extern int g_dpi;
 extern HWND hTab;
 extern HWND hStatusBar;
 extern HFONT g_normalFont, g_boldFont;
+extern HFONT g_listFont; // v0.23.0: the list text font (Settings > text size); == message font at 100%
+extern int g_textPercent; // v0.23.0: 100 / 125 / 150, read once at start-up from settings
 
 // Tab 1
 extern HWND hLblSupplier, hCmbSupplier, hLblProduct, hCmbProduct;
