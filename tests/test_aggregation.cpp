@@ -511,3 +511,28 @@ TEST_CASE("FindNameByKeyPrefix: auto-complete ignoring spaces/punctuation (v0.17
     CHECK(FindNameByKeyPrefix(names, L"x", c) == L"");
     CHECK(FindNameByKeyPrefix(names, L" / ", c) == L"");          // no letters or digits typed
 }
+
+TEST_SUITE("FilterEntries - v0.19.0 summary-tab filter") {
+    static std::vector<Entry> Fx() {
+        std::vector<Entry> v;
+        Entry a; a.supplier = L"Alpha Fish"; a.product = L"Snapper"; a.kgs = 10; a.price = 5; v.push_back(a);
+        Entry b; b.supplier = L"Beta Co"; b.product = L"Whiting"; b.kgs = 20; b.price = 3; v.push_back(b);
+        Entry c; c.supplier = L"Alpha Fish"; c.product = L"Flathead"; c.kgs = 4; c.price = 8; v.push_back(c);
+        return v;
+    }
+    TEST_CASE("blank or spaces-only filter keeps everything") {
+        CHECK(FilterEntries(Fx(), L"").size() == 3);
+        CHECK(FilterEntries(Fx(), L"   ").size() == 3);
+    }
+    TEST_CASE("matches supplier or species, any case, anywhere in the name") {
+        CHECK(FilterEntries(Fx(), L"alpha").size() == 2);
+        CHECK(FilterEntries(Fx(), L"WHIT").size() == 1);
+        CHECK(FilterEntries(Fx(), L"  head ").size() == 1);
+        CHECK(FilterEntries(Fx(), L"zzz").empty());
+    }
+    TEST_CASE("filtered totals add up only the matching entries") {
+        auto r = ComputeGroupedTotals(FilterEntries(Fx(), L"alpha"), true);
+        CHECK(r.grandKgs == doctest::Approx(14.0));
+        CHECK(r.grandAmt == doctest::Approx(10 * 5 + 4 * 8));
+    }
+}

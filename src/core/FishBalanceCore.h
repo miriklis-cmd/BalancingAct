@@ -100,6 +100,28 @@ inline std::wstring TrimW(const std::wstring& s) {
     return s.substr(a, b - a + 1);
 }
 
+// v0.19.0: the filter rule shared by the entries list and the summary tabs (Overview / Breakdown / By Species).
+// Case-insensitive "contains" on supplier OR species; blank filter matches everything.
+inline std::wstring NormalizeFilterText(const std::wstring& raw) {
+    std::wstring f = TrimW(raw);
+    for (auto& ch : f) ch = (wchar_t)::towlower(ch);
+    return f;
+}
+inline bool EntryMatchesFilter(const Entry& e, const std::wstring& normalizedFilter) {
+    if (normalizedFilter.empty()) return true;
+    auto lower = [](std::wstring s) { for (auto& ch : s) ch = (wchar_t)::towlower(ch); return s; };
+    return lower(e.supplier).find(normalizedFilter) != std::wstring::npos ||
+           lower(e.product).find(normalizedFilter) != std::wstring::npos;
+}
+// The entries that pass the filter, in their original order (a copy; the originals are untouched).
+inline std::vector<Entry> FilterEntries(const std::vector<Entry>& entries, const std::wstring& rawFilter) {
+    const std::wstring f = NormalizeFilterText(rawFilter);
+    if (f.empty()) return entries;
+    std::vector<Entry> out;
+    for (const auto& e : entries) if (EntryMatchesFilter(e, f)) out.push_back(e);
+    return out;
+}
+
 // Dates are stored as ISO "YYYY-MM-DD" throughout (sorts correctly as plain
 // text, unambiguous regardless of locale).
 inline std::wstring FormatDateISO(const SimpleDate& d) {
@@ -2197,6 +2219,98 @@ inline std::wstring BuildSupplierEmailBody(const SupplierGroup& sg, int currentH
                L"Kind regards,";
     }
     return body;
+}
+
+// ---------------------------------------------------------------------------
+// v0.20.0: how supplier emails are opened (Tools > Email method) and the .eml draft builder
+// ---------------------------------------------------------------------------
+enum class EmailMode { Mailto = 0, Eml = 1, Gmail = 2 };
+inline EmailMode ParseEmailMode(const std::wstring& s) {
+    if (s == L"eml") return EmailMode::Eml;
+    if (s == L"gmail") return EmailMode::Gmail;
+    return EmailMode::Mailto; // anything unknown or missing = the original behaviour
+}
+inline const wchar_t* EmailModeToString(EmailMode m) {
+    return m == EmailMode::Eml ? L"eml" : (m == EmailMode::Gmail ? L"gmail" : L"mailto");
+}
+
+inline std::wstring HtmlEscapeW(const std::wstring& s) {
+    std::wstring o;
+    for (wchar_t c : s) {
+        if (c == L'&') o += L"&amp;";
+        else if (c == L'<') o += L"&lt;";
+        else if (c == L'>') o += L"&gt;";
+        else if (c == L'"') o += L"&quot;";
+        else o += c;
+    }
+    return o;
+}
+
+inline std::string Base64EncodeBytes(const std::string& in) {
+    static const char* t = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    size_t i = 0;
+    for (; i + 2 < in.size(); i += 3) {
+        unsigned v = ((unsigned char)in[i] << 16) | ((unsigned char)in[i + 1] << 8) | (unsigned char)in[i + 2];
+        out += t[(v >> 18) & 63]; out += t[(v >> 12) & 63]; out += t[(v >> 6) & 63]; out += t[v & 63];
+    }
+    if (i + 1 == in.size()) {
+        unsigned v = (unsigned char)in[i] << 16;
+        out += t[(v >> 18) & 63]; out += t[(v >> 12) & 63]; out += "==";
+    } else if (i + 2 == in.size()) {
+        unsigned v = ((unsigned char)in[i] << 16) | ((unsigned char)in[i + 1] << 8);
+        out += t[(v >> 18) & 63]; out += t[(v >> 12) & 63]; out += t[(v >> 6) & 63]; out += '=';
+    }
+    return out;
+}
+
+struct EmlBuildResult {
+    bool ok = false;
+    std::string content;  // the whole .eml file, UTF-8, CRLF line ends (meaningful only when ok)
+    std::wstring error;   // user-facing reason when !ok
+};
+
+// Builds an UNSENT draft (X-Unsent: 1) as an .eml file: an HTML email with the same wording as the mailto body but
+// a real table, which classic Outlook opens as an editable draft. `email` may be empty (To left blank for the user to fill in);
+// a non-empty address must pass LooksLikeEmail() (this also blocks header injection). The subject may not contain
+// control characters; non-ASCII subjects are encoded per RFC 2047.
+inline EmlBuildResult BuildSupplierEml(const SupplierGroup& sg, int currentHour, const std::wstring& dateText,
+                                       const std::wstring& email, const std::wstring& subject, bool unsent = true) {
+    // unsent=false (the Gmail API path): the same message without the "X-Unsent: 1" line - Gmail makes it a draft itself.
+    EmlBuildResult r;
+    if (!email.empty() && !LooksLikeEmail(email)) {
+        r.error = L"The email address saved for this supplier doesn't look valid (" + email + L"). Fix it in Tools > Manage Names.";
+        return r;
+    }
+    for (wchar_t ch : subject)
+        if (ch < 0x20 || ch == 0x7F) { r.error = L"The email subject contains a control character."; return r; }
+
+    std::string subj = PortableWToUtf8(subject);
+    bool ascii = true;
+    for (unsigned char ch : subj) if (ch >= 0x80) ascii = false;
+    std::string subjHeader = ascii ? subj : ("=?UTF-8?B?" + Base64EncodeBytes(subj) + "?=");
+
+    const std::wstring td = L"<td style=\"padding:3px 18px 3px 0;";
+    std::wstring h = L"<html><body style=\"font-family:Calibri,Arial,sans-serif;font-size:11pt\">\r\n";
+    h += L"<p>" + HtmlEscapeW(GreetingForHour(currentHour)) + L",</p>\r\n";
+    h += L"<p>Please find below the prices for today's sale" +
+         (dateText.empty() ? std::wstring() : L" (" + HtmlEscapeW(dateText) + L")") + L":</p>\r\n";
+    h += L"<table style=\"border-collapse:collapse\">\r\n";
+    h += L"<tr style=\"border-bottom:1px solid #000\"><th style=\"text-align:right;padding:3px 18px 3px 0\">KG</th>"
+         L"<th style=\"text-align:left;padding:3px 18px 3px 0\">SPECIES</th>"
+         L"<th style=\"text-align:right;padding:3px 0\">PRICE</th></tr>\r\n";
+    for (const auto& pg : sg.products)
+        for (const auto& pl : pg.prices)
+            h += L"<tr>" + td + L"text-align:right\">" + HtmlEscapeW(FormatKg(pl.kgs)) + L"</td>" +
+                 td + L"\">" + HtmlEscapeW(pg.species) + L"</td>" +
+                 L"<td style=\"padding:3px 0;text-align:right\">" + HtmlEscapeW(FormatMoney(pl.price)) + L"</td></tr>\r\n";
+    h += L"</table>\r\n<p>Kind regards,</p></body></html>\r\n";
+
+    r.content = std::string(unsent ? "X-Unsent: 1\r\n" : "") + "To: " + PortableWToUtf8(email) + "\r\nSubject: " + subjHeader +
+                "\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n" +
+                PortableWToUtf8(h);
+    r.ok = true;
+    return r;
 }
 
 // ---------------------------------------------------------------------------

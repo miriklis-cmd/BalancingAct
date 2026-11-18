@@ -21,6 +21,46 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.21.0] - 2026-11-18
+### Added
+- **Gmail drafts** (Tools > Email method > "Gmail draft"): Email All Suppliers creates one draft per supplier in Gmail through the Gmail API; nothing is sent - you review and send from Gmail's Drafts folder (the app offers to open it). The To address comes from Manage Names, same wording and HTML table as the `.eml` option. A supplier with no address gets a draft with To blank.
+- **Sign-in**: first use on a PC opens the browser for Google sign-in (standard installed-app OAuth with PKCE, loopback reply on 127.0.0.1). The permission asked for is only `gmail.drafts.create` (add drafts; cannot read, send or delete mail). The refresh token is kept encrypted for the Windows user (DPAPI) in `%LOCALAPPDATA%\BalancingAct\gmail_refresh.bin` - per PC, never in the shared data folder. Tools > "Gmail: forget this PC's sign-in" removes it.
+- **Client file**: `client_secret.json` (downloaded from the Cloud console; the Google Cloud project is Internal to the Workspace org) is read from `%LOCALAPPDATA%\BalancingAct\` or `C:\BalancingAct\private\`; if neither has it the app asks once and copies it into `%LOCALAPPDATA%\BalancingAct\`. It is never in the source, the data folder or Git.
+- Optional `GMAILACCOUNT=<address>` line in settings.txt pre-selects that Google account at sign-in and in the "open Gmail Drafts" link (kept by every settings save).
+- If sign-in is cancelled or times out (3 min), the PC is offline, or Gmail refuses a draft, the app says why and how many drafts were already created; mailto and .eml remain available.
+- New: `src/core/GmailCore.h` (pure, tested: SHA-256, PKCE per RFC 7636, base64url, URL building, loopback request parsing, minimal JSON reader, client-file parser, draft request body) and `src/services/GmailDraft.{h,cpp}` (Winsock loopback, WinHTTP, DPAPI, BCrypt; libs ws2_32/winhttp/bcrypt/crypt32 added to the MinGW/CMake link lines, `#pragma comment` for MSVC). `BuildSupplierEml` gained `unsent=false` (no `X-Unsent` header for the API). 10 new tests (337 portable). Strict MinGW build clean. NOT run against Google from the build machine - the live sign-in + draft is the manual check (Testing.md "v0.21.0 checks"). The stand-alone Python test (2026-11-18) already proved the Google side: Internal project, narrow scope, HTML table draft appears in Gmail.
+
+## [0.20.0] - 2026-11-18
+### Added
+- **Tools > Email method** (saved in `settings.txt` as `EMAILMODE`): how Email All Suppliers opens each supplier's draft.
+  - *Open in my mail program (mailto)* - the original behaviour and still the default.
+  - *Outlook draft with a table (.eml)* - writes an unsent HTML email with a real KG / SPECIES / PRICE table to `%TEMP%\BalancingAct_emails\` and opens it with the PC's `.eml` handler (classic Outlook), one supplier at a time with the same confirmations. Needs the `.eml` default app to be Outlook; if Windows can't open it the message says how to fix it or switch back to mailto.
+  - *Gmail draft (coming soon)* - greyed out. Planned: Gmail API `drafts.create` via an Internal OAuth client (Cloud project set up 2026-11-18, `gmail.drafts.create` scope only); a stand-alone test script was handed over first.
+- Core: `EmailMode`, `BuildSupplierEml()` (HTML-escaped, address checked by `LooksLikeEmail`, header-injection refused, RFC 2047 subject), `Base64EncodeBytes`. 6 new tests (327 portable). Strict MinGW build clean.
+- Manual checks: Testing.md "v0.20.0 checks".
+
+## [0.19.0] - 2026-11-17
+### Added
+- **Filter box on the summary tabs** (Total Overview, Breakdown, By Species), top-right of each tab. The three boxes are one shared filter: type in one and the other two follow. Matches supplier OR species, any case, anywhere in the name (same rule as the entries list, now shared code: `EntryMatchesFilter` / `FilterEntries` in `FishBalanceCore.h`).
+- Totals are the filtered totals (Jack's choice): the Overview and By Species grand-total rows read "GRAND TOTAL (filtered)" while a filter is active. By Species gets its own filter row above the list.
+- Not filtered on purpose: the Books table, the Balanced / reconciliation checks, Print Preview / Print, Email Suppliers and the drill-down popup all still use the whole day (so a filter can never send or print a partial report by accident).
+- 3 new tests (321 portable). Strict MinGW build clean. Manual checks: Testing.md "v0.19.0 checks".
+
+## [0.18.6] - 2026-11-16
+### Fixed
+- The visual-styles / DPI manifest is now EMBEDDED in the exe (`app_icon.rc`: `1 24 "app.manifest"`). It used to be a separate `FishBalanceManager.exe.manifest` file next to the exe, so an exe copied on its own (e.g. the portable test copy) ran with classic square buttons, unthemed tabs and badly drawn Supplier/Species boxes. All three build paths (MSVC, MinGW, CMake) now embed it; the external copy step is gone. A stale `.exe.manifest` file left beside the exe is harmless (the embedded one wins).
+- WinUI step 13b: Manage Names dialog follows the window height (default dialog cap was 756 px), so a 1080p monitor shows the whole dialog without a scroll bar; wider too.
+
+## [0.18.5] - 2026-11-16
+### Added
+- **Portable / deletable test copy (Win32).** If a file named `portable.txt` sits beside the exe, the app keeps ALL its data
+  (names.txt, settings.txt, autosave, backups, history, recent files) in a `data` folder beside the exe instead of
+  `C:\BalancingAct\data`. Deleting that folder removes every trace. The title bar shows "[PORTABLE TEST COPY ...]".
+  A portable copy uses its own single-instance mutex, so it can run beside the real app without either closing the other
+  (they never share a data folder, so the autosave lock does not interfere). `portable.txt` and `data/` are git-ignored.
+  Keep the portable copy OUTSIDE the project folder (the build puts the exe there). New `IsPortableMode()` in Storage.h.
+- WinUI: not applicable (packaged app; no portable mode).
+
 ## [0.18.4] - 2026-11-13
 
 ### Changed

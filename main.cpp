@@ -78,6 +78,7 @@
 #include "src/data/Backups.h"
 #include "src/services/CsvExport.h"
 #include "src/services/Email.h"
+#include "src/services/GmailDraft.h"
 #include "src/services/PrintJob.h"
 #include "src/services/ReportRender.h"
 #include "src/forms/MainWindowApi.h"
@@ -166,6 +167,7 @@ void UpdateTitle() {
     }
 
     std::wstring title = L"Fish Balance Manager - " + name;
+    if (IsPortableMode()) title += L"   [PORTABLE TEST COPY - data in the \"data\" folder beside the exe]";
     if (g_hMainWnd) SetWindowTextW(g_hMainWnd, title.c_str());
 
     // Status bar mirrors the same filename shown in the title bar (kept in
@@ -1843,12 +1845,78 @@ void PrintBreakdownReport(HWND owner) {
 // the clock internally, so it can be unit-tested with any hour value - the
 // call site in EmailSupplier below passes the real current hour in).
 
+// v0.20.0: Tools > Email method - the check mark follows g_settings.emailMode.
+static HMENU g_hToolsMenu = nullptr;
+static void UpdateEmailModeMenu() {
+    if (!g_hToolsMenu) return;
+    const UINT id = g_settings.emailMode == EmailMode::Eml ? ID_TOOLS_EMAIL_EML
+                  : (g_settings.emailMode == EmailMode::Gmail ? ID_TOOLS_EMAIL_GMAIL : ID_TOOLS_EMAIL_MAILTO);
+    CheckMenuRadioItem(g_hToolsMenu, ID_TOOLS_EMAIL_MAILTO, ID_TOOLS_EMAIL_GMAIL, id, MF_BYCOMMAND);
+}
+static void SetEmailMode(EmailMode m) {
+    g_settings.emailMode = m;
+    UpdateEmailModeMenu();
+    SaveSettings();
+}
+
+// v0.21.0: Gmail mode - one draft per supplier is created in Gmail (nothing is sent; no window opens per supplier,
+// so there is no one-at-a-time confirmation like the mailto/.eml paths need).
+static void DoEmailSuppliersGmail(const std::vector<SupplierGroup>& data) {
+    std::vector<std::wstring> withoutEmail;
+    for (auto& sg : data) {
+        auto it = g_supplierEmails.find(sg.supplier);
+        if (it == g_supplierEmails.end() || it->second.empty()) withoutEmail.push_back(sg.supplier);
+    }
+    std::wstring msg = L"This will create " + std::to_wstring(data.size()) +
+        (data.size() == 1 ? std::wstring(L" draft email") : std::wstring(L" draft emails")) +
+        L" in Gmail" + (g_settings.gmailAccount.empty() ? std::wstring() : L" (" + g_settings.gmailAccount + L")") +
+        L". Nothing is sent - you review and send each one from Gmail's Drafts folder.\n\n";
+    if (!withoutEmail.empty()) {
+        msg += L"These suppliers have no email address on file, so their draft's To field will be blank:\n";
+        for (auto& s : withoutEmail) msg += L"  - " + s + L"\n";
+        msg += L"\n";
+    }
+    msg += L"Continue?";
+    if (MessageBoxW(g_hMainWnd, msg.c_str(), L"Email Suppliers - Gmail", MB_YESNO | MB_ICONQUESTION) != IDYES) return;
+
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    size_t made = 0;
+    std::wstring problem;
+    for (auto& sg : data) {
+        auto it = g_supplierEmails.find(sg.supplier);
+        std::wstring email = (it != g_supplierEmails.end()) ? it->second : L"";
+        EmlBuildResult built = BuildSupplierEml(sg, st.wHour, TodayDateString(), email,
+                                                L"Prices - " + TodayDateString() + L" - " + sg.supplier, false);
+        if (!built.ok) { problem = sg.supplier + L": " + built.error; break; }
+        std::wstring err;
+        GmailResult r = GmailCreateDraft(g_hMainWnd, built.content, g_settings.gmailAccount, &err);
+        if (r != GmailResult::Ok) { problem = err; break; }
+        made++;
+    }
+    if (!problem.empty()) {
+        std::wstring m = problem + L"\n\n" + std::to_wstring(made) + L" of " + std::to_wstring(data.size()) +
+                         L" draft(s) were created before this stopped." +
+                         L"\n\nTip: Tools > Email method lets you switch back to mailto or the Outlook (.eml) option.";
+        MessageBoxW(g_hMainWnd, m.c_str(), L"Gmail drafts", MB_OK | MB_ICONWARNING);
+        return;
+    }
+    std::wstring done = L"Created " + std::to_wstring(made) + (made == 1 ? std::wstring(L" draft") : std::wstring(L" drafts")) +
+                        L" in Gmail. Open Gmail's Drafts folder to review and send them.\n\nOpen Gmail Drafts now?";
+    if (MessageBoxW(g_hMainWnd, done.c_str(), L"Gmail drafts", MB_YESNO | MB_ICONINFORMATION) == IDYES) {
+        std::wstring url = L"https://mail.google.com/mail/" +
+            (g_settings.gmailAccount.empty() ? std::wstring() : L"?authuser=" + g_settings.gmailAccount) + L"#drafts";
+        ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    }
+}
+
 void DoEmailSuppliers() {
     auto data = BuildBreakdownData(g_entries);
     if (data.empty()) {
         MessageBoxW(g_hMainWnd, L"There are no entries to email yet.", L"Email Suppliers", MB_OK | MB_ICONINFORMATION);
         return;
     }
+    if (g_settings.emailMode == EmailMode::Gmail) { DoEmailSuppliersGmail(data); return; }
 
     std::vector<std::wstring> withoutEmail;
     for (auto& sg : data) {
@@ -1858,7 +1926,8 @@ void DoEmailSuppliers() {
 
     std::wstring msg = L"This will open " + std::to_wstring(data.size()) +
         (data.size() == 1 ? std::wstring(L" email") : std::wstring(L" emails")) +
-        L" in your default email app, one supplier at a time - you'll be asked to confirm "
+        (g_settings.emailMode == EmailMode::Eml ? L" as Outlook drafts (with a price table)" : L" in your default email app") +
+        L", one supplier at a time - you'll be asked to confirm "
         L"before each one opens, so you can send or close each draft before the next appears.\n\n";
     if (!withoutEmail.empty()) {
         msg += L"These suppliers have no email address on file, so their draft will open with "
@@ -1882,7 +1951,7 @@ void DoEmailSuppliers() {
         std::wstring email = (it != g_supplierEmails.end()) ? it->second : L"";
 
         std::wstring emailErr;
-        if (!EmailSupplier(email, sg, &emailErr)) {
+        if (!EmailSupplierWith(g_settings.emailMode, email, sg, &emailErr)) {
             std::wstring failMsg = L"Couldn't open an email draft for " + sg.supplier + L":\n\n" + emailErr +
                 L"\n\nClick OK to try the next supplier, or Cancel to stop here.";
             if (MessageBoxW(g_hMainWnd, failMsg.c_str(), L"Email Couldn't Open", MB_OKCANCEL | MB_ICONWARNING) == IDCANCEL)
@@ -2096,9 +2165,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                          hLblDebtor, hEditDebtor, hLblCash, hEditCash, hLblBook, hLblEntered, hLblDiff,
                          hLblStatus, hDivRecon1, hDivRecon2,
                          hBtnFinalize };
-        g_tab2Ctrls = { hLblOvBook, hLblOvGrand, hLblOvDiff, hListOverview, hListBooks };
-        g_tab3Ctrls = { hBtnPrintPreview, hBtnPrintBreakdown, hBtnEmailSuppliers, hListBreakdown };
-        g_tab4Ctrls = { hListBySpecies };
+        // v0.19.0: one Filter box per summary tab; all three show the same text (see ID_EDIT_SUMFILTER_* below)
+        for (int i = 0; i < 3; i++) {
+            hLblSumFilter[i] = MakeControl(L"STATIC", L"Filter:", WS_VISIBLE, 0, hwnd);
+            hEditSumFilter[i] = MakeControl(L"EDIT", L"", WS_VISIBLE | WS_BORDER | WS_TABSTOP,
+                                            ID_EDIT_SUMFILTER_OV + i, hwnd);
+        }
+        g_tab2Ctrls = { hLblOvBook, hLblOvGrand, hLblOvDiff, hListOverview, hListBooks, hLblSumFilter[0], hEditSumFilter[0] };
+        g_tab3Ctrls = { hBtnPrintPreview, hBtnPrintBreakdown, hBtnEmailSuppliers, hListBreakdown, hLblSumFilter[1], hEditSumFilter[1] };
+        g_tab4Ctrls = { hListBySpecies, hLblSumFilter[2], hEditSumFilter[2] };
 
         // Status bar: always visible regardless of the active tab (not
         // added to any g_tabNCtrls array, same as hTab itself) - shows the
@@ -2494,6 +2569,25 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case ID_EDIT_FILTER:
             if (code == EN_CHANGE) RefreshEntriesList();
             return 0;
+        case ID_EDIT_SUMFILTER_OV:
+        case ID_EDIT_SUMFILTER_BD:
+        case ID_EDIT_SUMFILTER_SP:
+            if (code == EN_CHANGE) {
+                // v0.19.0: the three boxes are one filter - copy this box's text to the other two, then redraw the three reports.
+                static bool syncing = false;
+                if (syncing) return 0;
+                syncing = true;
+                wchar_t buf[256] = { 0 };
+                GetWindowTextW((HWND)lParam, buf, 256);
+                g_summaryFilter = buf;
+                for (int i = 0; i < 3; i++)
+                    if (hEditSumFilter[i] != (HWND)lParam) SetWindowTextW(hEditSumFilter[i], buf);
+                RefreshOverviewList();
+                RefreshBySpeciesList();
+                RefreshBreakdownList();
+                syncing = false;
+            }
+            return 0;
         // Supplier/Species/Kgs/Price/Notes below all autosave the
         // in-progress draft on losing focus, not on every keystroke - see
         // the Debtor/Cash EN_KILLFOCUS case below for the full reasoning
@@ -2566,6 +2660,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case ID_BTN_EMAIL_SUPPLIERS: DoEmailSuppliers(); return 0;
         case ID_EDIT_UNDO_DELETE: UndoDelete(); return 0;
         case ID_TOOLS_MANAGE_NAMES: OpenManageNamesWindow(); return 0;
+        case ID_TOOLS_EMAIL_MAILTO: SetEmailMode(EmailMode::Mailto); return 0;
+        case ID_TOOLS_EMAIL_EML: SetEmailMode(EmailMode::Eml); return 0;
+        case ID_TOOLS_EMAIL_GMAIL: SetEmailMode(EmailMode::Gmail); return 0;
+        case ID_TOOLS_GMAIL_FORGET:
+            if (!GmailHasSavedSignIn()) {
+                MessageBoxW(hwnd, L"This PC has no saved Gmail sign-in.", L"Gmail", MB_OK | MB_ICONINFORMATION);
+            } else if (MessageBoxW(hwnd, L"Forget this PC's saved Gmail sign-in? You will be asked to sign in to Google "
+                                         L"again the next time you create Gmail drafts. (Your Google account is not changed.)",
+                                   L"Gmail", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                GmailForgetSignIn();
+            }
+            return 0;
         case ID_FILE_EXIT: DestroyWindow(hwnd); return 0;
         case ID_FILE_ABOUT: DoAbout(); return 0;
         }
@@ -2679,6 +2785,14 @@ HWND CreateFishBalanceMainWindow(HINSTANCE hInstance, int nCmdShow) {
 
     HMENU hToolsMenu = CreatePopupMenu();
     AppendMenuW(hToolsMenu, MF_STRING, ID_TOOLS_MANAGE_NAMES, L"&Manage Supplier / Species Names...");
+    // v0.20.0: how "Email All Suppliers" opens each draft (saved in settings.txt EMAILMODE)
+    AppendMenuW(hToolsMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(hToolsMenu, MF_STRING, ID_TOOLS_EMAIL_MAILTO, L"Email method: open in my &mail program (mailto)");
+    AppendMenuW(hToolsMenu, MF_STRING, ID_TOOLS_EMAIL_EML, L"Email method: Outlook draft with a &table (.eml)");
+    AppendMenuW(hToolsMenu, MF_STRING, ID_TOOLS_EMAIL_GMAIL, L"Email method: &Gmail draft (saved in Gmail Drafts)");
+    AppendMenuW(hToolsMenu, MF_STRING, ID_TOOLS_GMAIL_FORGET, L"Gmail: forget this PC's &sign-in");
+    g_hToolsMenu = hToolsMenu;
+    UpdateEmailModeMenu();
     AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hToolsMenu, L"&Tools");
 
     HMENU hHelpMenu = CreatePopupMenu();
@@ -2706,7 +2820,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     // would both write the same autosave/settings/backup files. If another
     // copy already holds the mutex, bring its window to the front and exit.
     // The handle is deliberately kept open for the life of the process.
-    HANDLE singleInstanceMutex = CreateMutexW(nullptr, FALSE, L"Local\\FishBalanceManager_SingleInstance");
+    HANDLE singleInstanceMutex = CreateMutexW(nullptr, FALSE,
+        IsPortableMode() ? L"Local\\FishBalanceManager_SingleInstance_Portable" // a portable test copy may run beside the real app
+                         : L"Local\\FishBalanceManager_SingleInstance");
     if (singleInstanceMutex && GetLastError() == ERROR_ALREADY_EXISTS) {
         HWND existing = FindWindowW(L"FishBalanceMainWindow", nullptr);
         if (existing) {

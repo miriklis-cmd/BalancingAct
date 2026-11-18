@@ -83,5 +83,7 @@ struct AppSettings {
     bool maximized = false;
     std::wstring lastFile;
     bool dirtyAtExit = false; // v0.17.3: the app was closed with unsaved changes (they live on in autosave.fbd)
+    std::wstring gmailAccount; // v0.21.0: settings.txt GMAILACCOUNT=<address> - pre-selects this Google account at sign-in (optional)
+    EmailMode emailMode = EmailMode::Mailto; // v0.20.0: settings.txt EMAILMODE=mailto|eml|gmail (Tools > Email method)
 };
 extern AppSettings g_settings;

@@ -25,8 +25,29 @@ std::wstring GetExeDir();
 
 // v0.13.1 (Jack, 2026-11-06): emails.txt and names.txt are shared reference data, not per-exe settings, so they live
 // in one fixed folder both apps (and later other machines) can use, outside the repo and outside Program Files.
+bool IsPortableMode() {
+    if (!g_exeDirOverrideForTests.empty()) return false;
+    static int cached = -1;
+    if (cached < 0) {
+        const DWORD a = GetFileAttributesW((GetExeDir() + L"\\portable.txt").c_str());
+        cached = (a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY)) ? 1 : 0;
+    }
+    return cached == 1;
+}
+
 std::wstring GetSharedDataDir() {
     if (!g_exeDirOverrideForTests.empty()) return g_exeDirOverrideForTests;
+    if (IsPortableMode()) {
+        // v0.18.5 portable copy: everything beside the exe, nothing in C:\BalancingAct.
+        static std::wstring portableDir;
+        if (portableDir.empty()) {
+            const std::wstring d = GetExeDir() + L"\\data";
+            CreateDirectoryW(d.c_str(), nullptr); // already existing is fine
+            const DWORD a = GetFileAttributesW(d.c_str());
+            portableDir = (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY)) ? d : GetExeDir();
+        }
+        return portableDir;
+    }
     static std::wstring cached;
     static bool tried = false;
     if (!tried) {
@@ -126,6 +147,8 @@ void LoadSettings(int dpi) {
         else if (key == L"MAX") g_settings.maximized = (val == L"1");
         else if (key == L"LASTFILE") g_settings.lastFile = val;
         else if (key == L"DIRTY") g_settings.dirtyAtExit = (val == L"1");
+        else if (key == L"EMAILMODE") g_settings.emailMode = ParseEmailMode(val);
+        else if (key == L"GMAILACCOUNT") g_settings.gmailAccount = val;
     }
     if (g_settings.w < 640) g_settings.w = 1050;
     if (g_settings.h < 480) g_settings.h = 720;
@@ -154,6 +177,8 @@ void SaveSettingsFile(int x, int y, int w, int h, bool maximized, const std::wst
     writeLine(std::wstring(L"MAX=") + (maximized ? L"1" : L"0"));
     writeLine(L"LASTFILE=" + lastFile);
     writeLine(std::wstring(L"DIRTY=") + (dirtyAtExit ? L"1" : L"0"));
+    writeLine(std::wstring(L"EMAILMODE=") + EmailModeToString(g_settings.emailMode)); // v0.20.0 (must be rewritten here or a save would drop it)
+    if (!g_settings.gmailAccount.empty()) writeLine(L"GMAILACCOUNT=" + g_settings.gmailAccount);
 
     // Failure here stays silent (as it always has been) - losing
     // settings.txt only means window position/last-file aren't remembered

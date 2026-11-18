@@ -57,6 +57,9 @@ extern HWND hListBreakdown, hBtnPrintBreakdown, hBtnEmailSuppliers, hBtnPrintPre
 
 // Tab 4 - By Species
 extern HWND hListBySpecies;
+// v0.19.0: one Filter box on each summary tab (Overview / Breakdown / By Species), all showing the same text.
+extern HWND hLblSumFilter[3], hEditSumFilter[3];
+extern std::wstring g_summaryFilter; // the shared text; empty = no filter
 
 extern std::vector<HWND> g_tab1Ctrls, g_tab2Ctrls, g_tab3Ctrls, g_tab4Ctrls;
 extern bool g_diffOk;

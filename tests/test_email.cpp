@@ -221,3 +221,62 @@ TEST_SUITE("BuildSupplierEmailBody") {
         CHECK(body.find(L"100 species") != std::wstring::npos);
     }
 }
+
+TEST_SUITE("v0.20.0 email mode + .eml builder") {
+    static SupplierGroup Sg() {
+        SupplierGroup sg; sg.supplier = L"Alpha & Co";
+        ProductGroup pg; pg.species = L"Ckd <Sch> Prawn"; pg.prices.push_back({22.5, 8.0, 180.0});
+        sg.products.push_back(pg);
+        return sg;
+    }
+    TEST_CASE("mode text round-trips; unknown or empty means mailto") {
+        CHECK(ParseEmailMode(L"eml") == EmailMode::Eml);
+        CHECK(ParseEmailMode(L"gmail") == EmailMode::Gmail);
+        CHECK(ParseEmailMode(L"mailto") == EmailMode::Mailto);
+        CHECK(ParseEmailMode(L"") == EmailMode::Mailto);
+        CHECK(ParseEmailMode(L"junk") == EmailMode::Mailto);
+        CHECK(std::wstring(EmailModeToString(EmailMode::Eml)) == L"eml");
+    }
+    TEST_CASE("eml is an unsent HTML draft with the table, addressed to the supplier") {
+        auto r = BuildSupplierEml(Sg(), 9, L"18 November 2026", L"a@b.com", L"Prices - 18 November 2026 - Alpha");
+        REQUIRE(r.ok);
+        CHECK(r.content.find("X-Unsent: 1\r\nTo: a@b.com\r\nSubject: Prices - 18 November 2026 - Alpha\r\n") == 0);
+        CHECK(r.content.find("Content-Type: text/html; charset=utf-8") != std::string::npos);
+        CHECK(r.content.find("<table") != std::string::npos);
+        CHECK(r.content.find("$22.50") != std::string::npos);
+        CHECK(r.content.find("8.0") != std::string::npos);
+    }
+    TEST_CASE("species and date text are HTML-escaped") {
+        auto r = BuildSupplierEml(Sg(), 9, L"x<y", L"", L"S");
+        REQUIRE(r.ok);
+        CHECK(r.content.find("Ckd &lt;Sch&gt; Prawn") != std::string::npos);
+        CHECK(r.content.find("x&lt;y") != std::string::npos);
+        CHECK(r.content.find("Ckd <Sch>") == std::string::npos);
+    }
+    TEST_CASE("blank address is allowed; bad address and header-injection are refused") {
+        CHECK(BuildSupplierEml(Sg(), 9, L"", L"", L"S").ok);
+        CHECK_FALSE(BuildSupplierEml(Sg(), 9, L"", L"not-an-address", L"S").ok);
+        CHECK_FALSE(BuildSupplierEml(Sg(), 9, L"", L"a@b.com\r\nBcc: x@y.com", L"S").ok);
+        CHECK_FALSE(BuildSupplierEml(Sg(), 9, L"", L"a@b.com", L"S\r\nBcc: x@y.com").ok);
+    }
+    TEST_CASE("non-ASCII subject is RFC 2047 encoded") {
+        auto r = BuildSupplierEml(Sg(), 9, L"", L"", L"Caf\u00E9" /* escape, not a literal: MSVC reads BOM-less sources as ANSI */);
+        REQUIRE(r.ok);
+        CHECK(r.content.find("Subject: =?UTF-8?B?Q2Fmw6k=?=") != std::string::npos);
+    }
+    TEST_CASE("base64 handles all remainders") {
+        CHECK(Base64EncodeBytes("") == "");
+        CHECK(Base64EncodeBytes("f") == "Zg==");
+        CHECK(Base64EncodeBytes("fo") == "Zm8=");
+        CHECK(Base64EncodeBytes("foo") == "Zm9v");
+    }
+}
+
+TEST_CASE("v0.21.0: BuildSupplierEml(unsent=false) has no X-Unsent line (Gmail API drafts)") {
+    SupplierGroup sg; sg.supplier = L"A";
+    ProductGroup pg; pg.species = L"Flathead"; pg.prices.push_back({14.0, 12.5, 175.0}); sg.products.push_back(pg);
+    auto r = BuildSupplierEml(sg, 9, L"d", L"a@b.com", L"S", false);
+    REQUIRE(r.ok);
+    CHECK(r.content.find("X-Unsent") == std::string::npos);
+    CHECK(r.content.rfind("To: a@b.com\r\nSubject: S\r\n", 0) == 0);
+}
