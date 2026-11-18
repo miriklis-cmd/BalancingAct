@@ -178,6 +178,10 @@ namespace
         { 2.62, true }, { 1.86, true }, { 1.39, true }, { 1.5, true },
         { 1.38, true }, { 2.28, true }, { 2.37, true }, { 1.6, true } };
 
+    // Font size for the text in list rows. The row cells are built in code, and a ListViewItem does not pass the
+    // ListView's own FontSize down to them (only the header row inherits it), so every row sets this explicitly.
+    double g_listFontSize = 14.0;
+
     Controls::Grid MakeRow(const std::wstring (&cells)[kColCount], bool flagged, bool bookStart)
     {
         Controls::Grid g;
@@ -193,6 +197,7 @@ namespace
 
             Controls::TextBlock tb;
             tb.Text(hstring{ cells[i] });
+            tb.FontSize(g_listFontSize);
             tb.VerticalAlignment(VerticalAlignment::Center);
             tb.TextTrimming(TextTrimming::CharacterEllipsis);
             if (flagged)
@@ -225,6 +230,7 @@ namespace
 
             Controls::TextBlock tb;
             tb.Text(hstring{ cells[i] });
+            tb.FontSize(g_listFontSize);
             tb.VerticalAlignment(VerticalAlignment::Center);
             tb.HorizontalAlignment(i == 0 ? HorizontalAlignment::Left : HorizontalAlignment::Right);
             tb.TextTrimming(TextTrimming::CharacterEllipsis);
@@ -318,6 +324,7 @@ namespace
         {
             Controls::TextBlock tb;
             tb.Text(hstring{ cells[i] });
+            tb.FontSize(g_listFontSize);
             tb.VerticalAlignment(VerticalAlignment::Center);
             tb.HorizontalAlignment(i == 0 ? HorizontalAlignment::Left : HorizontalAlignment::Right);
             tb.TextTrimming(TextTrimming::CharacterEllipsis);
@@ -350,6 +357,7 @@ namespace
 
             Controls::TextBlock tb;
             tb.Text(hstring{ cells[i] });
+            tb.FontSize(g_listFontSize);
             tb.VerticalAlignment(VerticalAlignment::Center);
             tb.HorizontalAlignment(i == 0 ? HorizontalAlignment::Left : HorizontalAlignment::Right);
             tb.TextTrimming(TextTrimming::CharacterEllipsis);
@@ -381,6 +389,7 @@ namespace
 
             Controls::TextBlock tb;
             tb.Text(hstring{ cells[i] });
+            tb.FontSize(g_listFontSize);
             tb.VerticalAlignment(VerticalAlignment::Center);
             tb.HorizontalAlignment(i == 0 ? HorizontalAlignment::Left : HorizontalAlignment::Right);
             tb.TextTrimming(TextTrimming::CharacterEllipsis);
@@ -429,12 +438,24 @@ namespace winrt::FishBalanceWinUI::implementation
         // List text size: the lists inherit FontSize, so this takes effect at once (the Win32 app needs a restart).
         // Column widths are fixed in the XAML, so at Large / Extra large a long name may be cut short.
         auto applyTextSize = [this]() {
-            const double fs = 14.0 * static_cast<double>(ClampTextPercent(g_user.textPercent)) / 100.0;
-            EntriesList().FontSize(fs);
+            const double pct = static_cast<double>(ClampTextPercent(g_user.textPercent)) / 100.0;
+            const double fs = 14.0 * pct;
+            g_listFontSize = fs;                 // list rows (built in code) - they pick it up when the lists are rebuilt
+            EntriesList().FontSize(fs);          // list headers inherit it straight away
             OvList().FontSize(fs);
             BooksList().FontSize(fs);
             BreakdownList().FontSize(fs);
             TabPage3().FontSize(fs);
+            // The tab names and the status bar have their own fixed sizes in the XAML, so scale those too.
+            TabText0().FontSize(13.0 * pct);
+            TabText1().FontSize(13.0 * pct);
+            TabText2().FontSize(13.0 * pct);
+            TabText3().FontSize(13.0 * pct);
+            CountText().FontSize(12.0 * pct);
+            FileText().FontSize(12.0 * pct);
+            StatusMsg().FontSize(12.0 * pct);
+            SelText().FontSize(12.0 * pct);
+            VersionText().FontSize(12.0 * pct);
         };
         applyTextSize();
 
@@ -481,7 +502,7 @@ namespace winrt::FishBalanceWinUI::implementation
                 return p;
             };
             // Tall enough to show a whole tab on a normal monitor, shorter on a laptop (then it scrolls).
-            const double svHeight = (std::max)(300.0, (std::min)(560.0, RootGrid().ActualHeight() - 260.0));
+            const double svHeight = (std::max)(300.0, (std::min)(720.0, RootGrid().ActualHeight() - 190.0));
             auto scroller = [svHeight](Controls::StackPanel const& content) {
                 Controls::ScrollViewer sv;
                 sv.Content(content);
@@ -549,17 +570,17 @@ namespace winrt::FishBalanceWinUI::implementation
 
             // ---- Backups & price flags ----
             auto nbMinutes = numberBox(ClampBackupMinutes(before.backupMinutes), 1, 60);
-            nbMinutes.Header(box_value(L"Take a backup snapshot at most every (minutes, only if something changed)"));
             auto nbKeep = numberBox(ClampBackupKeep(before.backupKeep), 10, 500);
-            nbKeep.Header(box_value(L"Keep the most recent (snapshots; older ones are deleted)"));
             const int sensIdx = ClampOutlierSensitivity(before.outlierSensitivity);
             auto rbSens = radios({ L"Relaxed - only flag prices that are far from the others",
                                    L"Normal (recommended)",
                                    L"Strict - flag smaller differences too" }, sensIdx);
             auto backupPage = page();
             backupPage.Children().Append(label(L"Backups", 4));
+            // Labels are separate text blocks: a NumberBox header wraps at the width of the box (150), which squashed them.
+            backupPage.Children().Append(label(L"Take a backup snapshot at most every (minutes, only if something changed)", 6));
             backupPage.Children().Append(nbMinutes);
-            Controls::StackPanel gap3; gap3.Height(8); backupPage.Children().Append(gap3);
+            backupPage.Children().Append(label(L"Keep the most recent (snapshots; older ones are deleted)", 14));
             backupPage.Children().Append(nbKeep);
             backupPage.Children().Append(label(L"Price flagging (possible typo in a price)", 20));
             backupPage.Children().Append(rbSens);
@@ -683,6 +704,15 @@ namespace winrt::FishBalanceWinUI::implementation
             g_user = now;
             SaveUserSettings(autosave_shared::DataDir(), g_user);
             applyText();
+            if (now.textPercent != before.textPercent)
+            {
+                // Rebuild the lists so the rows pick up the new size.
+                self->RefreshList();
+                self->RefreshOverview();
+                self->RefreshBooks();
+                self->RefreshBreakdown();
+                self->RefreshBySpecies();
+            }
 
             if (now.outlierSensitivity != before.outlierSensitivity)
             {

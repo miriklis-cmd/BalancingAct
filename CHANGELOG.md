@@ -27,13 +27,17 @@ for prime time (released).
 - Win32: the Gmail failure message now points to Tools > Settings > Email (it still named the old Tools > Email method menu).
 - Shared code for the WinUI prototype's Settings (WinUI step 14): new `src/data/UserSettings.h` (reads/writes the Tools > Settings keys one at a time through `autosave_shared`), and `autosave_shared::WriteSetting` now creates `settings.txt` when it does not exist yet (it still refuses to touch a file that exists but cannot be read). The Win32 app does not use `UserSettings.h`.
 
-## [WinUI step 14b] - 2026-11-18
-
-- Settings dialog layout (first run on the new project, step 14 compiles and opens): the dialog is wider (780), the tab headers use a smaller font so all four fit, each tab is a vertically scrolling area sized to the window, and the text boxes no longer run off the right edge. Only `MainWindow.xaml.cpp` changed.
-
 ## [WinUI in the repo] - 2026-11-18
 
 - The WinUI 3 prototype is now kept in Git under `winui/` (solution, project, XAML, `MainWindow.xaml.h/.cpp`, `.idl`, manifests, assets). It includes the shared code through `$(ProjectDir)..\..` instead of the absolute `C:\Users\jackm\Desktop\claude`, and `src/services/GmailDraft.cpp` is now a project item (Precompiled Header: Not Using). `winui/.gitignore` keeps `.vs`, `packages`, `Generated Files`, build folders, `*.user` and `*.pfx` out. See `winui/README.md` for how to build.
+
+## [Gmail sign-in hardening] - 2026-11-18
+
+- `GmailDraft.cpp` (Visual Studio code analysis, shared by both apps): the random bytes for the Google sign-in (PKCE verifier and state) are now checked - if Windows cannot supply them the sign-in stops with a message instead of continuing with unfilled bytes (warning C6031). Two read buffers are zero-initialised (the two "variable is not initialized" notes).
+
+## [WinUI step 14b] - 2026-11-18
+
+- Settings dialog layout (first run on the new project, step 14 compiles and opens): the dialog is wider (780), the tab headers use a smaller font so all four fit, each tab is a vertically scrolling area sized to the window, and the text boxes no longer run off the right edge. The two backup number boxes keep their labels in separate text blocks (a NumberBox header wraps at the box width, which squashed them into a narrow column). Text size: list rows now follow the size too (a list row does not inherit the list's font size, only the header row did, so Large looked half-applied), and the tab names and status bar scale with it. Only `MainWindow.xaml.cpp` changed.
 
 ## [WinUI step 14] - 2026-11-18 (written, not compiled or seen)
 
