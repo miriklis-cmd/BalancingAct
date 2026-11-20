@@ -19,7 +19,9 @@ namespace autosave_shared {
 
 // Same folder as GetSharedDataDir() in Storage.cpp (the Win32 app keeps using that one; this is for the WinUI app,
 // which does not compile Storage.cpp). Falls back to "." if the folder cannot be created.
-inline std::wstring DataDir() {
+// v0.23.3: THE one definition of the shared data folder. The Win32 app's GetSharedDataDir() (Storage.cpp) calls this too,
+// so the two apps cannot drift apart. Returns "" if the folder cannot be created (callers choose their own fallback).
+inline std::wstring DataDirOrEmpty() {
     static std::wstring cached;
     static bool tried = false;
     if (!tried) {
@@ -30,7 +32,12 @@ inline std::wstring DataDir() {
         const DWORD attrs = GetFileAttributesW(kDir);
         if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY)) cached = kDir;
     }
-    return cached.empty() ? std::wstring(L".") : cached;
+    return cached;
+}
+
+inline std::wstring DataDir() {
+    const std::wstring d = DataDirOrEmpty();
+    return d.empty() ? std::wstring(L".") : d;
 }
 
 inline HANDLE& LockHandle() { static HANDLE h = INVALID_HANDLE_VALUE; return h; }

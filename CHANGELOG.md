@@ -21,6 +21,14 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.23.3] - 2026-11-20
+
+Housekeeping (roadmap Phase A) - no behaviour change.
+
+- The shared data folder rule (`C:\BalancingAct\data`) now lives in ONE place, `autosave_shared::DataDirOrEmpty()` in `AutosaveShared.h`. The Win32 app's `GetSharedDataDir()` (Storage.cpp) calls it, and keeps its own portable-mode and test-override branches. Before, the same code was written twice and could drift apart.
+- Repo cleanup (Jack deletes these; see ROADMAP Phase A): the old root-folder copies of `FishBalanceCore.h`, `FishBalanceWin32IO.h` and `FishBalanceControlLimits.h` (the real ones are in `src/`), the `docs/` folder (older copies of CHANGELOG / ROADMAP) and `COMMIT_MESSAGE.txt`.
+- Docs: README (file table, `winui/`), ARCHITECTURE (new "The WinUI edition" section), `src/README.md`, audit finding F7 closed (data moved to `C:\BalancingAct\data` in v0.13.2), `Testing.md` gets a short "Regression pass" at the top, ROADMAP Phase A status. Version 0.23.3.
+
 ## [0.23.2] - 2026-11-20
 
 WinUI catch-up batch (WinUI edition; the Win32 app only changes in one small way, below).

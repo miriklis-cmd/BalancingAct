@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "FishBalanceWin32IO.h"
+#include "AutosaveShared.h" // DataDirOrEmpty(): the one definition of C:\BalancingAct\data (v0.23.3)
 
 // Test-automation refactor (v0.9.51): overridable so integration tests can
 // point every path this app builds (autosave.fbd, settings.txt, recent.txt,
@@ -48,17 +49,9 @@ std::wstring GetSharedDataDir() {
         }
         return portableDir;
     }
-    static std::wstring cached;
-    static bool tried = false;
-    if (!tried) {
-        tried = true;
-        const wchar_t* const kDir = L"C:\\BalancingAct\\data";
-        CreateDirectoryW(L"C:\\BalancingAct", nullptr); // already existing is fine
-        CreateDirectoryW(kDir, nullptr);
-        const DWORD attrs = GetFileAttributesW(kDir);
-        if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY)) cached = kDir;
-    }
-    return cached.empty() ? GetExeDir() : cached;
+    // v0.23.3: the C:\BalancingAct\data rule lives in ONE place, shared with the WinUI app (AutosaveShared.h).
+    const std::wstring shared = autosave_shared::DataDirOrEmpty();
+    return shared.empty() ? GetExeDir() : shared;
 }
 
 // One-time upgrade help: a list file that still sits beside the exe (from v0.13.0 or earlier) is COPIED into the

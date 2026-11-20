@@ -4,11 +4,13 @@ This is the current plan: where we are, what is next, what is not built, and wha
 (every version's test checklist, the 0.9.x status notes) is frozen in `ROADMAP_ARCHIVE.md`; version-by-version detail
 is in `CHANGELOG.md`; manual checks still to do are in `Testing.md`.
 
-## Where we are (v0.23.2, 2026-11-20)
+## Where we are (v0.23.3, 2026-11-20)
 
-**v0.23.2 written, NOT yet run by Jack: WinUI catch-up batch - Edit > Undo Delete, Help > About, File > Recent Files, remembered window position, File > Export to CSV.** Checks: Testing.md "v0.23.2 checks". WinUI still lacks: Restore from Backup, crash-recovery named file, exit exception check (the rest of the list below is done once these are confirmed).
+**v0.23.3 (Phase A housekeeping) written, strict build + 345 tests pass, not yet run by Jack:** the shared data-folder rule is one definition; docs refreshed. Jack to delete the stale files listed in A1-A3 (commands in the delivery message), then push.
 
-**v0.23.1 shared by Win32 and WinUI; WinUI lives in the same repo under `winui/` and builds/deploys from there.** Tested OK by Jack (2026-11-20): WinUI's own Print dialog (printer list with the saved printer pre-selected, copies, paper, orientation; prints straight to the chosen printer, "Microsoft Print to PDF" works), Win32 classic Print dialog unchanged, `run_tests.bat`. Also confirmed by Jack: Gmail drafts, `.eml`, WinUI Settings. WinUI list text size and Settings layout were reworked (tables only change size); `[print]` debug line removed. Checks: Testing.md "WinUI Print dialog". WinUI still lacks (see v0.23.2 above): Restore from Backup, crash-recovery named file. Other open items: cheapest-supplier highlight, Print/PDF for Overview and By Species, price history, start-up behaviour setting, dark theme (WinUI only, later).
+**v0.23.2 tested OK by Jack 2026-11-20 and pushed: WinUI catch-up batch - Edit > Undo Delete, Help > About, File > Recent Files, remembered window position, File > Export to CSV.** Checks: Testing.md "v0.23.2 checks". WinUI still lacks: Restore from Backup, crash-recovery named file, exit exception check (the rest of the list below is done once these are confirmed).
+
+**v0.23.1 shared by Win32 and WinUI; WinUI lives in the same repo under `winui/` and builds/deploys from there.** Tested OK by Jack (2026-11-20): WinUI's own Print dialog (printer list with the saved printer pre-selected, copies, paper, orientation; prints straight to the chosen printer, "Microsoft Print to PDF" works), Win32 classic Print dialog unchanged, `run_tests.bat`. Also confirmed by Jack: Gmail drafts, `.eml`, WinUI Settings. WinUI list text size and Settings layout were reworked (tables only change size); `[print]` debug line removed. Checks: Testing.md "WinUI Print dialog". WinUI still lacks: see Phase B below. Other open items: cheapest-supplier highlight, Print/PDF for Overview and By Species, price history, start-up behaviour setting, dark theme (WinUI only, later).
 
 Earlier (v0.18.0, 2026-11-12):
 
@@ -63,22 +65,44 @@ and 25 Windows integration tests.
 Fixes found along the way: Finalize Day now marks the open saved file as finalized (0.10.13); Restore from Backup no
 longer fails silently (0.10.15) and always opens in `backups\` (0.10.16); `*.fbd` is git-ignored (0.10.17).
 
-## Next, in order
+## Next, in order (full audit 2026-11-20, v0.23.2)
 
-1. **Decide: call the split finished and move on.** Stages 7d/7e have nothing worth moving (above); `BuildFbdSaveContent` still gathers its values from the controls, which is front-end territory. Remaining `main.cpp` (~2,860 lines) is the window code a front-end replacement would swap out.
-2. Jack works through the open manual checks in `Testing.md` ("Carried-over checks") so the app's verified state is on record (Finalize Day full pass is already confirmed, 2026-10-17).
-3. **WinUI 3 prototype (in progress, separate folder `FishBalanceWinUI`, not in this repo yet)** - Data Entry and Total Overview tabs, Open/Save/Save As, Finalize/Un-finalize with lock and banner, unusual-price flag, Different Date warning, Kgs sums, Enter-to-add, Books (build 5a: Book box + Start Book menu, Book column, multi-select with selected-rows total, Books table on Overview; needs the v0.12.2 core); reuses `src/core` and `src/data` unchanged. Build 5a. Approved by Jack; was: only with his go-ahead. Small, throwaway-able; reuses `src/core` and
-   `src/data`. May make the stage 6c/6d work and the combo-box glitch (below) moot.
-4. **0.12.0-0.12.5 built, tested OK by Jack 2026-11-02 (Balanced screen with Cash/Debtor books; per-book Total Overview table and Save/Reopen/Finalize still to be confirmed): Books** (0.12.5: `;` is the only book separator + tooltip; if the `;` rule still confuses, the next step is Option B - a per-book "Figure" cell in the Books table, roughly a v0.13 change - or an "Other amounts (no book)" line) (Win32 + core; WinUI prototype next after sign-off). See CHANGELOG and Testing.md "v0.12.0 checks". Open follow-ups: type/rename book names by hand, Book column in CSV/print, books in WinUI, whether the layout of the Book box / Start Book button needs moving (Jack is thinking about it).
-   0.11.0 done: Kgs can be typed as a sum and the sum is remembered** (Win32 + core; also in the WinUI prototype). Next feature candidates, none started (specs below): price history per species,
-   cheapest-supplier highlight, print/PDF for the Overview and By Species tabs, filter on the summary tabs.
-4a. **0.12.8 done, tested OK by Jack: Breakdown print/PDF/preview with a Supplier column, fits 3 pages (Excel pivot print was 3, the app 4).**
-4b. **0.12.6-0.12.9 done, tested OK by Jack (2026-11-02): Breakdown drill-down** (0.12.7: the popup reports every failure; 0.12.9: click a header to sort, Esc closes) (Win32 + core): double-click a price row, species total row or supplier total row on
-   the Breakdown tab for a read-only list (supplier, species, date, kgs, price, total) whose total matches the row. Still to do: the same on Total
-   Overview if wanted. WinUI (separate project): 5c (compact Data Entry grid: row height 24, field labels moved into the boxes as placeholders +
-   tooltips; got 10 rows -> about 11-12, 16 would need a smaller list font or a tighter Reconciliation card) and the "unsaved changes right after Open"
-   fix are tested OK by Jack (2026-11-04); 6a (Breakdown tab with drill-down dialog, same core grouping/sort as Win32) built and tested OK by Jack; 6b (By Species tab) written, awaiting Jack's test; step 7 (File > Print Preview / Print Breakdown, using the shared v0.12.10 `PrintJob`/`ReportRender`) written, not compiled or seen - the WinUI project must add `src/services/ReportRender.cpp` and `PrintJob.cpp` (precompiled header OFF for both, link winspool.lib). Step 7b: the Breakdown tab has the same three buttons as Win32; Email All Suppliers works (Win32 flow) but reads addresses from an `emails.txt` beside the WinUI exe until Manage Names exists. Step 8 (Tools > Manage Supplier / Species Names, rename/merge + supplier emails to `emails.txt` beside the exe) written, not compiled or seen. WinUI still lacks (Jack's order, 2026-11-05): CSV, backups/autosave, settings.
-5. **1.0** only when Jack decides it is ready for prime-time release.
+The old "Next" list (split stages, WinUI prototype steps) is finished or history; it is in `ROADMAP_ARCHIVE.md` and `CHANGELOG.md`. This is the plan from here. Each phase can be done in any order unless a note says otherwise.
+
+**Phase A - housekeeping (DONE in v0.23.3 except where marked; A1-A3 are Jack's deletions, A6 is Jack's pass, A7 is waiting for a decision)**
+- A1. Root-folder duplicates of `FishBalanceCore.h` and `FishBalanceWin32IO.h` are OLD copies (1,739 vs 2,503 lines for Core). Nothing builds from them (`main.cpp`, `src/` and the tests all include the `src/` versions), but a future include could silently pick up stale code. `FishBalanceControlLimits.h` at the root is an identical copy. Delete the three root copies (`git rm`); `tools/fbd_breakdown.cpp` already builds with `-I src/core`.
+- A2. The `docs/` folder holds older copies of `CHANGELOG.md` and `ROADMAP.md` (about 130 lines behind). Decide whether it is needed; if not, delete it so there is one source of truth.
+- A3. `COMMIT_MESSAGE.txt` is stale (still v0.13.0); `push_update.ps1` builds the message from `CHANGELOG.md`. Delete it.
+- A4. DONE v0.23.3. The shared data folder was defined twice: `DataDir()` in `AutosaveShared.h` (used by WinUI) and `GetSharedDataDir()` in `Storage.cpp` (Win32). Unify so the two apps cannot drift apart.
+- A5. DONE v0.23.3. Docs drift: audit finding F7 (data beside the exe) is done in practice - the data lives in `C:\BalancingAct\data` (v0.13.2) - so mark it closed (a hard-coded path rather than `%LOCALAPPDATA%` is the decision on record); `README.md` / `ARCHITECTURE.md` should describe the WinUI edition and `winui/`; `AuditFindings_2026-09-30.md` open-items table to be refreshed.
+- A6. A "Regression pass" of 13 checks is now at the top of `Testing.md` (v0.23.3). `Testing.md` has about 140 unticked checks, many of them old. Do that short regression pass (Jack) and tick or delete what is no longer relevant; split into "Win32" and "WinUI" lists.
+- A7. Decision pending (Jack). `build_mingw.bat` and `CMakeLists.txt` have never been run by Jack (MinGW is not installed on his PC). Either run each once or delete them and keep MSVC only; they cost effort every time a source file is added.
+
+**Phase B - WinUI catch-up (the app Jack will use daily)**
+- B1. Restore from Backup (file picker in `backups\`, safety snapshot of the current sheet first).
+- B2. Crash-recovery named file and the exit exception check.
+- B3. Filter box on Total Overview, Breakdown and By Species (Win32 has it since v0.19.0; WinUI only filters the entries list).
+- B4. Start-up behaviour setting: resume silently, but ask first if the loaded sheet is from an earlier session (decide).
+- B5. Dark theme (WinUI only).
+- B6. Check the WinUI menus against Win32 once more after B1-B3 (Email All Suppliers is on a button, not in a menu).
+
+**Phase C - new features (both apps share the logic in `src/`)**
+- C1. Highlight the cheapest supplier per species.
+- C2. Print / PDF for Total Overview and By Species (only Breakdown prints today).
+- C3. Price history / trend per species (needs a storage decision first: a database or the existing `history\` files; spec below).
+- C4. Ideas, not scoped: multi-sheet comparison, sheet-level notes, a Today dashboard tab, double-click `.fbd` association.
+
+**Phase D - delivery and robustness**
+- D1. **Decided 2026-11-20: WinUI is the main app; Win32 is still used.** New features go in `src/` (shared) and WinUI first; Win32 gets them when it is cheap (shared code) and otherwise bug fixes only. F16-F22 (D3) are therefore low priority.
+- D2. Installer / packaging: the WinUI package is signed with a temporary key, so it only installs on this PC through Visual Studio. A second machine needs a proper signing certificate or a different packaging route.
+- D3. If Win32 stays: F16-F22 as one small stage (unchecked window-creation results, message-loop error, main-window position not clamped to monitors on restore, no `WM_DPICHANGED`). WinUI already checks the saved position is on a screen.
+- D4. Gmail sign-in: check whether the Google project is in "Testing" status (refresh tokens then expire after 7 days) or published; if Testing, plan for it.
+- D5. Test coverage: `src/` logic is covered (345 tests) but WinUI-only code (settings, recent files, window placement, dialogs) has none. Move the logic that can be tested (recent-list handling, placement validation) into `src/` with tests when it next changes.
+- D6. WinUI should be layered like Win32 (it already shares core/data/services in `src/`; its forms layer is the problem). `winui/.../MainWindow.xaml.cpp` is 4,500 lines in one file; split it into `winui/.../Forms/` pieces (Manage Names, Settings, Print, About, Drill-down) one dialog at a time, starting next time one of them is edited. Decided 2026-11-20: WinUI is the main app, Win32 stays in use. Keep the unity-include rule for `PrintJob.cpp` / `ReportRender.cpp` / `Email.cpp` / `CsvExport.cpp` in mind (they are included in this file, not project items).
+
+**Phase E - later / only if decided**
+- E1. Multi-machine, shared hosting, encryption (Bucket C, designed in `NETWORK_ARCHITECTURE.md`, nothing built).
+- E2. **1.0** only when Jack decides it is ready for prime-time release. Suggested bar: Phase A done, Phase B done, the Testing.md regression pass clean on both apps, a second-machine install working (D2).
 
 ## Not built yet
 
@@ -359,7 +383,7 @@ Proposed internal order, with dependencies noted:
    view).
 
 - v0.21.0 (2026-11-18): Gmail draft option built (Gmail API, Internal OAuth, drafts.create only). Written, not yet run live by Jack.
-- v0.23.2 (2026-11-20): WinUI Undo Delete, About, Recent Files, window position, Export to CSV (`ExportToCsv` now takes the entries). Written, not yet run by Jack.
+- v0.23.2 (2026-11-20): WinUI Undo Delete, About, Recent Files, window position, Export to CSV (`ExportToCsv` now takes the entries). Tested OK by Jack.
 - v0.23.1 (2026-11-20) WinUI Print dialog (own dialog, direct printing via `PrintBreakdownJobDirect`), debug line removed. Tested OK by Jack.
 - v0.23.1 (2026-11-18) + WinUI step 14: Tools > Settings in WinUI (same keys as Win32), written not compiled.
 - v0.23.0 (2026-11-18): emails use the sheet date (fix); Settings > Display & printing: list text size, email date format, print defaults (printer / A4-A3 / orientation).

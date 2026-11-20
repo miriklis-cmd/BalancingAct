@@ -11,7 +11,7 @@ part of this pass, per the audit's own Phase 0 gate and this project's
 existing "verify before implementing" practice.
 
 **Status (2026-10-17, v0.10.18): historical record.** Phases 1-3a are done (F1-F6, F8-F15, F23-F29 fixed - see the
-per-finding status lines and CHANGELOG.md). **Still open: F7 and F16-F22** (see the table at the end). Line numbers
+per-finding status lines and CHANGELOG.md). **Still open: F16-F22 (F7 closed 2026-11-20)** (see the table at the end). Line numbers
 quoted in the findings below are from v0.9.47's single-file `main.cpp` and no longer match the code.
 
 ## How to read this
@@ -603,7 +603,7 @@ are fixed and folded into that file's permanent record.*
 
 | Finding | What | State |
 |---|---|---|
-| F7 | Writable state lives beside the exe, not `%LOCALAPPDATA%` | open; plan: move data out of the exe folder (see ROADMAP.md) |
+| F7 | Writable state lives beside the exe, not `%LOCALAPPDATA%` | **closed (v0.13.2 / v0.14.0):** everything lives in `C:\BalancingAct\data` (a fixed path, decided; not `%LOCALAPPDATA%`), with a portable mode (`portable.txt`) for a copy that keeps data beside the exe. The data-folder code is one definition since v0.23.3. |
 | F16 | popups: `EnableWindow(main, FALSE)` with no NULL check on the popup HWND | open |
 | F17 | `RegisterClassExW` result unchecked | open |
 | F18 | main `CreateWindowExW` result unchecked | open |
