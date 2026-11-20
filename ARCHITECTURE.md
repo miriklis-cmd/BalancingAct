@@ -183,6 +183,17 @@ The classic `GetOpenFileNameW` ignores `lpstrInitialDir` after the first use in 
 the modern one cannot be created. File > Open and Save As still use the classic dialog on purpose (opening in the
 last-used folder is the wanted behaviour there).
 
+## The WinUI edition (`winui/`, v0.23.x)
+
+A second front end for the same data and the same logic. Both apps read and write the same files in `C:\BalancingAct\data` and share one version number (`version.h`).
+
+- **Shared (compiled by both):** everything in `src/core`, `src/data` (`AutosaveShared.h`, `FishBalanceWin32IO.h`, `UserSettings.h`) and `src/services` (print, report render, CSV, email, Gmail). New logic goes here, with tests, so both apps get it.
+- **WinUI only:** `winui/FishBalanceWinUI/` - `MainWindow.xaml` (layout), `MainWindow.xaml.cpp` (all the screens and dialogs, about 4,500 lines - the equivalent of the Win32 `forms/` layer; splitting it into files is on the roadmap, Phase D6), `App.*`.
+- **Unity includes:** `ReportRender.cpp`, `PrintJob.cpp`, `CsvExport.cpp` and `Email.cpp` are `#include`d into `MainWindow.xaml.cpp` rather than added as project items (they must not be added to the project as well). `GmailDraft.cpp` is the exception - it needs winsock before windows.h, so it IS a project item with precompiled headers off.
+- **Deploying:** a packaged WinUI app only runs after Visual Studio deploys it (package identity); build and deploy from `winui/FishBalanceWinUI.slnx`. A copy deployed from another folder must be removed first (`Get-AppxPackage -Name <guid> | Remove-AppxPackage`).
+- **Windows 11 print dialog:** the Windows dialog ignores a pre-selected printer, so WinUI has its own Print dialog and prints straight to the chosen printer (`PrintBreakdownJobDirect`); Win32 keeps the classic dialog by forcing it with a print hook when a printer is chosen.
+- **Per-app settings:** window position uses separate keys (`WUI*` for WinUI) so the apps never move each other's window.
+
 ## Data flow
 
 - `g_entries: std::vector<Entry>` is the single source of truth for the

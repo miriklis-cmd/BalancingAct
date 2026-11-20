@@ -181,6 +181,7 @@ build_msvc.bat
 | `src/forms/MainWindowLayout.*` | The main window's layout, tab switching, glyph icons and control helpers (v0.10.9) |
 | `src/forms/MainWindowLists.*` | The main window's list views, combo refresh/autocomplete and balance totals (v0.10.8) |
 | `src/core/FishBalanceControlLimits.h` | Shared control/input limits |
+| `winui/` | The WinUI 3 edition of the app (own solution `winui/FishBalanceWinUI.slnx`; see `winui/README.md`). It uses the SAME `src/` logic, `version.h` and data folder as the Win32 app. |
 | `tests/`          | The automated test suites (doctest): portable unit tests for `FishBalanceCore.h`, plus `tests/win32_integration/` for real file I/O and an end-to-end smoke test - see "Note on testing" below |
 | `app.manifest`    | Requests Common Controls v6 (needed for grouped list). Embedded in the exe by `app_icon.rc` (v0.18.6), so a copied exe keeps its styling. |
 | `app.ico`         | The application icon (multi-resolution: 16–256px), embedded into the exe via `app_icon.rc` |

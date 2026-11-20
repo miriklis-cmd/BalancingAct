@@ -1,5 +1,23 @@
 # Testing
 
+## Regression pass (do this once, then tick the rest off or delete what no longer applies)
+
+A short pass that covers the core of the app. If all of it is clean, the older unticked "carried-over" checks further down can be treated as covered. Do it in the Win32 app (W) and the WinUI app (U).
+
+- [ ] W+U: Build and `run_tests.bat` pass. App starts, last session comes back from autosave.
+- [ ] W+U: Add 5 entries (including a Kgs sum such as `10+5`), edit one, delete one, Undo Delete it. Totals stay right.
+- [ ] W+U: Type Debtor and Cash figures: the Balanced screen shows correctly; a wrong sum turns it into a clear mismatch.
+- [ ] W+U: Save As, New, Open the file again: identical sheet. Recent Files lists it.
+- [ ] W+U: Close without saving, reopen: the sheet comes back and counts as unsaved.
+- [ ] W+U: Total Overview, Breakdown (double-click a row for the drill-down) and By Species agree with each other.
+- [ ] W+U: Print Preview, then print to Microsoft Print to PDF: the PDF matches the preview.
+- [ ] W+U: Export to CSV opens in Excel with all sections.
+- [ ] W+U: Email one supplier: a correct draft opens (mailto, .eml or Gmail, per Settings).
+- [ ] W+U: Finalize Day locks the sheet; Un-finalize unlocks it.
+- [ ] W+U: Manage Names: rename a supplier, Undo, then merge two spellings; entries update.
+- [ ] W+U: Both apps open at once: the second one says so and does not corrupt the autosave.
+- [ ] W: Restore from Backup loads a chosen backup. (WinUI: not built yet.)
+
 <!-- v0.9.67: docs refreshed for the integration suite (audit F25-F29 re-check) -->
 
 There IS an automated test suite now (`tests/`, doctest-based, covering the
