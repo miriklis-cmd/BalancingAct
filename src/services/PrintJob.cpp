@@ -230,9 +230,6 @@ void PrintBreakdownJob(HWND owner, const std::vector<Entry>& entries,
         HGLOBAL dn = BuildDevNames(name);
         HGLOBAL dm = dn ? BuildDevMode(name, defaults) : nullptr; // may be null: the dialog then uses the printer's defaults
         if (dn) { pd.hDevNames = dn; pd.hDevMode = dm; }
-        // Visible in Visual Studio's Output window while debugging: which pre-fill step worked.
-        OutputDebugStringW((L"[print] saved='" + defaults.printer + L"' using='" + name + L"' devnames=" +
-                            (dn ? L"ok" : L"FAILED") + L" devmode=" + (dm ? L"ok" : L"none") + L"\n").c_str());
     }
     if (!PrintDlgW(&pd)) return; // user cancelled, or no printers installed
 
