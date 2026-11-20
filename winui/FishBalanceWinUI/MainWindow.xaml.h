@@ -114,6 +114,7 @@ namespace winrt::FishBalanceWinUI::implementation
         winrt::fire_and_forget AddEntryClicked();
         void DoEmailSuppliers();
         winrt::fire_and_forget ShowPrintPreview();
+        winrt::fire_and_forget ShowPrintDialog();   // WinUI's own Print dialog (printer / copies / paper / orientation)
         winrt::fire_and_forget ShowDrillDown(BreakdownRowRef ref);
         void SetCurrentBook(const std::wstring& name, wchar_t type);
         std::wstring NextBookName(wchar_t type);

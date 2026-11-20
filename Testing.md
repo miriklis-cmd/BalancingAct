@@ -444,3 +444,11 @@ Needs the Google client file (client_secret.json) in `C:\BalancingAct\private\` 
 6. Backups: set 1 minute and 10 snapshots, add entries over a few minutes: new backup_*.fbd appear about every minute and only 10 are kept.
 7. Print Preview / Print Breakdown start on the chosen printer, paper and orientation.
 8. Dialog fits at your usual display scaling and scrolls if the window is short.
+
+### WinUI Print dialog
+
+- [ ] File > Print Breakdown, Print / Save as PDF... and Print... in Print Preview all open the WinUI Print dialog (not the Windows one).
+- [ ] Printer list shows installed printers with the saved printer selected (Windows default if none saved); paper / orientation start from Settings.
+- [ ] Print sends the job to the chosen printer (not the Windows default); status bar says "Sent to <printer>."
+- [ ] Copies = 2 gives two copies on a real printer; Cancel prints nothing.
+- [ ] Microsoft Print to PDF produces a correct PDF.

@@ -116,38 +116,9 @@ HGLOBAL BuildDevNames(const std::wstring& printer) {
     GlobalUnlock(g);
     return g;
 }
-} // namespace
-
-void PrintBreakdownJob(HWND owner, const std::vector<Entry>& entries,
-                       const std::wstring& debtorText, const std::wstring& cashText,
-                       const PrintDefaults& defaults) {
-    PRINTDLGW pd{};
-    pd.lStructSize = sizeof(pd);
-    pd.hwndOwner = owner;
-    pd.Flags = PD_RETURNDC | PD_NOPAGENUMS | PD_NOSELECTION;
-    // v0.23.0: start from the saved printer / paper / orientation. Only pre-fill when BOTH blocks were built; the
-    // dialog frees whatever is in pd.hDevMode/hDevNames, so they must never be left half-set.
-    {
-        const std::wstring name = ResolvePrinterName(defaults);
-        HGLOBAL dn = BuildDevNames(name);
-        HGLOBAL dm = dn ? BuildDevMode(name, defaults) : nullptr; // may be null: the dialog then uses the printer's defaults
-        if (dn) { pd.hDevNames = dn; pd.hDevMode = dm; }
-        // Visible in Visual Studio's Output window while debugging: which pre-fill step worked.
-        OutputDebugStringW((L"[print] saved='" + defaults.printer + L"' using='" + name + L"' devnames=" +
-                            (dn ? L"ok" : L"FAILED") + L" devmode=" + (dm ? L"ok" : L"none") + L"\n").c_str());
-    }
-    if (!PrintDlgW(&pd)) return; // user cancelled, or no printers installed
-
-    // PrintDlgW allocates these two blocks; we're responsible for freeing
-    // them regardless of how this function exits from here on.
-    auto freeDlgHandles = [&]() {
-        if (pd.hDevMode) GlobalFree(pd.hDevMode);
-        if (pd.hDevNames) GlobalFree(pd.hDevNames);
-    };
-
-    HDC hdc = pd.hDC;
-    if (!hdc) { freeDlgHandles(); return; }
-
+// Prints the Breakdown report onto `hdc` (a printer DC) and deletes the DC. Every failure is reported in a message box.
+void PrintOnDc(HWND owner, HDC hdc, const std::vector<Entry>& entries,
+               const std::wstring& debtorText, const std::wstring& cashText) {
     int pageWidthPx = GetDeviceCaps(hdc, HORZRES);
     int pageHeightPx = GetDeviceCaps(hdc, VERTRES);
     int dpiX = GetDeviceCaps(hdc, LOGPIXELSX);
@@ -157,7 +128,6 @@ void PrintBreakdownJob(HWND owner, const std::vector<Entry>& entries,
     if (!ValidateReportPageDimensions(pageWidthPx, pageHeightPx, dpiX, dpiY, &dimError)) {
         MessageBoxW(owner, dimError.c_str(), L"Print", MB_OK | MB_ICONERROR);
         DeleteDC(hdc);
-        freeDlgHandles();
         return;
     }
 
@@ -167,7 +137,6 @@ void PrintBreakdownJob(HWND owner, const std::vector<Entry>& entries,
     if (StartDocW(hdc, &di) <= 0) {
         MessageBoxW(owner, L"Windows couldn't start the print job.", L"Print", MB_OK | MB_ICONERROR);
         DeleteDC(hdc);
-        freeDlgHandles();
         return;
     }
 
@@ -214,7 +183,6 @@ void PrintBreakdownJob(HWND owner, const std::vector<Entry>& entries,
         // rather than left to finish (EndDoc) or just abandoned.
         AbortDoc(hdc);
         DeleteDC(hdc);
-        freeDlgHandles();
         std::wstring msg = !printError.empty() ? printError : result.error;
         if (msg.empty()) msg = L"Printing failed.";
         MessageBoxW(owner, msg.c_str(), L"Print", MB_OK | MB_ICONERROR);
@@ -226,13 +194,89 @@ void PrintBreakdownJob(HWND owner, const std::vector<Entry>& entries,
                             L"have printed correctly.", L"Print", MB_OK | MB_ICONWARNING);
     }
     DeleteDC(hdc);
-    freeDlgHandles();
 
     if (result.pageCapHit) {
         MessageBoxW(owner, (L"This report has more than " + std::to_wstring(kReportMaxPages) +
             L" pages. Only the first " + std::to_wstring(kReportMaxPages) +
             L" were printed.").c_str(), L"Print", MB_OK | MB_ICONWARNING);
     }
+}
+
+// Windows 11 22H2+ replaces the classic Print dialog with a "unified" one that ignores the printer we pre-select (and
+// has an empty preview pane). Giving PrintDlg a print hook procedure makes Windows use the classic dialog for this call
+// only (Microsoft Q&A, "force use of the old print dialog in Windows 11 22H2"). The hook does nothing: returning 0
+// leaves every message to the dialog's own handling.
+UINT_PTR CALLBACK PrintHookProc(HWND, UINT, WPARAM, LPARAM) { return 0; }
+} // namespace
+
+void PrintBreakdownJob(HWND owner, const std::vector<Entry>& entries,
+                       const std::wstring& debtorText, const std::wstring& cashText,
+                       const PrintDefaults& defaults) {
+    PRINTDLGW pd{};
+    pd.lStructSize = sizeof(pd);
+    pd.hwndOwner = owner;
+    pd.Flags = PD_RETURNDC | PD_NOPAGENUMS | PD_NOSELECTION;
+    // The classic dialog (forced by the hook) is only needed when a specific printer has been chosen in Settings: the
+    // new Windows 11 dialog cannot be told which printer to start on, it always starts on the Windows default. With
+    // "Windows default printer" chosen (blank), the new-style dialog is used.
+    if (!defaults.printer.empty()) {
+        pd.Flags |= PD_ENABLEPRINTHOOK;
+        pd.lpfnPrintHook = PrintHookProc;
+    }
+    // v0.23.0: start from the saved printer / paper / orientation. Only pre-fill when BOTH blocks were built; the
+    // dialog frees whatever is in pd.hDevMode/hDevNames, so they must never be left half-set.
+    {
+        const std::wstring name = ResolvePrinterName(defaults);
+        HGLOBAL dn = BuildDevNames(name);
+        HGLOBAL dm = dn ? BuildDevMode(name, defaults) : nullptr; // may be null: the dialog then uses the printer's defaults
+        if (dn) { pd.hDevNames = dn; pd.hDevMode = dm; }
+        // Visible in Visual Studio's Output window while debugging: which pre-fill step worked.
+        OutputDebugStringW((L"[print] saved='" + defaults.printer + L"' using='" + name + L"' devnames=" +
+                            (dn ? L"ok" : L"FAILED") + L" devmode=" + (dm ? L"ok" : L"none") + L"\n").c_str());
+    }
+    if (!PrintDlgW(&pd)) return; // user cancelled, or no printers installed
+
+    // PrintDlgW allocates these two blocks; we're responsible for freeing
+    // them regardless of how this function exits from here on.
+    auto freeDlgHandles = [&]() {
+        if (pd.hDevMode) GlobalFree(pd.hDevMode);
+        if (pd.hDevNames) GlobalFree(pd.hDevNames);
+    };
+
+    HDC hdc = pd.hDC;
+    if (!hdc) { freeDlgHandles(); return; }
+
+    PrintOnDc(owner, hdc, entries, debtorText, cashText); // deletes hdc
+    freeDlgHandles();
+}
+
+// v0.23.2 (WinUI's own Print dialog): print straight to a chosen printer with no Windows dialog.
+void PrintBreakdownJobDirect(HWND owner, const std::vector<Entry>& entries,
+                             const std::wstring& debtorText, const std::wstring& cashText,
+                             const PrintChoice& choice) {
+    PrintDefaults d;
+    d.printer = choice.printer;
+    d.orientation = choice.orientation;
+    d.paper = choice.paper;
+    const std::wstring name = ResolvePrinterName(d);
+    if (name.empty()) {
+        MessageBoxW(owner, L"No printer is available. Install a printer (or use Microsoft Print to PDF) and try again.",
+                    L"Print", MB_OK | MB_ICONERROR);
+        return;
+    }
+    HGLOBAL hdm = BuildDevMode(name, d);
+    DEVMODEW* dm = hdm ? static_cast<DEVMODEW*>(GlobalLock(hdm)) : nullptr;
+    if (dm && choice.copies > 1) {
+        dm->dmFields |= DM_COPIES;
+        dm->dmCopies = static_cast<short>(choice.copies > 99 ? 99 : choice.copies);
+    }
+    HDC hdc = CreateDCW(L"WINSPOOL", name.c_str(), nullptr, dm);
+    if (hdm) { if (dm) GlobalUnlock(hdm); GlobalFree(hdm); }
+    if (!hdc) {
+        MessageBoxW(owner, (L"Windows couldn't open the printer \"" + name + L"\".").c_str(), L"Print", MB_OK | MB_ICONERROR);
+        return;
+    }
+    PrintOnDc(owner, hdc, entries, debtorText, cashText);
 }
 
 bool GetPreviewPageSpec(PreviewPageSpec& spec, std::wstring* error, const PrintDefaults& defaults) {
