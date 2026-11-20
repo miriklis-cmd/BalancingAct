@@ -8,12 +8,11 @@
 #include <sstream>
 #include <vector>
 
-#include "../data/AppData.h"
 #include "../data/FishBalanceWin32IO.h"
 
 // CsvField() lives in FishBalanceCore.h (unchanged logic).
 
-bool ExportToCsv(const std::wstring& path, std::wstring* outError) {
+bool ExportToCsv(const std::wstring& path, const std::vector<Entry>& entries, std::wstring* outError) {
     std::string content;
     unsigned char bom[3] = { 0xEF, 0xBB, 0xBF }; // UTF-8 BOM, so Excel reads accents/symbols correctly
     content.append(reinterpret_cast<char*>(bom), 3);
@@ -44,11 +43,11 @@ bool ExportToCsv(const std::wstring& path, std::wstring* outError) {
 
     writeLine(L"Entries");
     csvRow({ L"Date", L"Supplier", L"Species", L"Kgs", L"Price", L"Total", L"Notes" });
-    for (auto& e : g_entries)
+    for (auto& e : entries)
         csvRow({ e.date, e.supplier, e.product, FormatKg(e.kgs), FormatNum(e.price), FormatNum(e.Total()), e.notes });
     writeLine(L"");
 
-    const std::vector<Entry> reportEntries = WithCanonicalNames(g_entries); // v0.17.0: lucas / Lucas are one group in the reports
+    const std::vector<Entry> reportEntries = WithCanonicalNames(entries); // v0.17.0: lucas / Lucas are one group in the reports
     writeLine(L"Overview by Supplier");
     csvRow({ L"Supplier", L"Kgs", L"Total" });
     {
@@ -99,7 +98,7 @@ bool ExportToCsv(const std::wstring& path, std::wstring* outError) {
     writeLine(L"Breakdown (Supplier > Species > Price)");
     csvRow({ L"Supplier", L"Species", L"Price", L"Kgs", L"Total" });
     {
-        auto data = BuildBreakdownData(g_entries);
+        auto data = BuildBreakdownData(entries);
         double grandKgs = 0, grandAmt = 0;
         for (auto& sg : data) {
             for (auto& pg : sg.products) {

@@ -1753,7 +1753,7 @@ void DoExportCsv() {
     ofn.Flags = OFN_OVERWRITEPROMPT;
     if (GetSaveFileNameW(&ofn)) {
         std::wstring err;
-        if (ExportToCsv(file, &err))
+        if (ExportToCsv(file, g_entries, &err))
             MessageBoxW(g_hMainWnd, L"Exported. This file opens directly in Excel.", L"Export to CSV", MB_OK | MB_ICONINFORMATION);
         else
             MessageBoxW(g_hMainWnd, (L"Could not export the file: " + err).c_str(), L"Error", MB_OK | MB_ICONERROR);

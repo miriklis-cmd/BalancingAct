@@ -452,3 +452,13 @@ Needs the Google client file (client_secret.json) in `C:\BalancingAct\private\` 
 - [ ] Print sends the job to the chosen printer (not the Windows default); status bar says "Sent to <printer>."
 - [ ] Copies = 2 gives two copies on a real printer; Cancel prints nothing.
 - [ ] Microsoft Print to PDF produces a correct PDF.
+
+### v0.23.2 checks (WinUI)
+
+- [ ] Delete a row, then Edit > Undo Delete: the row comes back in the same place and totals return to what they were. The menu item is greyed when there is nothing to undo, and after New / Open.
+- [ ] Help > About opens, shows the version (0.23.2) and scrolls if the window is short.
+- [ ] Save or open a file: it appears under File > Recent Files (newest first); clicking it opens it (asks first if there are unsaved changes). The Win32 app shows the same list.
+- [ ] Rename or delete a recent file on disk, then click it: a message says it no longer exists and it leaves the list.
+- [ ] Move / resize the window (and once maximised), close, reopen: it comes back where it was. Delete the `WUI*` lines from settings.txt: it starts maximised.
+- [ ] File > Export to CSV...: the file opens in Excel with Entries and every report, and matches the Win32 export of the same sheet.
+- [ ] Win32 app: File > Export to CSV still works (the function changed signature).

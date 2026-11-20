@@ -38,6 +38,16 @@ namespace winrt::FishBalanceWinUI::implementation
                        Microsoft::UI::Xaml::RoutedEventArgs const& e);
         void Delete_Click(Windows::Foundation::IInspectable const& sender,
                           Microsoft::UI::Xaml::RoutedEventArgs const& e);
+        void UndoDelete_Click(Windows::Foundation::IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& e);
+        void About_Click(Windows::Foundation::IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& e);
+        void ExportCsv_Click(Windows::Foundation::IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& e);
+        void ClearUndoDelete();                       // forget the one-level Undo Delete buffer (the sheet changed under it)
+        void LoadRecentFiles();                       // recent.txt in the shared data folder (same file as the Win32 app)
+        void RememberRecentFile(const std::wstring& path);
+        void RebuildRecentMenu();
+        void OpenRecent(const std::wstring& path);
+        void RestoreWindowPlacement();                // WUI* keys in settings.txt (the Win32 app's X/Y/W/H are left alone)
+        void SaveWindowPlacement();
         void Edit_Click(Windows::Foundation::IInspectable const& sender,
                         Microsoft::UI::Xaml::RoutedEventArgs const& e);
         void EntriesList_DoubleTapped(Windows::Foundation::IInspectable const& sender, Microsoft::UI::Xaml::Input::DoubleTappedRoutedEventArgs const& e);
@@ -114,6 +124,7 @@ namespace winrt::FishBalanceWinUI::implementation
         winrt::fire_and_forget AddEntryClicked();
         void DoEmailSuppliers();
         winrt::fire_and_forget ShowPrintPreview();
+        winrt::fire_and_forget ShowAbout();
         winrt::fire_and_forget ShowPrintDialog();   // WinUI's own Print dialog (printer / copies / paper / orientation)
         winrt::fire_and_forget ShowDrillDown(BreakdownRowRef ref);
         void SetCurrentBook(const std::wstring& name, wchar_t type);
@@ -153,6 +164,10 @@ namespace winrt::FishBalanceWinUI::implementation
         bool m_autosaveOwner = false;   // this copy owns autosave.fbd (no other copy of either app was running first)
         bool m_autosaveFailWarned = false;
         bool m_shutdownDone = false;
+        Entry m_undoEntry;               // the row last deleted (Edit > Undo Delete), one level, like the Win32 app
+        int m_undoIndex = -1;
+        bool m_hasUndo = false;
+        std::vector<std::wstring> m_recent; // File > Recent Files, newest first (max kMaxRecentFiles)
         ULONGLONG m_lastBackupTick = 0; // rolling snapshot in the shared backups\ folder (same 3-minute rhythm as Win32)
         std::string m_lastBackupContent;
         Microsoft::UI::Dispatching::DispatcherQueueTimer m_autosaveTimer{ nullptr };
