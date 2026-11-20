@@ -2985,12 +2985,104 @@ namespace winrt::FishBalanceWinUI::implementation
         const std::wstring grand[6] = { L"GRAND TOTAL", FormatKg(stats.grandKgs), FormatMoney(stats.grandAmt), L"", L"", L"" };
         TabPage3().Items().Append(MakeSpeciesRow(grand, true));
     }
-    // File > Print Breakdown: the SAME print job as the Win32 app (PrintBreakdownJob), fed this window's sheet.
+    // File > Print Breakdown / the Print buttons: WinUI's own Print dialog (the Windows dialog cannot be told which
+    // printer to start on, and the classic one looks dated).
     void MainWindow::Print_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
     {
         if (m_closed)
             return;
-        PrintBreakdownJob(Hwnd(), m_entries, ToStd(DebtorBox().Text()), ToStd(CashBox().Text()), PrintDefaultsFromSettings(g_user));
+        ShowPrintDialog();
+    }
+
+    // Printer (your saved one pre-selected, else the Windows default), copies, paper and orientation, then
+    // PrintBreakdownJobDirect prints the same report as the Win32 app straight to that printer. "Microsoft Print to PDF"
+    // is in the list for a PDF. Paper / orientation start from Tools > Settings > Display & printing.
+    winrt::fire_and_forget MainWindow::ShowPrintDialog()
+    {
+        auto strong = get_strong();
+        if (m_closed)
+            co_return;
+        const std::vector<std::wstring> printers = ListInstalledPrinters();
+        if (printers.empty())
+        {
+            // No printers at all: let Windows explain.
+            PrintBreakdownJob(Hwnd(), m_entries, ToStd(DebtorBox().Text()), ToStd(CashBox().Text()), PrintDefaultsFromSettings(g_user));
+            co_return;
+        }
+        std::wstring start = g_user.printer;
+        if (std::find(printers.begin(), printers.end(), start) == printers.end())
+        {
+            wchar_t def[256];
+            DWORD sz = 256;
+            start = GetDefaultPrinterW(def, &sz) ? std::wstring(def) : printers[0];
+        }
+        auto label = [](const wchar_t* text, double top) {
+            Controls::TextBlock t;
+            t.Text(text);
+            t.Margin(Thickness{ 0, top, 0, 4 });
+            return t;
+        };
+        Controls::ComboBox cbPrinter;
+        cbPrinter.HorizontalAlignment(HorizontalAlignment::Stretch);
+        int sel = 0;
+        for (size_t i = 0; i < printers.size(); ++i)
+        {
+            cbPrinter.Items().Append(box_value(hstring{ printers[i] }));
+            if (printers[i] == start)
+                sel = static_cast<int>(i);
+        }
+        cbPrinter.SelectedIndex(sel);
+        Controls::NumberBox nbCopies;
+        nbCopies.Minimum(1);
+        nbCopies.Maximum(99);
+        nbCopies.Value(1);
+        nbCopies.SpinButtonPlacementMode(Controls::NumberBoxSpinButtonPlacementMode::Inline);
+        nbCopies.Width(140);
+        nbCopies.HorizontalAlignment(HorizontalAlignment::Left);
+        Controls::ComboBox cbPaper;
+        for (const wchar_t* t : { L"Printer default", L"A4", L"A3" })
+            cbPaper.Items().Append(box_value(hstring{ t }));
+        cbPaper.SelectedIndex(ClampPrintPaper(g_user.printPaper));
+        cbPaper.Width(200);
+        Controls::ComboBox cbOrient;
+        for (const wchar_t* t : { L"Printer default", L"Portrait", L"Landscape" })
+            cbOrient.Items().Append(box_value(hstring{ t }));
+        cbOrient.SelectedIndex(ClampPrintOrientation(g_user.printOrientation));
+        cbOrient.Width(200);
+
+        Controls::StackPanel panel;
+        panel.MinWidth(420);
+        panel.Children().Append(label(L"Printer", 0));
+        panel.Children().Append(cbPrinter);
+        panel.Children().Append(label(L"Copies", 14));
+        panel.Children().Append(nbCopies);
+        panel.Children().Append(label(L"Paper", 14));
+        panel.Children().Append(cbPaper);
+        panel.Children().Append(label(L"Orientation", 14));
+        panel.Children().Append(cbOrient);
+
+        Controls::ContentDialog dlg;
+        dlg.XamlRoot(RootGrid().XamlRoot());
+        dlg.Title(box_value(L"Print - Breakdown Report"));
+        dlg.Content(panel);
+        dlg.PrimaryButtonText(L"Print");
+        dlg.CloseButtonText(L"Cancel");
+        dlg.DefaultButton(Controls::ContentDialogButton::Primary);
+        const Controls::ContentDialogResult result = co_await dlg.ShowAsync();
+        if (m_closed || result != Controls::ContentDialogResult::Primary)
+            co_return;
+
+        const int pi = cbPrinter.SelectedIndex();
+        if (pi < 0 || static_cast<size_t>(pi) >= printers.size())
+            co_return;
+        PrintChoice choice;
+        choice.printer = printers[static_cast<size_t>(pi)];
+        choice.paper = ClampPrintPaper(cbPaper.SelectedIndex());
+        choice.orientation = ClampPrintOrientation(cbOrient.SelectedIndex());
+        const double cv = nbCopies.Value();
+        choice.copies = std::isnan(cv) ? 1 : (std::max)(1, (std::min)(99, static_cast<int>(cv + 0.5)));
+        PrintBreakdownJobDirect(Hwnd(), m_entries, ToStd(DebtorBox().Text()), ToStd(CashBox().Text()), choice);
+        SetStatus(L"Sent to " + choice.printer + L".", false);
     }
 
     void MainWindow::PrintPreview_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
@@ -3115,7 +3207,7 @@ namespace winrt::FishBalanceWinUI::implementation
         st->show = nullptr; // break the State <-> lambda reference cycle
         if (m_closed || dr != Controls::ContentDialogResult::Primary)
             co_return;
-        PrintBreakdownJob(Hwnd(), m_entries, ToStd(DebtorBox().Text()), ToStd(CashBox().Text()), PrintDefaultsFromSettings(g_user));
+        ShowPrintDialog();
     }
     // Supplier -> email address view. Since v0.15.0 the addresses are stored on the supplier lines of names.txt
     // (S|name|date|email); this just refills the in-memory map from the loaded master list.

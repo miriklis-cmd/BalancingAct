@@ -27,6 +27,18 @@ void PrintBreakdownJob(HWND owner, const std::vector<Entry>& entries,
                        const std::wstring& debtorText, const std::wstring& cashText,
                        const PrintDefaults& defaults = PrintDefaults());
 
+// v0.23.2: print straight to `printer` with no Windows dialog (WinUI shows its own Print dialog and calls this).
+// copies is passed to the driver (most honour it); orientation / paper as in PrintDefaults.
+struct PrintChoice {
+    std::wstring printer;
+    int orientation = 0; // 0 printer default, 1 portrait, 2 landscape
+    int paper = 0;       // 0 printer default, 1 A4, 2 A3
+    int copies = 1;
+};
+void PrintBreakdownJobDirect(HWND owner, const std::vector<Entry>& entries,
+                             const std::wstring& debtorText, const std::wstring& cashText,
+                             const PrintChoice& choice);
+
 // Page size for the on-screen preview: the default printer's page (or a Letter-sized fallback), at a capped
 // DPI so a preview never needs a full printer-resolution bitmap. Returns false and fills *error when the
 // size is not acceptable.
