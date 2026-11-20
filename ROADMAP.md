@@ -4,7 +4,13 @@ This is the current plan: where we are, what is next, what is not built, and wha
 (every version's test checklist, the 0.9.x status notes) is frozen in `ROADMAP_ARCHIVE.md`; version-by-version detail
 is in `CHANGELOG.md`; manual checks still to do are in `Testing.md`.
 
-## Where we are (v0.18.0, 2026-11-12)
+## Where we are (v0.23.2, 2026-11-20)
+
+**v0.23.2 written, NOT yet run by Jack: WinUI catch-up batch - Edit > Undo Delete, Help > About, File > Recent Files, remembered window position, File > Export to CSV.** Checks: Testing.md "v0.23.2 checks". WinUI still lacks: Restore from Backup, crash-recovery named file, exit exception check (the rest of the list below is done once these are confirmed).
+
+**v0.23.1 shared by Win32 and WinUI; WinUI lives in the same repo under `winui/` and builds/deploys from there.** Tested OK by Jack (2026-11-20): WinUI's own Print dialog (printer list with the saved printer pre-selected, copies, paper, orientation; prints straight to the chosen printer, "Microsoft Print to PDF" works), Win32 classic Print dialog unchanged, `run_tests.bat`. Also confirmed by Jack: Gmail drafts, `.eml`, WinUI Settings. WinUI list text size and Settings layout were reworked (tables only change size); `[print]` debug line removed. Checks: Testing.md "WinUI Print dialog". WinUI still lacks (see v0.23.2 above): Restore from Backup, crash-recovery named file. Other open items: cheapest-supplier highlight, Print/PDF for Overview and By Species, price history, start-up behaviour setting, dark theme (WinUI only, later).
+
+Earlier (v0.18.0, 2026-11-12):
 
 **v0.18.0 + WinUI step 13 (tested OK by Jack 2026-11-12: WinUI autosave/recovery, both-ways recovery between the apps, two-apps notice; crash recovery not tested): autosave, recovery and rolling backups for WinUI in the SAME shared folder as Win32 (`C:\BalancingAct\data\autosave.fbd`, `backups\`), with an ownership lock so two open apps cannot overwrite each other (first app to start owns autosave; a second starts blank and says so).** Tested OK by Jack: v0.16.x/v0.17.0-v0.17.3 (same-name grouping in reports, letters-only + alias-first auto-complete, recovered sheets count as unsaved, WinUI steps 11-12d). Still open: WinUI CSV export, WinUI settings/recent files, Excel Import menu, shared repository (Postgres), installer. Checks: Testing.md "v0.18.0 checks".
 
@@ -353,6 +359,8 @@ Proposed internal order, with dependencies noted:
    view).
 
 - v0.21.0 (2026-11-18): Gmail draft option built (Gmail API, Internal OAuth, drafts.create only). Written, not yet run live by Jack.
+- v0.23.2 (2026-11-20): WinUI Undo Delete, About, Recent Files, window position, Export to CSV (`ExportToCsv` now takes the entries). Written, not yet run by Jack.
+- v0.23.1 (2026-11-20) WinUI Print dialog (own dialog, direct printing via `PrintBreakdownJobDirect`), debug line removed. Tested OK by Jack.
 - v0.23.1 (2026-11-18) + WinUI step 14: Tools > Settings in WinUI (same keys as Win32), written not compiled.
 - v0.23.0 (2026-11-18): emails use the sheet date (fix); Settings > Display & printing: list text size, email date format, print defaults (printer / A4-A3 / orientation).
 - v0.22.0 (2026-11-18): Tools > Settings modal window (email method + wording, backups, price-flag sensitivity, data folder). Replaced the Tools > Email method items.

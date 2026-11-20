@@ -89,6 +89,9 @@
                         <KeyboardAccelerator Key="S" Modifiers="Control,Shift" />
                     </MenuFlyoutItem.KeyboardAccelerators>
                 </MenuFlyoutItem>
+                <MenuFlyoutSubItem x:Name="RecentMenu" Text="Recent Files" />
+                <MenuFlyoutSeparator />
+                <MenuFlyoutItem Text="Export to CSV..." Click="ExportCsv_Click" />
                 <MenuFlyoutSeparator />
                 <MenuFlyoutItem Text="Print Preview..." Click="PrintPreview_Click" />
                 <MenuFlyoutItem Text="Print Breakdown..." Click="Print_Click">
@@ -100,13 +103,13 @@
                 <MenuFlyoutItem Text="Exit" Click="Exit_Click" />
             </MenuBarItem>
             <MenuBarItem Title="Edit">
-                <MenuFlyoutItem Text="Not in the WinUI edition yet" IsEnabled="False" />
+                <MenuFlyoutItem x:Name="UndoDeleteItem" Text="Undo Delete" IsEnabled="False" Click="UndoDelete_Click" />
             </MenuBarItem>
             <MenuBarItem x:Name="ToolsMenu" Title="Tools">
                 <MenuFlyoutItem Text="Manage Supplier / Species Names..." Click="ManageNames_Click" />
             </MenuBarItem>
             <MenuBarItem Title="Help">
-                <MenuFlyoutItem Text="Not in the WinUI edition yet" IsEnabled="False" />
+                <MenuFlyoutItem Text="About" Click="About_Click" />
             </MenuBarItem>
         </MenuBar>
 

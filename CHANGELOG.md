@@ -21,6 +21,17 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.23.2] - 2026-11-20
+
+WinUI catch-up batch (WinUI edition; the Win32 app only changes in one small way, below).
+
+- WinUI **Edit > Undo Delete**: brings back the last deleted row where it was (one level, like Win32). Forgotten when the sheet is replaced (New / Open) or a Manage Names rename / merge rewrites the rows.
+- WinUI **Help > About**: how the app works, with the version.
+- WinUI **File > Recent Files**: the last 8 files opened or saved, in the same shared `recent.txt` as the Win32 app. A missing file is reported and dropped from the list.
+- WinUI **remembers its window position, size and maximised state** (new `WUIX/WUIY/WUIW/WUIH/WUIMAX` keys in `settings.txt`, so the Win32 app's own window position is never touched). A saved position that is no longer on any screen falls back to maximised.
+- WinUI **File > Export to CSV...**: the same CSV the Win32 app writes. `ExportToCsv` now takes the sheet as an argument (`ExportToCsv(path, entries, &err)`) instead of reading the Win32 global `g_entries`; Win32 behaviour is unchanged. `CsvExport.cpp` no longer includes `AppData.h`.
+- Version 0.23.2 (shared by both apps).
+
 ## [0.23.1] - 2026-11-18
 
 ### Changed
@@ -31,7 +42,9 @@ for prime time (released).
 
 - The WinUI 3 prototype is now kept in Git under `winui/` (solution, project, XAML, `MainWindow.xaml.h/.cpp`, `.idl`, manifests, assets). It includes the shared code through `$(ProjectDir)..\..` instead of the absolute `C:\Users\jackm\Desktop\claude`, and `src/services/GmailDraft.cpp` is now a project item (Precompiled Header: Not Using). `winui/.gitignore` keeps `.vs`, `packages`, `Generated Files`, build folders, `*.user` and `*.pfx` out. See `winui/README.md` for how to build. The WinUI app is no longer labelled "prototype" or "step N": it uses the same version number as the Win32 app (`version.h`, one shared number because the two share their code), shown in the status bar and in Tools > Settings > Data & about. WinUI changes from now on go in the normal version entries, marked "(WinUI)".
 
-## [WinUI Print dialog] - 2026-11-18
+## [WinUI Print dialog] - 2026-11-20
+
+- Tested OK by Jack (2026-11-20). The temporary `[print]` debug line in `PrintJob.cpp` is removed.
 
 - WinUI has its own Print dialog (printer list with your saved printer or the Windows default pre-selected, copies, paper, orientation), used by Print / Save as PDF..., File > Print Breakdown and the Print... button in Print Preview. It prints straight to the chosen printer through the new `PrintBreakdownJobDirect` in the shared `PrintJob.cpp` (no Windows dialog), so the printer choice is always honoured and the dialog matches the app. "Microsoft Print to PDF" in the list gives a PDF. `PrintBreakdownJob` (the Windows dialog) is unchanged for the Win32 app and is only used by WinUI if no printer is installed. Copies is handed to the printer driver, which most honour. The report drawing was moved into a shared `PrintOnDc` helper (same code, same behaviour).
 

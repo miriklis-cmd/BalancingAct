@@ -14,6 +14,7 @@
 // They come before "using namespace winrt" on purpose: nothing in them expects the winrt names.
 #include "src/services/ReportRender.cpp"    // RenderReportPages, FreeRenderedPages
 #include "src/services/PrintJob.cpp"        // PrintBreakdownJob, GetPreviewPageSpec
+#include "src/services/CsvExport.cpp"       // ExportToCsv(path, entries, &err) - the Win32 app's own CSV code
 #include "src/services/Email.cpp"           // EmailSupplier / EmailSupplierWith (mailto: or .eml draft), TodayDateString - the Win32 app's own code
 #include "version.h"                           // APP_VERSION - the same number as the Win32 app (one shared version)
 #include "src/data/UserSettings.h"         // step 14: Tools > Settings values in settings.txt (same keys as the Win32 app)
@@ -765,6 +766,7 @@ namespace winrt::FishBalanceWinUI::implementation
                 args.Cancel(true); // staying open: handlers keep working
                 return;
             }
+            SaveWindowPlacement(); // while the window still exists
             ShutdownAutosave(); // final autosave + settings.txt LASTFILE/DIRTY while the controls still exist
             // The close is going ahead. Stop reacting NOW: XAML tears the controls down after this point and
             // fires events while doing it (text cleared, selection changed), and touching a torn-down control
@@ -778,8 +780,9 @@ namespace winrt::FishBalanceWinUI::implementation
 
         // Start maximised, with the title bar tinted to match the mock-up.
         auto appWindow = this->AppWindow();
-        if (auto presenter = appWindow.Presenter().try_as<Microsoft::UI::Windowing::OverlappedPresenter>())
-            presenter.Maximize();
+        RestoreWindowPlacement(); // where it was last closed (maximised if it was, or if that spot is no longer on a screen); first run: maximised
+        LoadRecentFiles();
+        RebuildRecentMenu();
         // App icon: app.ico sits next to the exe (add it to the project with Content = Yes).
         {
             wchar_t exePath[MAX_PATH] = {};
@@ -1094,12 +1097,14 @@ namespace winrt::FishBalanceWinUI::implementation
             return;
         }
         ApplyParsedFile(res.parsed, path, false, L"");
+        RememberRecentFile(path);
     }
 
     // Puts a parsed .fbd into the window. `path` becomes the open file (empty = unsaved sheet); `dirty` says whether
     // the sheet differs from what is on disk (true for work recovered from autosave).
     void MainWindow::ApplyParsedFile(const FbdLoadResult& f, const std::wstring& path, bool dirty, const std::wstring& statusNote)
     {
+        ClearUndoDelete();
         m_suppressDirty = true;
         EndEditMode();
         m_entries = f.entries;
@@ -1390,6 +1395,7 @@ namespace winrt::FishBalanceWinUI::implementation
         m_currentFile = path;
         m_dirty = false;
         UpdateTitle();
+        RememberRecentFile(path);
         SetStatus(L"Saved.", false);
     }
 
@@ -1592,6 +1598,7 @@ namespace winrt::FishBalanceWinUI::implementation
     // next day's sheet is a genuinely new, unlocked, unsaved sheet.
     void MainWindow::StartNewSheet()
     {
+        ClearUndoDelete();
         m_suppressDirty = true;
         EndEditMode();
         m_entries.clear();
@@ -1695,10 +1702,14 @@ namespace winrt::FishBalanceWinUI::implementation
             return;
         }
         const std::wstring deletedSpecies = m_entries[static_cast<size_t>(idx)].product;
+        m_undoEntry = m_entries[static_cast<size_t>(idx)]; // Edit > Undo Delete (one level)
+        m_undoIndex = idx;
+        m_hasUndo = true;
+        UndoDeleteItem().IsEnabled(true);
         m_entries.erase(m_entries.begin() + idx);
         ReevaluateOutlierFlagsForSpecies(m_entries, deletedSpecies);
         MarkDirty();
-        SetStatus(L"Entry deleted.", false);
+        SetStatus(L"Entry deleted. Edit > Undo Delete brings it back.", false);
         RefreshNameLists();
         RefreshList();
         Recalculate();
@@ -2985,6 +2996,251 @@ namespace winrt::FishBalanceWinUI::implementation
         const std::wstring grand[6] = { L"GRAND TOTAL", FormatKg(stats.grandKgs), FormatMoney(stats.grandAmt), L"", L"", L"" };
         TabPage3().Items().Append(MakeSpeciesRow(grand, true));
     }
+    // ---- v0.23.2: Edit > Undo Delete, Recent Files, window position, Export to CSV, About ----------------------------
+
+    void MainWindow::ClearUndoDelete()
+    {
+        m_hasUndo = false;
+        m_undoIndex = -1;
+        if (!m_closed)
+            UndoDeleteItem().IsEnabled(false);
+    }
+
+    // Same as the Win32 app's UndoDelete(): puts the last deleted row back where it was.
+    void MainWindow::UndoDelete_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
+    {
+        if (m_closed || !m_hasUndo)
+            return;
+        if (!m_finalizedDate.empty())
+        {
+            SetStatus(L"This day is finalized - un-finalize it first.", true);
+            return;
+        }
+        int idx = m_undoIndex;
+        if (idx < 0)
+            idx = 0;
+        if (idx > static_cast<int>(m_entries.size()))
+            idx = static_cast<int>(m_entries.size());
+        EndEditMode();
+        const Entry restored = m_undoEntry;
+        m_entries.insert(m_entries.begin() + idx, restored);
+        ReevaluateOutlierFlagsForSpecies(m_entries, restored.product); // it can change whether its siblings still look normal
+        ClearUndoDelete();
+        MarkDirty();
+        SetStatus(L"Entry restored.", false);
+        RefreshNameLists();
+        RefreshList();
+        Recalculate();
+    }
+
+    namespace
+    {
+        const size_t kRecentMax = 8;
+        std::wstring RecentFilesFile() { return autosave_shared::DataDir() + L"\\recent.txt"; }
+    }
+
+    // recent.txt lives in the shared data folder: the Win32 app and this one share one Recent Files list.
+    void MainWindow::LoadRecentFiles()
+    {
+        m_recent.clear();
+        std::vector<std::wstring> lines;
+        ReadAllLines(RecentFilesFile(), lines);
+        for (const auto& l : lines)
+            if (!l.empty() && m_recent.size() < kRecentMax)
+                m_recent.push_back(l);
+    }
+
+    void MainWindow::RememberRecentFile(const std::wstring& path)
+    {
+        if (path.empty())
+            return;
+        m_recent.erase(std::remove(m_recent.begin(), m_recent.end(), path), m_recent.end());
+        m_recent.insert(m_recent.begin(), path);
+        if (m_recent.size() > kRecentMax)
+            m_recent.resize(kRecentMax);
+        std::string content;
+        for (const auto& p : m_recent)
+            content += WToUtf8(p) + "\n";
+        WriteFileAtomicUtf8(RecentFilesFile(), content); // best effort: losing this only loses the menu
+        RebuildRecentMenu();
+    }
+
+    void MainWindow::RebuildRecentMenu()
+    {
+        if (m_closed)
+            return;
+        auto items = RecentMenu().Items();
+        items.Clear();
+        if (m_recent.empty())
+        {
+            Controls::MenuFlyoutItem none;
+            none.Text(L"(none yet)");
+            none.IsEnabled(false);
+            items.Append(none);
+            return;
+        }
+        auto weak = get_weak();
+        for (const std::wstring& path : m_recent)
+        {
+            const size_t slash = path.find_last_of(L"\\/");
+            const std::wstring name = (slash == std::wstring::npos) ? path : path.substr(slash + 1);
+            Controls::MenuFlyoutItem item;
+            item.Text(hstring{ name });
+            Controls::ToolTipService::SetToolTip(item, box_value(hstring{ path }));
+            item.Click([weak, path](Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {
+                if (auto self = weak.get())
+                    self->OpenRecent(path);
+            });
+            items.Append(item);
+        }
+    }
+
+    void MainWindow::OpenRecent(const std::wstring& path)
+    {
+        if (m_closed)
+            return;
+        if (!ConfirmDiscard(L"open another file"))
+            return;
+        if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES)
+        {
+            MessageBoxW(Hwnd(), (L"That file no longer exists:\n\n" + path + L"\n\nIt will be removed from the list.").c_str(),
+                        L"Recent Files", MB_OK | MB_ICONWARNING);
+            m_recent.erase(std::remove(m_recent.begin(), m_recent.end(), path), m_recent.end());
+            std::string content;
+            for (const auto& p : m_recent)
+                content += WToUtf8(p) + "\n";
+            WriteFileAtomicUtf8(RecentFilesFile(), content);
+            RebuildRecentMenu();
+            return;
+        }
+        OpenNamedFile(path);
+    }
+
+    // The window's position and size are kept in settings.txt under their own WUI* keys, so this app and the Win32 app
+    // (which uses X/Y/W/H) never move each other's window. Nothing saved, or a saved spot that is no longer on any
+    // screen (a monitor was unplugged): start maximised, as before.
+    void MainWindow::RestoreWindowPlacement()
+    {
+        auto appWindow = this->AppWindow();
+        auto maximise = [&appWindow]() {
+            if (auto presenter = appWindow.Presenter().try_as<Microsoft::UI::Windowing::OverlappedPresenter>())
+                presenter.Maximize();
+        };
+        const std::wstring dir = autosave_shared::DataDir();
+        const std::wstring sx = autosave_shared::ReadSetting(dir, L"WUIX");
+        const std::wstring sy = autosave_shared::ReadSetting(dir, L"WUIY");
+        const std::wstring sw = autosave_shared::ReadSetting(dir, L"WUIW");
+        const std::wstring sh = autosave_shared::ReadSetting(dir, L"WUIH");
+        const std::wstring sm = autosave_shared::ReadSetting(dir, L"WUIMAX");
+        const HWND hwnd = Hwnd();
+        if (!hwnd || sx.empty() || sy.empty() || sw.empty() || sh.empty())
+        {
+            maximise();
+            return;
+        }
+        RECT rc{};
+        rc.left = _wtoi(sx.c_str());
+        rc.top = _wtoi(sy.c_str());
+        rc.right = rc.left + _wtoi(sw.c_str());
+        rc.bottom = rc.top + _wtoi(sh.c_str());
+        const POINT titleMiddle{ (rc.left + rc.right) / 2, rc.top + 20 };
+        if (rc.right - rc.left < 400 || rc.bottom - rc.top < 300 || !MonitorFromPoint(titleMiddle, MONITOR_DEFAULTTONULL))
+        {
+            maximise();
+            return;
+        }
+        WINDOWPLACEMENT wp{};
+        wp.length = sizeof(wp);
+        if (!GetWindowPlacement(hwnd, &wp))
+        {
+            maximise();
+            return;
+        }
+        wp.rcNormalPosition = rc;
+        wp.showCmd = (sm == L"1") ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
+        if (!SetWindowPlacement(hwnd, &wp))
+            maximise();
+    }
+
+    void MainWindow::SaveWindowPlacement()
+    {
+        const HWND hwnd = Hwnd();
+        if (!hwnd)
+            return;
+        WINDOWPLACEMENT wp{};
+        wp.length = sizeof(wp);
+        if (!GetWindowPlacement(hwnd, &wp))
+            return;
+        const std::wstring dir = autosave_shared::DataDir();
+        const RECT rc = wp.rcNormalPosition; // the un-maximised rectangle, so "maximised" remembers where it restores to
+        autosave_shared::WriteSetting(dir, L"WUIX", std::to_wstring(rc.left));
+        autosave_shared::WriteSetting(dir, L"WUIY", std::to_wstring(rc.top));
+        autosave_shared::WriteSetting(dir, L"WUIW", std::to_wstring(rc.right - rc.left));
+        autosave_shared::WriteSetting(dir, L"WUIH", std::to_wstring(rc.bottom - rc.top));
+        autosave_shared::WriteSetting(dir, L"WUIMAX", wp.showCmd == SW_SHOWMAXIMIZED ? L"1" : L"0");
+    }
+
+    // File > Export to CSV: the same file the Win32 app writes (entries plus every report), opens directly in Excel.
+    void MainWindow::ExportCsv_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
+    {
+        if (m_closed)
+            return;
+        wchar_t file[MAX_PATH] = L"";
+        OPENFILENAMEW ofn{};
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner = Hwnd();
+        ofn.lpstrFilter = L"CSV Files (*.csv)\0*.csv\0All Files (*.*)\0*.*\0";
+        ofn.lpstrFile = file;
+        ofn.nMaxFile = MAX_PATH;
+        ofn.lpstrDefExt = L"csv";
+        ofn.Flags = OFN_OVERWRITEPROMPT;
+        if (!GetSaveFileNameW(&ofn))
+            return;
+        std::wstring err;
+        if (ExportToCsv(file, m_entries, &err))
+            SetStatus(L"Exported - the file opens directly in Excel.", false);
+        else
+            MessageBoxW(Hwnd(), (L"Could not export the file: " + err).c_str(), L"Export to CSV", MB_OK | MB_ICONERROR);
+    }
+
+    void MainWindow::About_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
+    {
+        if (!m_closed)
+            ShowAbout();
+    }
+
+    winrt::fire_and_forget MainWindow::ShowAbout()
+    {
+        auto strong = get_strong();
+        Controls::TextBlock text;
+        text.TextWrapping(TextWrapping::Wrap);
+        text.Text(
+            L"A native replacement for the BALANCE_PivotTable spreadsheet.\n\n"
+            L"1. Enter each delivery on the Data Entry tab and fill in the Debtor / Cash figures from the books to check they balance.\n"
+            L"2. See a $ total per supplier on the Total Overview tab.\n"
+            L"3. See supplier > species > price with weights on the Breakdown tab (double-click a row to list the entries behind it).\n"
+            L"4. See Kgs / $ totals per species, with average, highest and lowest price, on the By Species tab.\n\n"
+            L"To fix a mistake, double-click a row (or select it and click Edit Selected Row), correct it and click Update Entry. "
+            L"Deleting a row asks first, and Edit > Undo Delete brings back the last one.\n\n"
+            L"An unusually high or low price gets a warning marker automatically; double-click the row to review it, or right-click to clear the flag.\n\n"
+            L"Use File > Print Breakdown... (or Print Preview...) to print; choose Microsoft Print to PDF for a PDF. File > Export to CSV... writes everything for Excel.\n\n"
+            L"Your work is saved automatically in C:\\BalancingAct\\data, and a rolling set of backups is kept there too. "
+            L"Use File > Save As... to keep a named copy; File > Recent Files lists your last few. "
+            L"Once Debtor + Cash balance exactly, Finalize Day locks the sheet.\n\n"
+            L"Tools > Manage Supplier / Species Names tidies the name lists and holds supplier emails; Tools > Settings has email, backup, text size and printer options.");
+        Controls::ScrollViewer scroll;
+        scroll.MaxHeight((std::max)(280.0, (std::min)(560.0, RootGrid().ActualHeight() - 260.0)));
+        scroll.Content(text);
+        Controls::ContentDialog dlg;
+        dlg.XamlRoot(RootGrid().XamlRoot());
+        dlg.Title(box_value(hstring{ L"Fish Balance Manager (WinUI) v" APP_VERSION }));
+        dlg.Content(scroll);
+        dlg.CloseButtonText(L"Close");
+        dlg.DefaultButton(Controls::ContentDialogButton::Close);
+        dlg.Resources().Insert(box_value(L"ContentDialogMaxWidth"), box_value(680.0));
+        co_await dlg.ShowAsync();
+    }
+
     // File > Print Breakdown / the Print buttons: WinUI's own Print dialog (the Windows dialog cannot be told which
     // printer to start on, and the classic one looks dated).
     void MainWindow::Print_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
@@ -3616,6 +3872,7 @@ namespace winrt::FishBalanceWinUI::implementation
         st->setStatus = [st](const std::wstring& text) { st->status.Text(hstring{ text }); };
 
         st->takeSnapshot = [this, st]() {
+            ClearUndoDelete(); // a rename / merge rewrites the rows: an old Undo Delete would no longer fit
             st->undo.valid = true;
             st->undo.entries = m_entries;
             st->undo.master = m_names;
@@ -4188,6 +4445,7 @@ namespace winrt::FishBalanceWinUI::implementation
             if (!st->undo.valid)
                 return;
             EndEditMode();
+            ClearUndoDelete();
             m_entries = st->undo.entries;
             m_names = st->undo.master;
             m_supplierEmails = st->undo.emails;
