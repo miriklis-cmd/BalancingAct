@@ -3,14 +3,14 @@ REM Run this from a "Developer Command Prompt for VS" so cl.exe and rc.exe are o
 REM v0.18.6: the manifest (visual styles / DPI) and the app icon are both embedded
 REM by the small resource script app_icon.rc, so the exe is self-contained.
 
-rem v0.10.0: every .cpp of the app is listed HERE (and in build_mingw.bat, CMakeLists.txt
-rem and tests\win32_integration\run_integration_tests.ps1) - add new source files to all four.
+rem v0.10.0: every .cpp of the app is listed HERE (and in
+rem tests\win32_integration\run_integration_tests.ps1) - add new source files to both.
 set SOURCES=main.cpp src\data\AppData.cpp src\data\Storage.cpp src\data\Backups.cpp src\services\CsvExport.cpp src\services\Email.cpp src\services\GmailDraft.cpp src\services\ReportRender.cpp src\services\PrintJob.cpp src\forms\UiState.cpp src\forms\MainWindowLayout.cpp src\forms\MainWindowLists.cpp src\forms\ManageNamesWindow.cpp src\forms\PrintPreviewWindow.cpp src\forms\DrillDownWindow.cpp src\forms\SettingsWindow.cpp
 
 rc /nologo app_icon.rc
 if errorlevel 1 goto :error
 
-REM Phase 1 (2026-09-30): /W4 /WX now matches CMakeLists.txt's warning
+REM Phase 1 (2026-09-30): /W4 /WX is the warning
 REM gate (see AuditFindings_2026-09-30.md, finding F29) - previously this
 REM script passed no warning flags at all.
 cl /nologo /W4 /WX /EHsc /O2 /std:c++17 /DUNICODE /D_UNICODE %SOURCES% app_icon.res ^

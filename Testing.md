@@ -40,8 +40,7 @@ targeted fix.
 
 ## Build
 
-- [ ] Build succeeds with no errors (CMake, MinGW, or MSVC — whichever
-      you're using)
+- [ ] Build succeeds with no errors (MSVC: `build_msvc.bat` or Visual Studio)
 - [ ] **(v0.9.48)** Build succeeds with the tightened warning gate now
       wired into all four build paths - `/W4 /WX` (MSVC) or
       `-Wall -Wextra -Wpedantic -Werror` (MinGW/GCC). A warning is now a
@@ -353,7 +352,7 @@ Use a copy of a real day, or type a few entries.
 - [ ] The popup is readable at 150% scaling (nothing cut off), stays inside the screen, can be resized, and Close or the window X closes it; the main window is usable again straight away.
 - [ ] While the popup is open the main window cannot be clicked (like Manage Names). After closing, double-clicking another row works.
 - [ ] Double-click on the empty area below the last row does nothing. Double-click on the Entries tab list still opens the edit/review as before.
-- [ ] Build with `build_mingw.bat` if you have MinGW (it failed before 0.12.6 because of the `#pragma comment` lines).
+- (Removed v0.23.4: the MinGW and CMake builds no longer exist.)
 
 ## Carried-over checks (never recorded as confirmed)
 
@@ -365,7 +364,6 @@ These were on the old roadmap's unticked list. Several were probably checked cas
 - [ ] A forced backup failure (make `backups\` read-only): one "Backup Snapshot Failed" warning, not repeated, autosave still works.
 - [ ] A half-typed Add Entry draft survives a crash: type, Tab away, kill from Task Manager, reopen.
 - [ ] Renaming a supplier in Manage Names (no conflict) keeps its email address.
-- [ ] A build with CMake and with MinGW (`build_mingw.bat`) has zero warnings - neither has ever been run.
 
 ## Full regression pass
 
@@ -470,6 +468,14 @@ Needs the Google client file (client_secret.json) in `C:\BalancingAct\private\` 
 - [ ] Print sends the job to the chosen printer (not the Windows default); status bar says "Sent to <printer>."
 - [ ] Copies = 2 gives two copies on a real printer; Cancel prints nothing.
 - [ ] Microsoft Print to PDF produces a correct PDF.
+
+### v0.23.4 checks (WinUI Restore from Backup)
+
+- [ ] File > Restore from Backup... opens the picker IN the backups folder (even right after you used File > Open somewhere else).
+- [ ] Pick a backup: the sheet loads with no file name in the title, a status line says to review it and Save As, and closing / New / Open now ask about unsaved changes.
+- [ ] After restoring, a new `backup_...before-restore.fbd` is in the backups folder holding the sheet you had before. Restoring THAT file brings the old sheet back.
+- [ ] Cancel in the picker changes nothing. Picking a damaged / wrong file shows an error and changes nothing (and creates no `before-restore` file).
+- [ ] On a fresh data folder with no backups folder: a "No Backups Yet" message.
 
 ### v0.23.2 checks (WinUI)
 

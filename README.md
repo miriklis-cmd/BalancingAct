@@ -136,28 +136,9 @@ position, and which file was open, and restores them next time you launch.
 ## Building
 
 No third-party libraries are required — only the standard Windows SDK
-headers/libs that ship with Visual Studio or MinGW-w64.
+headers/libs that ship with Visual Studio.
 
-### Option A: CMake (recommended, works with either toolchain)
-
-```
-cmake -B build -G "Visual Studio 17 2022"      REM or -G "MinGW Makefiles"
-cmake --build build --config Release
-```
-
-The resulting `FishBalanceManager.exe` will be under `build\Release\` (MSVC)
-or `build\` (MinGW).
-
-### Option B: MinGW-w64, one command
-
-Install MinGW-w64 (e.g. via MSYS2) so `g++` and `windres` are on your PATH,
-then from this folder run:
-
-```
-build_mingw.bat
-```
-
-### Option C: MSVC command line
+### Build (MSVC)
 
 Open a **Developer Command Prompt for VS**, `cd` into this folder, then run:
 
@@ -187,8 +168,6 @@ build_msvc.bat
 | `app.ico`         | The application icon (multi-resolution: 16–256px), embedded into the exe via `app_icon.rc` |
 | `resource.h`       | Shared resource ID (`IDI_APPICON`) used by both `main.cpp` and `app_icon.rc` |
 | `app_icon.rc`     | Minimal resource script that embeds only the icon — kept separate from the manifest so it can't cause the duplicate-resource conflict a combined script hit earlier |
-| `CMakeLists.txt`  | Cross-toolchain build definition; copies the manifest and icon next to the exe automatically, and builds the test suite as a CTest target |
-| `build_mingw.bat` | Quick build with MinGW-w64 (kept up to date but not yet run by Jack) |
 | `build_msvc.bat`  | Quick build with MSVC (the one in regular use)       |
 | `ROADMAP.md`, `ROADMAP_ARCHIVE.md` | The current plan; and the frozen history of the old roadmap (v0.10.18) |
 
@@ -213,9 +192,8 @@ records, not disposable like the others.
 
 There IS an automated test suite (`tests/`, using the doctest framework) -
 it covers `FishBalanceCore.h`, the platform-independent parsing/
-aggregation/formatting logic the app is built on, and runs via CTest
-(`cmake --build build --target RUN_TESTS` or `ctest` from the build
-folder) or directly via `tests/run_tests.ps1`. `run_tests.bat` runs BOTH the
+aggregation/formatting logic the app is built on, and runs via
+`run_tests.bat` / `tests/run_tests.ps1`. `run_tests.bat` runs BOTH the
 portable suite and the Windows integration suite (real files, injected
 save failures, headless startup) - run it after any change.
 

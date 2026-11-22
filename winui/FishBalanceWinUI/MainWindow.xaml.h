@@ -38,6 +38,8 @@ namespace winrt::FishBalanceWinUI::implementation
                        Microsoft::UI::Xaml::RoutedEventArgs const& e);
         void Delete_Click(Windows::Foundation::IInspectable const& sender,
                           Microsoft::UI::Xaml::RoutedEventArgs const& e);
+        void RestoreBackup_Click(Windows::Foundation::IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& e);
+        void SnapshotBeforeReplace();                // safety copy of the current sheet into backups\ before a restore replaces it
         void UndoDelete_Click(Windows::Foundation::IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& e);
         void About_Click(Windows::Foundation::IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& e);
         void ExportCsv_Click(Windows::Foundation::IInspectable const& sender, Microsoft::UI::Xaml::RoutedEventArgs const& e);

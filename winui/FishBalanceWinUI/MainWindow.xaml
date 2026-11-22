@@ -89,6 +89,7 @@
                         <KeyboardAccelerator Key="S" Modifiers="Control,Shift" />
                     </MenuFlyoutItem.KeyboardAccelerators>
                 </MenuFlyoutItem>
+                <MenuFlyoutItem Text="Restore from Backup..." Click="RestoreBackup_Click" />
                 <MenuFlyoutSubItem x:Name="RecentMenu" Text="Recent Files" />
                 <MenuFlyoutSeparator />
                 <MenuFlyoutItem Text="Export to CSV..." Click="ExportCsv_Click" />

@@ -6,6 +6,7 @@
 
 #include <microsoft.ui.xaml.window.h>   // IWindowNative: gets the HWND for the file dialogs
 #include <commdlg.h>
+#include <shobjidl.h>   // IFileOpenDialog (Restore from Backup opens in the backups folder)
 #pragma comment(lib, "comdlg32.lib")
 #include "src/data/AutosaveShared.h"          // shared data folder, who-owns-autosave lock, settings.txt keys (same code as the Win32 app)
 #include "src/data/FishBalanceWin32IO.h"    // LoadFbdFileContent, WriteFileAtomicUtf8, WToUtf8 (same code as the Win32 app)
@@ -21,6 +22,7 @@
 #include "src/services/GmailDraft.h"        // step 14: Gmail drafts. src/services/GmailDraft.cpp must be an item in the project (precompiled header: Not Using)
 #pragma comment(lib, "gdi32.lib")      // CreateDIBSection, TextOutW, StartDocW ... (a WinUI project does not link it by default)
 #pragma comment(lib, "winspool.lib")
+#pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "shell32.lib")      // ShellExecuteW for the mailto: draft
 
 #include <winrt/Microsoft.UI.Windowing.h>
@@ -2996,6 +2998,135 @@ namespace winrt::FishBalanceWinUI::implementation
         const std::wstring grand[6] = { L"GRAND TOTAL", FormatKg(stats.grandKgs), FormatMoney(stats.grandAmt), L"", L"", L"" };
         TabPage3().Items().Append(MakeSpeciesRow(grand, true));
     }
+    namespace
+    {
+        // Same picker as the Win32 app's PickFileInFolderModern: the classic dialog ignores the start folder after its first
+        // use, IFileOpenDialog::SetFolder always opens where it is told. 1 = picked, 0 = cancelled, -1 = unusable.
+        int PickBackupFile(HWND owner, const std::wstring& folder, std::wstring& outPath)
+        {
+            const HRESULT hrInit = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+            const bool uninit = SUCCEEDED(hrInit); // already initialised another way: just use it
+            int result = -1;
+            IFileOpenDialog* dlg = nullptr;
+            if (SUCCEEDED(CoCreateInstance(__uuidof(FileOpenDialog), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg))) && dlg)
+            {
+                COMDLG_FILTERSPEC filters[] = {
+                    { L"Fish Balance Backups (*.fbd)", L"*.fbd" },
+                    { L"All Files (*.*)", L"*.*" },
+                };
+                DWORD opts = 0;
+                dlg->GetOptions(&opts);
+                dlg->SetOptions(opts | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_FILEMUSTEXIST);
+                dlg->SetFileTypes(2, filters);
+                dlg->SetFileTypeIndex(1);
+                dlg->SetDefaultExtension(L"fbd");
+                IShellItem* folderItem = nullptr;
+                if (SUCCEEDED(SHCreateItemFromParsingName(folder.c_str(), nullptr, IID_PPV_ARGS(&folderItem))) && folderItem)
+                {
+                    dlg->SetFolder(folderItem);
+                    folderItem->Release();
+                }
+                const HRESULT hr = dlg->Show(owner);
+                if (hr == HRESULT_FROM_WIN32(ERROR_CANCELLED))
+                    result = 0;
+                else if (SUCCEEDED(hr))
+                {
+                    IShellItem* item = nullptr;
+                    if (SUCCEEDED(dlg->GetResult(&item)) && item)
+                    {
+                        PWSTR path = nullptr;
+                        if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)) && path)
+                        {
+                            outPath = path;
+                            CoTaskMemFree(path);
+                            result = 1;
+                        }
+                        item->Release();
+                    }
+                }
+                dlg->Release();
+            }
+            if (uninit)
+                CoUninitialize();
+            return result;
+        }
+    }
+
+    // A safety copy of the sheet that is about to be replaced (best effort, silent): same folder and file-name pattern as the
+    // rolling backups, label "before-restore". Nothing to copy when the sheet has no entries.
+    void MainWindow::SnapshotBeforeReplace()
+    {
+        if (m_entries.empty())
+            return;
+        try
+        {
+            const std::wstring keepD = m_baseDebtor, keepC = m_baseCash; // GatherSaveState resets the "clean" baseline; put it back
+            FbdSaveState s = GatherSaveState(m_finalizedDate);
+            m_baseDebtor = keepD;
+            m_baseCash = keepC;
+            s.includeSourceFile = true;
+            s.sourceFile = m_currentFile;
+            const std::string content = WToUtf8(BuildFbdText(s));
+            const std::wstring bdir = autosave_shared::DataDir() + L"\\backups";
+            CreateDirectoryW(bdir.c_str(), nullptr);
+            SYSTEMTIME st;
+            GetLocalTime(&st);
+            std::wstring bpath;
+            for (int counter = 0; counter < 1000; ++counter)
+            {
+                bpath = bdir + L"\\" + BuildBackupFileName(st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond,
+                                                          st.wMilliseconds, L"before-restore", counter);
+                if (GetFileAttributesW(bpath.c_str()) == INVALID_FILE_ATTRIBUTES)
+                    break;
+            }
+            std::wstring ignored;
+            WriteFileAtomicUtf8(bpath, content, &ignored);
+        }
+        catch (...)
+        {
+        }
+    }
+
+    // File > Restore from Backup: pick one of the rolling backups (the picker opens in the backups folder) and load it as an
+    // UNSAVED sheet (no file name), like the Win32 app - review it, then Save As to keep it. The sheet it replaces is first
+    // copied into backups\ as "before-restore", so a wrong pick can be undone by restoring that one.
+    void MainWindow::RestoreBackup_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
+    {
+        if (m_closed)
+            return;
+        const std::wstring dir = autosave_shared::DataDir() + L"\\backups";
+        const DWORD attrs = GetFileAttributesW(dir.c_str());
+        if (attrs == INVALID_FILE_ATTRIBUTES || !(attrs & FILE_ATTRIBUTE_DIRECTORY))
+        {
+            MessageBoxW(Hwnd(),
+                        L"No backups folder exists yet. Rolling backups are taken automatically as you work (every few minutes "
+                        L"when something changed) - there just isn't one yet.",
+                        L"No Backups Yet", MB_OK | MB_ICONINFORMATION);
+            return;
+        }
+        std::wstring file;
+        const int r = PickBackupFile(Hwnd(), dir, file);
+        if (r == 0)
+            return; // cancelled
+        if (r != 1 || file.empty())
+        {
+            MessageBoxW(Hwnd(), (L"The file picker could not be opened.\n\nThe backups are in:\n" + dir + L"\n\nYou can also use File > Open on one of those files.").c_str(),
+                        L"Restore from Backup", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        if (!ConfirmDiscard(L"load this backup (nothing on disk is touched unless you Save afterwards)"))
+            return;
+        LoadFbdFileResult res = LoadFbdFileContent(file);
+        if (!res.ok)
+        {
+            MessageBoxW(Hwnd(), (L"Could not load that backup: " + res.errorMessage + L".\n\nNothing has been changed.").c_str(),
+                        L"Restore from Backup", MB_OK | MB_ICONERROR);
+            return;
+        }
+        SnapshotBeforeReplace(); // only after the backup is known to load, so a bad pick leaves no extra file
+        ApplyParsedFile(res.parsed, L"", true, L"Backup loaded - review it, then File > Save As to keep it.");
+    }
+
     // ---- v0.23.2: Edit > Undo Delete, Recent Files, window position, Export to CSV, About ----------------------------
 
     void MainWindow::ClearUndoDelete()

@@ -4,9 +4,12 @@ This is the current plan: where we are, what is next, what is not built, and wha
 (every version's test checklist, the 0.9.x status notes) is frozen in `ROADMAP_ARCHIVE.md`; version-by-version detail
 is in `CHANGELOG.md`; manual checks still to do are in `Testing.md`.
 
-## Where we are (v0.23.3, 2026-11-20)
+## Where we are (v0.23.4, 2026-11-23)
 
-**v0.23.3 (Phase A housekeeping) written, strict build + 345 tests pass, not yet run by Jack:** the shared data-folder rule is one definition; docs refreshed. Jack to delete the stale files listed in A1-A3 (commands in the delivery message), then push.
+**v0.23.4 written, NOT yet run by Jack:** WinUI Restore from Backup (Phase B1); MinGW / CMake builds removed (A7); Gmail audience checked (D4). Phase A is closed: the Win32 and WinUI regression passes were both confirmed by Jack (2026-11-23). Checks: Testing.md "v0.23.4 checks". Next: Phase B2 onwards.
+
+**v0.23.3 (Phase A housekeeping) tested OK by Jack, pushed.**
+
 
 **v0.23.2 tested OK by Jack 2026-11-20 and pushed: WinUI catch-up batch - Edit > Undo Delete, Help > About, File > Recent Files, remembered window position, File > Export to CSV.** Checks: Testing.md "v0.23.2 checks". WinUI still lacks: Restore from Backup, crash-recovery named file, exit exception check (the rest of the list below is done once these are confirmed).
 
@@ -75,11 +78,11 @@ The old "Next" list (split stages, WinUI prototype steps) is finished or history
 - A3. `COMMIT_MESSAGE.txt` is stale (still v0.13.0); `push_update.ps1` builds the message from `CHANGELOG.md`. Delete it.
 - A4. DONE v0.23.3. The shared data folder was defined twice: `DataDir()` in `AutosaveShared.h` (used by WinUI) and `GetSharedDataDir()` in `Storage.cpp` (Win32). Unify so the two apps cannot drift apart.
 - A5. DONE v0.23.3. Docs drift: audit finding F7 (data beside the exe) is done in practice - the data lives in `C:\BalancingAct\data` (v0.13.2) - so mark it closed (a hard-coded path rather than `%LOCALAPPDATA%` is the decision on record); `README.md` / `ARCHITECTURE.md` should describe the WinUI edition and `winui/`; `AuditFindings_2026-09-30.md` open-items table to be refreshed.
-- A6. A "Regression pass" of 13 checks is now at the top of `Testing.md` (v0.23.3). `Testing.md` has about 140 unticked checks, many of them old. Do that short regression pass (Jack) and tick or delete what is no longer relevant; split into "Win32" and "WinUI" lists.
-- A7. Decision pending (Jack). `build_mingw.bat` and `CMakeLists.txt` have never been run by Jack (MinGW is not installed on his PC). Either run each once or delete them and keep MSVC only; they cost effort every time a source file is added.
+- A6. DONE (Jack, 2026-11-23: Win32 and WinUI clean). A "Regression pass" of 13 checks is now at the top of `Testing.md` (v0.23.3). `Testing.md` has about 140 unticked checks, many of them old. Do that short regression pass (Jack) and tick or delete what is no longer relevant; split into "Win32" and "WinUI" lists.
+- A7. DONE v0.23.4: `build_mingw.bat`, `CMakeLists.txt` and `CMakeSettings.json` removed (never run by Jack); MSVC is the build. Docs updated. Jack deletes the three files (command in the delivery message).
 
 **Phase B - WinUI catch-up (the app Jack will use daily)**
-- B1. Restore from Backup (file picker in `backups\`, safety snapshot of the current sheet first).
+- B1. DONE v0.23.4 (written, not yet run by Jack). Restore from Backup (file picker in `backups\`, safety snapshot of the current sheet first).
 - B2. Crash-recovery named file and the exit exception check.
 - B3. Filter box on Total Overview, Breakdown and By Species (Win32 has it since v0.19.0; WinUI only filters the entries list).
 - B4. Start-up behaviour setting: resume silently, but ask first if the loaded sheet is from an earlier session (decide).
@@ -96,7 +99,7 @@ The old "Next" list (split stages, WinUI prototype steps) is finished or history
 - D1. **Decided 2026-11-20: WinUI is the main app; Win32 is still used.** New features go in `src/` (shared) and WinUI first; Win32 gets them when it is cheap (shared code) and otherwise bug fixes only. F16-F22 (D3) are therefore low priority.
 - D2. Installer / packaging: the WinUI package is signed with a temporary key, so it only installs on this PC through Visual Studio. A second machine needs a proper signing certificate or a different packaging route.
 - D3. If Win32 stays: F16-F22 as one small stage (unchecked window-creation results, message-loop error, main-window position not clamped to monitors on restore, no `WM_DPICHANGED`). WinUI already checks the saved position is on a screen.
-- D4. Gmail sign-in: check whether the Google project is in "Testing" status (refresh tokens then expire after 7 days) or published; if Testing, plan for it.
+- D4. DONE (checked 2026-11-20): the Google project's audience is **Internal** (own Workspace organisation), so sign-in does not expire after 7 days and no Google verification is needed. Only accounts on that domain can sign in. Do not click "Make external".
 - D5. Test coverage: `src/` logic is covered (345 tests) but WinUI-only code (settings, recent files, window placement, dialogs) has none. Move the logic that can be tested (recent-list handling, placement validation) into `src/` with tests when it next changes.
 - D6. WinUI should be layered like Win32 (it already shares core/data/services in `src/`; its forms layer is the problem). `winui/.../MainWindow.xaml.cpp` is 4,500 lines in one file; split it into `winui/.../Forms/` pieces (Manage Names, Settings, Print, About, Drill-down) one dialog at a time, starting next time one of them is edited. Decided 2026-11-20: WinUI is the main app, Win32 stays in use. Keep the unity-include rule for `PrintJob.cpp` / `ReportRender.cpp` / `Email.cpp` / `CsvExport.cpp` in mind (they are included in this file, not project items).
 
@@ -124,17 +127,13 @@ The old "Next" list (split stages, WinUI prototype steps) is finished or history
   display (intermittent). Four code fixes (0.9.42-0.9.46) and a clip-style experiment (0.10.10, reverted in 0.10.11, made
   the combos vanish) did not cure it; the workaround code (`FixComboBoxFirstPaint`, timers) is still in. It needs a
   diagnostic build, not another guess; WinUI 3 would likely remove it. See `ARCHITECTURE.md`.
-- **Never built or run by Jack:** the MinGW build (`build_mingw.bat`) and the CMake build. Only MSVC (batch file or
-  Visual Studio) is exercised. Keep them in step with source-file changes; update this line the first time they are built.
-  (2026-10-25: v0.12.6 was cross-compiled with MinGW-w64 using `build_mingw.bat`'s flags and ran under Wine. That found the `#pragma comment`
-  `-Werror` failure, now fixed. The CMake path has still not been tried.)
+- (Removed v0.23.4: the MinGW and CMake builds. Only MSVC is built.)
 
 ## Decisions on record
 
 - Versioning: the split and its fixes are 0.10.x; next feature 0.11.0; 1.0 = release-ready.
 - Layering (`src/README.md`): forms -> services -> data -> core; nothing points back up. No Windows UI call in core/data/services.
-- Every new `.cpp` goes into all four build paths (`build_msvc.bat`, `build_mingw.bat`, `CMakeLists.txt`,
-  `tests/win32_integration/run_integration_tests.ps1`).
+- Every new `.cpp` goes into both build paths (`build_msvc.bat`, `tests/win32_integration/run_integration_tests.ps1`).
 - Sequencing changed: the original plan did the multi-machine work (Bucket C) before the `main.cpp` split. In practice
   the split is being done first; Bucket C will be shaped by the split code rather than the other way round.
 - Finalize Day: workflow, rules and design are in `BUSINESS_RULES.md` and `CHANGELOG.md` `[0.9.40]` (built; not detection-based).

@@ -171,10 +171,9 @@ arguments (e.g. `RefreshAll(bool doAutosave = true)`) must be written in that on
 definition, declare it in the right one of these rather than reordering large chunks of the file.
 
 ### Adding a source file
-A new `.cpp` must be added to all four build paths: `build_msvc.bat` (`SOURCES`), `build_mingw.bat`
-(`SOURCES`), `CMakeLists.txt` (`APP_SOURCES`) and `tests/win32_integration/run_integration_tests.ps1`
-(`$appSources`). Forgetting one breaks only that path, which may not be noticed for a while (the MinGW and CMake
-builds are not run regularly).
+A new `.cpp` must be added to both build paths: `build_msvc.bat` (`SOURCES`) and `tests/win32_integration/run_integration_tests.ps1`
+(`$appSources`). (The MinGW and CMake builds were removed in v0.23.4 - they had never been run by Jack.) The WinUI edition does
+not list `src/` files in its project except `GmailDraft.cpp`; see "The WinUI edition" below.
 
 ### File dialogs remember the last folder
 The classic `GetOpenFileNameW` ignores `lpstrInitialDir` after the first use in a process, and on some systems the
@@ -235,7 +234,7 @@ environment), all correctness checking on Claude's end is done by:
 
 None of this substitutes for an actual compile — always build and run
 after a batch of changes, and report back anything the compiler flags.
-See README.md for the three supported build paths (CMake, MinGW, MSVC).
+See README.md for the build (MSVC).
 
 ### `app.rc` — deleted 2026-09-05, do not re-add
 
@@ -251,6 +250,6 @@ added to a build's sources without this context, it would silently
 reintroduce the exact manifest conflict already engineered around,
 likely surfacing as confusing, hard-to-trace lost ListView theming
 rather than an obvious build error. Confirmed unused by checking all
-three build paths directly (`CMakeLists.txt`, `build_mingw.bat`,
-`build_msvc.bat` each reference only `app_icon.rc`) before deleting -
+the build files directly (`build_msvc.bat` and the old CMake / MinGW
+files each referenced only `app_icon.rc`) before deleting -
 don't re-add it.

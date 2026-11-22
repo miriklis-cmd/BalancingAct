@@ -34,5 +34,5 @@ Main window layout (`forms/MainWindowLayout`, v0.10.9): `LayoutAll` (all control
 
 Global state: document/persistence state is in `data/AppData`, window handles and UI state are in `forms/UiState`.
 
-New `.cpp` files must be added to the source list in all four build paths: `build_msvc.bat`,
-`build_mingw.bat`, `CMakeLists.txt`, and `tests/win32_integration/run_integration_tests.ps1`.
+New `.cpp` files must be added to the source list in both build paths: `build_msvc.bat`
+and `tests/win32_integration/run_integration_tests.ps1`.

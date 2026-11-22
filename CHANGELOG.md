@@ -21,6 +21,13 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.23.4] - 2026-11-23
+
+- WinUI **File > Restore from Backup...**: the picker opens in the backups folder (same folder-forcing picker as Win32), the chosen backup loads as an UNSAVED sheet (no file name, counts as unsaved so New / Open / close ask first - Win32 treats it as clean; this is the safer choice), and the sheet it replaces is first copied into `backups\` as `before-restore`, so a wrong pick can be undone by restoring that one. A backup that fails to load changes nothing and leaves no extra file.
+- Removed the MinGW and CMake builds (`build_mingw.bat`, `CMakeLists.txt`, `CMakeSettings.json`): never run by Jack, and every new source file had to be added to them. MSVC is the build; docs and `build_msvc.bat` comments updated. New `.cpp` files now go into two places: `build_msvc.bat` and `tests/win32_integration/run_integration_tests.ps1`.
+- Gmail: the Google project's audience is Internal (checked 2026-11-20): no 7-day sign-in expiry. Regression pass (Win32 and WinUI) confirmed by Jack 2026-11-20 / 23.
+- Version 0.23.4.
+
 ## [0.23.3] - 2026-11-20
 
 Housekeeping (roadmap Phase A) - no behaviour change.

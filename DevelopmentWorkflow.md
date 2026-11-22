@@ -137,7 +137,7 @@ project folder - `*.fbd` is git-ignored since 0.10.17 because a saved sheet was 
 
 ```
 <project root>/
-  main.cpp, version.h, resource.h, CMakeLists.txt, build_msvc.bat, build_mingw.bat, ...
+  main.cpp, version.h, resource.h, build_msvc.bat, ...
   app.manifest, app.ico, app_icon.rc
   src/
     core/FishBalanceCore.h, FishBalanceControlLimits.h   <- pure logic (was in the root before v0.10.0)
@@ -147,9 +147,8 @@ project folder - `*.fbd` is git-ignored since 0.10.17 because a saved sheet was 
     win32_integration/...
 ```
 
-`CMakeLists.txt` lists its test sources as `tests/test_main.cpp` etc.,
-and the test `.cpp` files themselves `#include "../src/core/FishBalanceCore.h"` -
-both require the whole test suite (`run_tests.ps1`, `doctest.h`,
+The test `.cpp` files themselves `#include "../src/core/FishBalanceCore.h"` -
+so they need the whole test suite (`run_tests.ps1`, `doctest.h`,
 `doctest_setup.h`, all `test_*.cpp`) to live inside a `tests\` subfolder
 one level below the project root, never flat alongside `main.cpp`.
 
@@ -168,8 +167,7 @@ at all (no trace, not even a stray reference), so no accurate copy could
 be shipped and Claude didn't try to guess (especially `app.ico`, a
 binary icon file - a guess would just ship a different icon than the
 real one). **Added to the project 2026-09-21** — all three now ship at
-the project root in every zip, alongside `main.cpp`, matching
-`CMakeLists.txt`'s references to them.
+the project root in every zip, alongside `main.cpp`.
 
 ## Line endings (why git warns "LF will be replaced by CRLF")
 
