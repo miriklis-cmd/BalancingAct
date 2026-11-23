@@ -19,7 +19,7 @@ namespace {
 HWND g_hSettingsWnd = nullptr;
 HWND g_hSetTab = nullptr;
 std::vector<HWND> g_pages[4]; // controls on each tab page
-HWND g_hSubject, g_hIntro, g_hSignoff, g_hGmailAccount, g_hBackupMin, g_hBackupKeep;
+HWND g_hSubject, g_hIntro, g_hSignoff, g_hSignature, g_hGmailAccount, g_hBackupMin, g_hBackupKeep;
 HWND g_hPrinter, g_hOrient, g_hPaper;
 std::vector<std::wstring> g_printerNames; // index i in the printer combo = i-1 here (item 0 is "Windows default printer")
 
@@ -94,6 +94,8 @@ bool ApplyAndSave(HWND hwnd) {
     g_settings.emailSubject = keepIfCustom(GetText(g_hSubject), def.subject);
     g_settings.emailIntro = keepIfCustom(GetText(g_hIntro), def.intro);
     g_settings.emailSignoff = keepIfCustom(GetText(g_hSignoff), def.signoff);
+    // v0.24.0: the signature may have several lines; stored on one line ("\n" for a break); blank = no signature.
+    g_settings.emailSignature = EncodeMultiline(CleanMultiline(GetText(g_hSignature), 8, 150));
     const int oldText = ClampTextPercent(g_settings.textPercent);
     g_settings.textPercent = IsDlgButtonChecked(hwnd, ID_SET_TEXT_125) == BST_CHECKED ? 125
                            : (IsDlgButtonChecked(hwnd, ID_SET_TEXT_150) == BST_CHECKED ? 150 : 100);
@@ -143,8 +145,8 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
     case WM_CREATE: {
         for (auto& p : g_pages) p.clear();
         g_hSetTab = MakeControl(WC_TABCONTROLW, L"", WS_VISIBLE | WS_TABSTOP | WS_CLIPSIBLINGS, ID_SET_TAB, hwnd);
-        MoveWindow(g_hSetTab, S(8), S(8), S(544), S(414), TRUE);
-        const wchar_t* names[4] = { L"Email", L"Backups & flags", L"Display & printing", L"Data & about" };
+        MoveWindow(g_hSetTab, S(8), S(8), S(544), S(450), TRUE);
+        const wchar_t* names[4] = { L"Email", L"Backups and flags", L"Display and printing", L"Data and about" };
         for (int i = 0; i < 4; i++) {
             TCITEMW it{}; it.mask = TCIF_TEXT;
             it.pszText = const_cast<LPWSTR>(names[i]);
@@ -166,9 +168,13 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         g_hIntro = Add(0, L"EDIT", L"", WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, ID_SET_INTRO, hwnd, 140, 286, 380, 24);
         Add(0, L"STATIC", L"Sign-off:", WS_VISIBLE, 0, hwnd, 36, 324, 100, 20);
         g_hSignoff = Add(0, L"EDIT", L"", WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, ID_SET_SIGNOFF, hwnd, 140, 320, 380, 24);
+        Add(0, L"STATIC", L"Signature:", WS_VISIBLE, 0, hwnd, 36, 358, 100, 20);
+        g_hSignature = Add(0, L"EDIT", L"", WS_VISIBLE | WS_BORDER | WS_TABSTOP | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN, ID_SET_SIGNATURE, hwnd, 140, 354, 380, 60); // v0.24.0: several lines
         Add(0, L"STATIC", L"In the subject, {supplier} and {date} are filled in for each email. The opening line is followed by the date "
-                          L"and a colon. Leave a box blank to use the standard wording.", WS_VISIBLE, 0, hwnd, 36, 354, 490, 40);
+                          L"and a colon. The signature (name, company, phone) goes under the sign-off; leave it empty for none. "
+                          L"Leave the other boxes blank for the standard wording.", WS_VISIBLE, 0, hwnd, 36, 418, 490, 36);
         for (HWND e : { g_hSubject, g_hIntro, g_hSignoff }) SendMessageW(e, EM_LIMITTEXT, 150, 0);
+        SendMessageW(g_hSignature, EM_LIMITTEXT, 600, 0);
 
         // ---- page 1: Backups & price flags ----
         Add(1, L"STATIC", L"Backups", WS_VISIBLE, 0, hwnd, 24, 48, 510, 20);
@@ -222,8 +228,8 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
 
         MakeControl(L"BUTTON", L"OK", WS_VISIBLE | WS_TABSTOP | WS_GROUP | BS_DEFPUSHBUTTON, ID_SET_OK, hwnd);
         MakeControl(L"BUTTON", L"Cancel", WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, ID_SET_CANCEL, hwnd);
-        MoveWindow(GetDlgItem(hwnd, ID_SET_OK), S(372), S(432), S(86), S(28), TRUE);
-        MoveWindow(GetDlgItem(hwnd, ID_SET_CANCEL), S(466), S(432), S(86), S(28), TRUE);
+        MoveWindow(GetDlgItem(hwnd, ID_SET_OK), S(372), S(468), S(86), S(28), TRUE);
+        MoveWindow(GetDlgItem(hwnd, ID_SET_CANCEL), S(466), S(468), S(86), S(28), TRUE);
 
         // Load current values.
         CheckRadioButton(hwnd, ID_SET_EMAIL_MAILTO, ID_SET_EMAIL_GMAIL,
@@ -234,6 +240,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         SetWindowTextW(g_hSubject, w.subject.c_str());
         SetWindowTextW(g_hIntro, w.intro.c_str());
         SetWindowTextW(g_hSignoff, w.signoff.c_str());
+        SetWindowTextW(g_hSignature, NewlinesToCrlf(w.signature).c_str());
         SetWindowTextW(g_hBackupMin, std::to_wstring(ClampBackupMinutes(g_settings.backupMinutes)).c_str());
         SetWindowTextW(g_hBackupKeep, std::to_wstring(ClampBackupKeep(g_settings.backupKeep)).c_str());
         const int s = ClampOutlierSensitivity(g_settings.outlierSensitivity);
@@ -307,10 +314,10 @@ void OpenSettingsWindow() {
         classRegistered = true;
     }
 
-    // Client area is 560 x 470 (96-dpi); AdjustWindowRectEx turns that into the outer size for the caption/border.
+    // Client area is 560 x 506 (96-dpi); AdjustWindowRectEx turns that into the outer size for the caption/border.
     const DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU;
     const DWORD exStyle = WS_EX_DLGMODALFRAME;
-    RECT rc = { 0, 0, S(560), S(470) };
+    RECT rc = { 0, 0, S(560), S(506) };
     AdjustWindowRectEx(&rc, style, FALSE, exStyle);
     int w = rc.right - rc.left, h = rc.bottom - rc.top;
     RECT mrc;

@@ -543,13 +543,18 @@ namespace winrt::FishBalanceWinUI::implementation
                         L"Gmail", MB_YESNO | MB_ICONQUESTION) == IDYES)
                     GmailForgetSignIn();
             });
-            const EmailWording shown = ResolveEmailWording(before.emailSubject, before.emailIntro, before.emailSignoff);
+            const EmailWording shown = ResolveEmailWording(before.emailSubject, before.emailIntro, before.emailSignoff, before.emailSignature);
             auto tbSubject = textBox(shown.subject, 150);
             tbSubject.Header(box_value(L"Subject  ({supplier} and {date} are filled in for each email)"));
             auto tbIntro = textBox(shown.intro, 150);
             tbIntro.Header(box_value(L"Opening line  (the date and a colon follow it)"));
             auto tbSignoff = textBox(shown.signoff, 150);
             tbSignoff.Header(box_value(L"Sign-off"));
+            auto tbSignature = textBox(NewlinesToCrlf(shown.signature), 600); // v0.24.0: optional, several lines
+            tbSignature.Header(box_value(L"Signature  (name, company, phone - up to 8 lines; empty = none)"));
+            tbSignature.AcceptsReturn(true);
+            tbSignature.TextWrapping(TextWrapping::Wrap);
+            tbSignature.MinHeight(96);
 
             auto emailPage = page();
             emailPage.Children().Append(label(L"How should \"Email All Suppliers\" open each email?", 4));
@@ -562,6 +567,8 @@ namespace winrt::FishBalanceWinUI::implementation
             emailPage.Children().Append(tbIntro);
             Controls::StackPanel gap2; gap2.Height(6); emailPage.Children().Append(gap2);
             emailPage.Children().Append(tbSignoff);
+            Controls::StackPanel gap3; gap3.Height(6); emailPage.Children().Append(gap3);
+            emailPage.Children().Append(tbSignature);
             emailPage.Children().Append(note(L"Emails carry the sheet date (the date on the entries), not the day you send them."));
 
             // ---- Backups & price flags ----
@@ -685,6 +692,8 @@ namespace winrt::FishBalanceWinUI::implementation
             now.emailSubject = keepIfCustom(ToStd(tbSubject.Text()), def.subject);
             now.emailIntro = keepIfCustom(ToStd(tbIntro.Text()), def.intro);
             now.emailSignoff = keepIfCustom(ToStd(tbSignoff.Text()), def.signoff);
+            // v0.24.0: several lines, stored on one line ("\n" for a line break); empty = no signature.
+            now.emailSignature = EncodeMultiline(CleanMultiline(ToStd(tbSignature.Text()), 8, 150));
             auto intOf = [](Controls::NumberBox const& nb, int fallback) {
                 const double v = nb.Value();
                 return std::isnan(v) ? fallback : static_cast<int>(v + 0.5);
@@ -774,6 +783,9 @@ namespace winrt::FishBalanceWinUI::implementation
             // fires events while doing it (text cleared, selection changed), and touching a torn-down control
             // throws "object already closed" (0x80000013). The Closed event below is too late to set this.
             m_closed = true;
+            // Belt and braces: the debounce timer cannot fire into a window that is being torn down.
+            try { if (m_autosaveTimer) m_autosaveTimer.Stop(); }
+            catch (winrt::hresult_error const&) {}
         });
 
         this->Closed([this](Windows::Foundation::IInspectable const&, WindowEventArgs const&) {
@@ -1107,6 +1119,7 @@ namespace winrt::FishBalanceWinUI::implementation
     void MainWindow::ApplyParsedFile(const FbdLoadResult& f, const std::wstring& path, bool dirty, const std::wstring& statusNote)
     {
         ClearUndoDelete();
+        m_emailedThisSheet = false;
         m_suppressDirty = true;
         EndEditMode();
         m_entries = f.entries;
@@ -1601,6 +1614,7 @@ namespace winrt::FishBalanceWinUI::implementation
     void MainWindow::StartNewSheet()
     {
         ClearUndoDelete();
+        m_emailedThisSheet = false;
         m_suppressDirty = true;
         EndEditMode();
         m_entries.clear();
@@ -3612,9 +3626,191 @@ namespace winrt::FishBalanceWinUI::implementation
             DoEmailSuppliers();
     }
 
+    // v0.24.0: Email Suppliers first shows a dialog with optional notes for each supplier (NOT SOLD / UP / DOWN, free text).
+    // Skip - no notes goes straight to the emails as before. Nothing is remembered between runs: Jack emails once per sheet,
+    // so the app warns before a second set for the same sheet (supplier prices must never appear to change).
+    winrt::fire_and_forget MainWindow::DoEmailSuppliers()
+    {
+        auto strong = get_strong();
+        if (m_closed)
+            co_return;
+        const std::vector<SupplierGroup> data = BuildBreakdownData(m_entries);
+        if (data.empty())
+        {
+            MessageBoxW(Hwnd(), L"There are no entries to email yet.", L"Email Suppliers", MB_OK | MB_ICONINFORMATION);
+            co_return;
+        }
+        if (m_emailedThisSheet)
+        {
+            if (MessageBoxW(Hwnd(),
+                    L"You have already created supplier emails for this sheet.\n\n"
+                    L"Sending a second set can look to suppliers as if prices have changed. Only continue if you really mean to "
+                    L"send them again.\n\nCreate them again?",
+                    L"Email Suppliers - already emailed", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
+                co_return;
+        }
+
+        struct NotesState
+        {
+            std::map<std::wstring, EmailNotes> notes;
+            int current = -1;
+            bool loading = false;
+        };
+        auto ns = std::make_shared<NotesState>();
+
+        auto makeBox = [](const wchar_t* header, double minHeight) {
+            Controls::TextBox tb;
+            tb.Header(box_value(hstring{ header }));
+            tb.AcceptsReturn(true);
+            tb.TextWrapping(TextWrapping::Wrap);
+            tb.MinHeight(minHeight);
+            tb.MaxLength(4000);
+            return tb;
+        };
+        Controls::TextBox tbNotSold = makeBox(L"NOT SOLD", 96);
+        Controls::TextBox tbUp = makeBox(L"UP  (arrived over the manifest)", 80);
+        Controls::TextBox tbDown = makeBox(L"DOWN  (short of the manifest)", 80);
+        Controls::TextBlock title;
+        title.FontSize(16);
+        title.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
+        title.TextWrapping(TextWrapping::Wrap);
+        Controls::TextBlock hint;
+        hint.Text(L"Type it exactly as the supplier should read it: bins x weight (17X25 GREN) or kg (21.4 kg GUMMY). "
+                  L"The headings are added for you; a box left empty adds nothing.");
+        hint.TextWrapping(TextWrapping::Wrap);
+        hint.Opacity(0.75);
+        Controls::Button nextBtn;
+        nextBtn.Content(box_value(L"Next supplier"));
+        nextBtn.HorizontalAlignment(HorizontalAlignment::Left);
+
+        Controls::ListView list;
+        list.Width(250);
+        list.SelectionMode(Controls::ListViewSelectionMode::Single);
+        std::vector<Controls::TextBlock> marks;
+        for (const SupplierGroup& sg : data)
+        {
+            Controls::Grid row;
+            Controls::ColumnDefinition c0, c1;
+            c0.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
+            c1.Width(GridLengthHelper::Auto());
+            row.ColumnDefinitions().Append(c0);
+            row.ColumnDefinitions().Append(c1);
+            Controls::TextBlock name;
+            name.Text(hstring{ sg.supplier });
+            name.TextTrimming(TextTrimming::CharacterEllipsis);
+            Controls::TextBlock mark;
+            mark.Opacity(0.8);
+            mark.Margin(Thickness{ 8, 0, 0, 0 });
+            Controls::Grid::SetColumn(mark, 1);
+            row.Children().Append(name);
+            row.Children().Append(mark);
+            list.Items().Append(row);
+            marks.push_back(mark);
+        }
+
+        auto anyNotes = [](const EmailNotes& n) {
+            return !CleanNoteBlock(n.notSold).empty() || !CleanNoteBlock(n.up).empty() || !CleanNoteBlock(n.down).empty();
+        };
+        auto saveCurrent = [ns, tbNotSold, tbUp, tbDown, marks, &data, anyNotes]() {
+            if (ns->current < 0 || ns->loading || static_cast<size_t>(ns->current) >= data.size())
+                return;
+            EmailNotes n;
+            n.notSold = ToStd(tbNotSold.Text());
+            n.up = ToStd(tbUp.Text());
+            n.down = ToStd(tbDown.Text());
+            ns->notes[data[static_cast<size_t>(ns->current)].supplier] = n;
+            marks[static_cast<size_t>(ns->current)].Text(anyNotes(n) ? L"notes" : L"");
+        };
+        // `data` outlives the dialog (it is a local of this coroutine, which waits on ShowAsync below).
+        for (auto* box : { &tbNotSold, &tbUp, &tbDown })
+            box->TextChanged([saveCurrent](Windows::Foundation::IInspectable const&, Controls::TextChangedEventArgs const&) { saveCurrent(); });
+        list.SelectionChanged([ns, list, tbNotSold, tbUp, tbDown, title, &data](Windows::Foundation::IInspectable const&, Controls::SelectionChangedEventArgs const&) {
+            const int idx = list.SelectedIndex();
+            if (idx < 0 || static_cast<size_t>(idx) >= data.size())
+                return;
+            ns->current = idx;
+            const SupplierGroup& sg = data[static_cast<size_t>(idx)];
+            size_t lines = 0;
+            for (const auto& pg : sg.products)
+                lines += pg.prices.size();
+            ns->loading = true;
+            title.Text(hstring{ sg.supplier + L"   (" + std::to_wstring(lines) + (lines == 1 ? L" price line, " : L" price lines, ") +
+                                FormatKg(sg.totalKgs) + L" kg)" });
+            auto it = ns->notes.find(sg.supplier);
+            const EmailNotes n = (it != ns->notes.end()) ? it->second : EmailNotes();
+            tbNotSold.Text(hstring{ n.notSold });
+            tbUp.Text(hstring{ n.up });
+            tbDown.Text(hstring{ n.down });
+            ns->loading = false;
+        });
+        nextBtn.Click([list, count = data.size()](Windows::Foundation::IInspectable const&, RoutedEventArgs const&) {
+            if (count > 0)
+                list.SelectedIndex((list.SelectedIndex() + 1) % static_cast<int>(count));
+        });
+
+        Controls::Grid upDown;
+        Controls::ColumnDefinition u0, u1;
+        u0.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
+        u1.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
+        upDown.ColumnDefinitions().Append(u0);
+        upDown.ColumnDefinitions().Append(u1);
+        upDown.ColumnSpacing(12);
+        Controls::Grid::SetColumn(tbDown, 1);
+        upDown.Children().Append(tbUp);
+        upDown.Children().Append(tbDown);
+
+        Controls::StackPanel right;
+        right.Spacing(12);
+        right.Children().Append(title);
+        right.Children().Append(tbNotSold);
+        right.Children().Append(upDown);
+        right.Children().Append(hint);
+        right.Children().Append(nextBtn);
+
+        // A two-column Grid (not a horizontal StackPanel): the right side gets exactly the width that is left, so the boxes and the
+        // hint wrap inside the dialog instead of running off its right edge.
+        Controls::Grid body;
+        body.Width(820);
+        body.ColumnSpacing(20);
+        Controls::ColumnDefinition b0, b1;
+        b0.Width(GridLengthHelper::Auto());
+        b1.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
+        body.ColumnDefinitions().Append(b0);
+        body.ColumnDefinitions().Append(b1);
+        Controls::Grid::SetColumn(right, 1);
+        body.Children().Append(list);
+        body.Children().Append(right);
+        Controls::ScrollViewer scroll;
+        scroll.MaxHeight((std::max)(300.0, RootGrid().ActualHeight() - 260.0));
+        scroll.Content(body);
+
+        Controls::ContentDialog dlg;
+        dlg.XamlRoot(RootGrid().XamlRoot());
+        dlg.Title(box_value(L"Email Suppliers - notes for each supplier"));
+        dlg.Content(scroll);
+        dlg.PrimaryButtonText(L"Create emails");
+        dlg.SecondaryButtonText(L"Skip - no notes");
+        dlg.CloseButtonText(L"Cancel");
+        dlg.DefaultButton(Controls::ContentDialogButton::Primary);
+        dlg.Resources().Insert(box_value(L"ContentDialogMaxWidth"), box_value(960.0));
+        list.SelectedIndex(0); // after the handlers are attached: fills the boxes for the first supplier
+
+        const Controls::ContentDialogResult result = co_await dlg.ShowAsync();
+        if (m_closed)
+            co_return;
+        if (result == Controls::ContentDialogResult::Primary)
+        {
+            saveCurrent();
+            RunEmailSuppliers(ns->notes);
+        }
+        else if (result == Controls::ContentDialogResult::Secondary)
+            RunEmailSuppliers(std::map<std::wstring, EmailNotes>());
+    }
+
     // Same flow and wording as the Win32 app's DoEmailSuppliers: one mailto: draft per supplier in the default mail
     // app, one at a time with a confirmation between each (several mail clients mishandle a second compose request).
-    void MainWindow::DoEmailSuppliers()
+    // `notes` = the optional per-supplier notes from the dialog above (empty = none).
+    void MainWindow::RunEmailSuppliers(const std::map<std::wstring, EmailNotes>& notes)
     {
         auto data = BuildBreakdownData(m_entries);
         if (data.empty())
@@ -3623,6 +3819,13 @@ namespace winrt::FishBalanceWinUI::implementation
             return;
         }
         const EmailWording wording = EmailWordingFromSettings(g_user, m_entries, TodaySimple()); // step 14: sheet date + your wording
+        auto wordingFor = [&](const std::wstring& supplier) {
+            EmailWording w = wording;
+            auto n = notes.find(supplier);
+            if (n != notes.end())
+                w.notes = n->second;
+            return w;
+        };
 
         std::vector<std::wstring> withoutEmail;
         for (const SupplierGroup& sg : data)
@@ -3659,9 +3862,10 @@ namespace winrt::FishBalanceWinUI::implementation
             {
                 auto it = m_supplierEmails.find(sg.supplier);
                 const std::wstring email = (it != m_supplierEmails.end()) ? it->second : std::wstring();
-                const std::wstring dateText = wording.dateText.empty() ? TodayDateString() : wording.dateText;
+                const EmailWording sw = wordingFor(sg.supplier);
+                const std::wstring dateText = sw.dateText.empty() ? TodayDateString() : sw.dateText;
                 EmlBuildResult built = BuildSupplierEml(sg, gst.wHour, dateText, email,
-                                                        FormatEmailSubject(wording.subject, dateText, sg.supplier), false, wording);
+                                                        FormatEmailSubject(sw.subject, dateText, sg.supplier), false, sw);
                 if (!built.ok)
                 {
                     problem = sg.supplier + L": " + built.error;
@@ -3674,6 +3878,7 @@ namespace winrt::FishBalanceWinUI::implementation
                     break;
                 }
                 ++made;
+                m_emailedThisSheet = true;
             }
             if (!problem.empty())
             {
@@ -3717,7 +3922,7 @@ namespace winrt::FishBalanceWinUI::implementation
             const std::wstring email = (it != m_supplierEmails.end()) ? it->second : std::wstring();
 
             std::wstring emailErr;
-            if (!EmailSupplierWith(g_user.emailMode, email, sg, &emailErr, wording))
+            if (!EmailSupplierWith(g_user.emailMode, email, sg, &emailErr, wordingFor(sg.supplier)))
             {
                 const std::wstring failMsg = L"Couldn't open an email draft for " + sg.supplier + L":\n\n" + emailErr +
                     L"\n\nClick OK to try the next supplier, or Cancel to stop here.";
@@ -3725,6 +3930,7 @@ namespace winrt::FishBalanceWinUI::implementation
                     return;
                 continue;
             }
+            m_emailedThisSheet = true;
 
             if (i + 1 < data.size())
             {

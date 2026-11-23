@@ -12,7 +12,7 @@
 struct UserSettings {
     EmailMode emailMode = EmailMode::Mailto;       // EMAILMODE
     std::wstring gmailAccount;                     // GMAILACCOUNT
-    std::wstring emailSubject, emailIntro, emailSignoff; // EMAILSUBJECT / EMAILINTRO / EMAILSIGNOFF (blank = standard wording)
+    std::wstring emailSubject, emailIntro, emailSignoff, emailSignature; // (signature: v0.24.0, EMAILSIGNATURE)  // EMAILSUBJECT / EMAILINTRO / EMAILSIGNOFF (blank = standard wording)
     int backupMinutes = 3;                         // BACKUPMINUTES (1-60)
     int backupKeep = 50;                           // BACKUPKEEP (10-500)
     int outlierSensitivity = 1;                    // OUTLIERSENS 0 relaxed, 1 normal, 2 strict
@@ -32,6 +32,7 @@ inline UserSettings LoadUserSettings(const std::wstring& dir) {
     s.emailSubject = ReadSetting(dir, L"EMAILSUBJECT");
     s.emailIntro = ReadSetting(dir, L"EMAILINTRO");
     s.emailSignoff = ReadSetting(dir, L"EMAILSIGNOFF");
+    s.emailSignature = ReadSetting(dir, L"EMAILSIGNATURE");
     auto num = [&](const wchar_t* key, int def) {
         const std::wstring v = ReadSetting(dir, key);
         return v.empty() ? def : (int)wcstol(v.c_str(), nullptr, 10);
@@ -55,6 +56,7 @@ inline void SaveUserSettings(const std::wstring& dir, const UserSettings& s) {
     WriteSetting(dir, L"EMAILSUBJECT", s.emailSubject);
     WriteSetting(dir, L"EMAILINTRO", s.emailIntro);
     WriteSetting(dir, L"EMAILSIGNOFF", s.emailSignoff);
+    WriteSetting(dir, L"EMAILSIGNATURE", s.emailSignature);
     WriteSetting(dir, L"BACKUPMINUTES", std::to_wstring(ClampBackupMinutes(s.backupMinutes)));
     WriteSetting(dir, L"BACKUPKEEP", std::to_wstring(ClampBackupKeep(s.backupKeep)));
     WriteSetting(dir, L"OUTLIERSENS", std::to_wstring(ClampOutlierSensitivity(s.outlierSensitivity)));
@@ -66,7 +68,7 @@ inline void SaveUserSettings(const std::wstring& dir, const UserSettings& s) {
 }
 
 inline EmailWording EmailWordingFromSettings(const UserSettings& s, const std::vector<Entry>& entries, const SimpleDate& today) {
-    EmailWording w = ResolveEmailWording(s.emailSubject, s.emailIntro, s.emailSignoff);
+    EmailWording w = ResolveEmailWording(s.emailSubject, s.emailIntro, s.emailSignoff, s.emailSignature);
     w.dateText = EmailDateText(entries, s.dateStyle, today); // the sheet date, not the day it is sent
     return w;
 }

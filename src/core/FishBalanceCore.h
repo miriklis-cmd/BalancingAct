@@ -2234,12 +2234,90 @@ inline std::wstring PadLeft(const std::wstring& s, size_t width) {
 // v0.22.0: the wording of supplier emails, editable in Settings > Email. Blank/whitespace-only means "use the default".
 // Single line each; {supplier} and {date} in the subject are filled in. Intro has no trailing colon (the date, if any, and a
 // colon are added after it).
+// v0.24.0: optional notes for ONE supplier's email, typed in the Email Suppliers dialog. They are added under the prices
+// table, above the signature, each under its own heading; a block left empty adds nothing at all (heading included).
+// The text is free (bins x weight, kg, anything) and is cleaned by CleanNoteBlock before it is used.
+struct EmailNotes {
+    std::wstring notSold, up, down; // NOT SOLD: / UP: (arrived over the manifest) / DOWN: (short of the manifest)
+};
 struct EmailWording {
     std::wstring subject = L"Prices - {date} - {supplier}";
     std::wstring intro = L"Please find below the prices for today's sale";
     std::wstring signoff = L"Kind regards,";
+    std::wstring signature; // v0.24.0: optional, several lines separated by '\n' (name, company, phone); goes under the sign-off
     std::wstring dateText; // v0.23.0: the date to print (the sheet date, already formatted). Empty = today (caller falls back).
+    EmailNotes notes;      // v0.24.0: this supplier's notes (callers copy the wording per supplier and set this)
 };
+// v0.24.0: multi-line text for emails (notes, signature). Line breaks are kept ('\n'); \r and other control characters (tab
+// included) become spaces or vanish; each line is trimmed and cut at maxLineChars; blank lines at the start and end are
+// dropped, and at most maxLines lines are kept. Returns "" when nothing is left.
+inline std::wstring CleanMultiline(const std::wstring& raw, size_t maxLines, size_t maxLineChars) {
+    std::vector<std::wstring> lines(1);
+    for (size_t i = 0; i < raw.size(); ++i) {
+        const wchar_t ch = raw[i];
+        if (ch == L'\r') { if (i + 1 < raw.size() && raw[i + 1] == L'\n') continue; lines.emplace_back(); continue; }
+        if (ch == L'\n') { lines.emplace_back(); continue; }
+        lines.back() += (ch < 0x20 || ch == 0x7F) ? L' ' : ch;
+    }
+    for (auto& l : lines) {
+        l = TrimW(l);
+        if (l.size() > maxLineChars) { l.resize(maxLineChars); l = TrimW(l); }
+    }
+    while (!lines.empty() && lines.back().empty()) lines.pop_back();
+    size_t first = 0;
+    while (first < lines.size() && lines[first].empty()) ++first;
+    std::wstring out;
+    size_t kept = 0;
+    for (size_t i = first; i < lines.size() && kept < maxLines; ++i, ++kept) { if (kept) out += L'\n'; out += lines[i]; }
+    return out;
+}
+inline std::wstring CleanNoteBlock(const std::wstring& raw) { return CleanMultiline(raw, 30, 150); }
+inline std::wstring CleanSignature(const std::wstring& raw, const std::wstring& fallback) {
+    const std::wstring c = CleanMultiline(raw, 8, 150);
+    return c.empty() ? fallback : c;
+}
+// settings.txt is one line per setting, so a multi-line value is stored with "\n" for a line break and "\\" for a backslash.
+// DecodeMultiline leaves any other backslash alone, so an old single-line value reads back exactly as it was.
+inline std::wstring EncodeMultiline(const std::wstring& s) {
+    std::wstring o;
+    for (wchar_t ch : s) {
+        if (ch == L'\\') o += L"\\\\";
+        else if (ch == L'\n') o += L"\\n";
+        else if (ch != L'\r') o += ch;
+    }
+    return o;
+}
+inline std::wstring DecodeMultiline(const std::wstring& s) {
+    std::wstring o;
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == L'\\' && i + 1 < s.size() && s[i + 1] == L'n') { o += L'\n'; ++i; }
+        else if (s[i] == L'\\' && i + 1 < s.size() && s[i + 1] == L'\\') { o += L'\\'; ++i; }
+        else o += s[i];
+    }
+    return o;
+}
+inline std::wstring NewlinesToCrlf(const std::wstring& s) {
+    std::wstring o;
+    for (wchar_t ch : s) { if (ch == L'\n') o += L"\r\n"; else o += ch; }
+    return o;
+}
+// The notes as plain text: a blank line, the heading, the lines. Used by the mailto body.
+// The closing of an email: the sign-off, then (if there is one) a blank line and the signature. Lines separated by '\n'.
+inline std::wstring SignOffBlock(const EmailWording& w) {
+    return w.signature.empty() ? w.signoff : w.signoff + L"\n\n" + w.signature;
+}
+inline std::wstring BuildNotesPlain(const EmailNotes& n) {
+    std::wstring out;
+    auto add = [&](const wchar_t* heading, const std::wstring& raw) {
+        const std::wstring t = CleanNoteBlock(raw);
+        if (t.empty()) return;
+        out += L"\r\n" + std::wstring(heading) + L"\r\n" + NewlinesToCrlf(t) + L"\r\n";
+    };
+    add(L"NOT SOLD:", n.notSold);
+    add(L"UP:", n.up);
+    add(L"DOWN:", n.down);
+    return out;
+}
 inline std::wstring CleanWordingLine(const std::wstring& raw, const std::wstring& fallback) {
     std::wstring o;
     for (wchar_t ch : raw) o += (ch < 0x20 || ch == 0x7F) ? L' ' : ch; // no line breaks / control characters (blocks header injection)
@@ -2248,12 +2326,14 @@ inline std::wstring CleanWordingLine(const std::wstring& raw, const std::wstring
     o = TrimW(o);
     return o.empty() ? fallback : o;
 }
-inline EmailWording ResolveEmailWording(const std::wstring& subject, const std::wstring& intro, const std::wstring& signoff) {
+inline EmailWording ResolveEmailWording(const std::wstring& subject, const std::wstring& intro, const std::wstring& signoff,
+                                        const std::wstring& signature = std::wstring()) {
     const EmailWording d;
     EmailWording w;
     w.subject = CleanWordingLine(subject, d.subject);
     w.intro = CleanWordingLine(intro, d.intro);
     w.signoff = CleanWordingLine(signoff, d.signoff);
+    w.signature = CleanMultiline(DecodeMultiline(signature), 8, 150); // v0.24.0: optional, blank = none
     return w;
 }
 inline std::wstring FormatEmailSubject(const std::wstring& tmpl, const std::wstring& dateText, const std::wstring& supplier) {
@@ -2287,7 +2367,8 @@ inline std::wstring BuildSupplierEmailBody(const SupplierGroup& sg, int currentH
         }
     }
     body += rule + L"\r\n";
-    body += L"\r\n" + wording.signoff;
+    body += BuildNotesPlain(wording.notes);
+    body += L"\r\n" + NewlinesToCrlf(SignOffBlock(wording));
 
     // mailto: bodies are practically capped well under the URL length some
     // mail clients/OS versions tolerate - if a supplier has an unusually
@@ -2297,8 +2378,8 @@ inline std::wstring BuildSupplierEmailBody(const SupplierGroup& sg, int currentH
         body = GreetingForHour(currentHour) + L",\r\n\r\nPlease see prices below - " +
                std::to_wstring(sg.products.size()) + L" species, total weight " +
                FormatKg(sg.totalKgs) + L" kg.\r\n\r\n(Full line-by-line pricing is in the app - "
-               L"this summary was shortened because the full list was too long for email.)\r\n\r\n" +
-               wording.signoff;
+               L"this summary was shortened because the full list was too long for email.)\r\n" +
+               BuildNotesPlain(wording.notes) + L"\r\n" + NewlinesToCrlf(SignOffBlock(wording));
     }
     return body;
 }
@@ -2387,7 +2468,21 @@ inline EmlBuildResult BuildSupplierEml(const SupplierGroup& sg, int currentHour,
             h += L"<tr>" + td + L"text-align:right\">" + HtmlEscapeW(FormatKg(pl.kgs)) + L"</td>" +
                  td + L"\">" + HtmlEscapeW(pg.species) + L"</td>" +
                  L"<td style=\"padding:3px 0;text-align:right\">" + HtmlEscapeW(FormatMoney(pl.price)) + L"</td></tr>\r\n";
-    h += L"</table>\r\n<p>" + HtmlEscapeW(wording.signoff) + L"</p></body></html>\r\n";
+    h += L"</table>\r\n";
+    // v0.24.0: this supplier's notes (each block only if something was typed), then the (multi-line) signature.
+    auto htmlLines = [](const std::wstring& text) {
+        std::wstring o;
+        for (wchar_t ch : text) { if (ch == L'\n') o += L"<br>\r\n"; else o += HtmlEscapeW(std::wstring(1, ch)); }
+        return o;
+    };
+    auto noteBlock = [&](const wchar_t* heading, const std::wstring& raw) {
+        const std::wstring t = CleanNoteBlock(raw);
+        if (!t.empty()) h += L"<p><b>" + std::wstring(heading) + L"</b><br>\r\n" + htmlLines(t) + L"</p>\r\n";
+    };
+    noteBlock(L"NOT SOLD:", wording.notes.notSold);
+    noteBlock(L"UP:", wording.notes.up);
+    noteBlock(L"DOWN:", wording.notes.down);
+    h += L"<p>" + htmlLines(SignOffBlock(wording)) + L"</p></body></html>\r\n";
 
     r.content = std::string(unsent ? "X-Unsent: 1\r\n" : "") + "To: " + PortableWToUtf8(email) + "\r\nSubject: " + subjHeader +
                 "\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n" +

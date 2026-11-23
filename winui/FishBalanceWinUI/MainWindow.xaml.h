@@ -124,7 +124,8 @@ namespace winrt::FishBalanceWinUI::implementation
         void ScheduleNameRestore(Microsoft::UI::Xaml::Controls::ComboBox const& combo, bool isSupplier);
         void RecordEntryNames(const std::wstring& supplier, const std::wstring& species);
         winrt::fire_and_forget AddEntryClicked();
-        void DoEmailSuppliers();
+        winrt::fire_and_forget DoEmailSuppliers();   // asks for the optional per-supplier notes first, then RunEmailSuppliers
+        void RunEmailSuppliers(const std::map<std::wstring, EmailNotes>& notes);
         winrt::fire_and_forget ShowPrintPreview();
         winrt::fire_and_forget ShowAbout();
         winrt::fire_and_forget ShowPrintDialog();   // WinUI's own Print dialog (printer / copies / paper / orientation)
@@ -169,6 +170,7 @@ namespace winrt::FishBalanceWinUI::implementation
         Entry m_undoEntry;               // the row last deleted (Edit > Undo Delete), one level, like the Win32 app
         int m_undoIndex = -1;
         bool m_hasUndo = false;
+        bool m_emailedThisSheet = false;  // Email Suppliers already used for this sheet: ask before a second set (reset when the sheet is replaced)
         std::vector<std::wstring> m_recent; // File > Recent Files, newest first (max kMaxRecentFiles)
         ULONGLONG m_lastBackupTick = 0; // rolling snapshot in the shared backups\ folder (same 3-minute rhythm as Win32)
         std::string m_lastBackupContent;

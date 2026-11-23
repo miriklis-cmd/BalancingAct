@@ -80,6 +80,10 @@
 #include "src/services/Email.h"
 #include "src/services/GmailDraft.h"
 #include "src/forms/SettingsWindow.h"
+#include "src/forms/EmailNotesWindow.h"
+
+// v0.24.0: Email Suppliers has already been used for the sheet on screen (asks before a second set; reset when the sheet changes).
+static bool g_emailedThisSheet = false;
 #include "src/services/PrintJob.h"
 #include "src/services/ReportRender.h"
 #include "src/forms/MainWindowApi.h"
@@ -383,6 +387,7 @@ bool LoadFromFile(const std::wstring& path, std::wstring* outError = nullptr) {
     g_entries = result.entries;
     SetCurrentBook(result.draftBook, result.draftBookType); // v0.12.0
     g_allowMixedDatesThisSession = false; // a different sheet - ask again if its dates get mixed
+    g_emailedThisSheet = false;
     SetWindowTextW(hEditDebtor, result.debtor.c_str());
     SetWindowTextW(hEditCash, result.cash.c_str());
     g_finalizedDate = result.finalizedDate;
@@ -1212,6 +1217,7 @@ void DoFileNew() {
     g_entries.clear();
     SetCurrentBook(L"", 0); // v0.12.0: a fresh sheet has no current book
     g_allowMixedDatesThisSession = false; // fresh sheet
+    g_emailedThisSheet = false;
     SetWindowTextW(hEditDebtor, L""); // triggers EN_CHANGE, which sets g_dirty - explicitly cleared below
     SetWindowTextW(hEditCash, L"");
     g_currentFile.clear();
@@ -1651,6 +1657,7 @@ LRESULT CALLBACK FinalizeWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
                 g_entries.clear();
                 SetCurrentBook(L"", 0); // v0.12.0
                 g_allowMixedDatesThisSession = false; // next day's sheet starts fresh
+                g_emailedThisSheet = false;
                 SetWindowTextW(hEditDebtor, L"");
                 SetWindowTextW(hEditCash, L"");
                 g_currentFile.clear();
@@ -1848,7 +1855,7 @@ void PrintBreakdownReport(HWND owner) {
 
 // v0.21.0: Gmail mode - one draft per supplier is created in Gmail (nothing is sent; no window opens per supplier,
 // so there is no one-at-a-time confirmation like the mailto/.eml paths need).
-static void DoEmailSuppliersGmail(const std::vector<SupplierGroup>& data) {
+static void DoEmailSuppliersGmail(const std::vector<SupplierGroup>& data, const std::map<std::wstring, EmailNotes>& notes) {
     std::vector<std::wstring> withoutEmail;
     for (auto& sg : data) {
         auto it = g_supplierEmails.find(sg.supplier);
@@ -1868,12 +1875,15 @@ static void DoEmailSuppliersGmail(const std::vector<SupplierGroup>& data) {
 
     SYSTEMTIME st;
     GetLocalTime(&st);
-    const EmailWording wording = CurrentEmailWording();
+    const EmailWording baseWording = CurrentEmailWording();
     size_t made = 0;
     std::wstring problem;
     for (auto& sg : data) {
         auto it = g_supplierEmails.find(sg.supplier);
         std::wstring email = (it != g_supplierEmails.end()) ? it->second : L"";
+        EmailWording wording = baseWording;
+        auto nit = notes.find(sg.supplier);
+        if (nit != notes.end()) wording.notes = nit->second;
         EmlBuildResult built = BuildSupplierEml(sg, st.wHour, wording.dateText.empty() ? TodayDateString() : wording.dateText, email,
                                                 FormatEmailSubject(wording.subject, wording.dateText.empty() ? TodayDateString() : wording.dateText, sg.supplier), false, wording);
         if (!built.ok) { problem = sg.supplier + L": " + built.error; break; }
@@ -1881,6 +1891,7 @@ static void DoEmailSuppliersGmail(const std::vector<SupplierGroup>& data) {
         GmailResult r = GmailCreateDraft(g_hMainWnd, built.content, g_settings.gmailAccount, &err);
         if (r != GmailResult::Ok) { problem = err; break; }
         made++;
+        g_emailedThisSheet = true;
     }
     if (!problem.empty()) {
         std::wstring m = problem + L"\n\n" + std::to_wstring(made) + L" of " + std::to_wstring(data.size()) +
@@ -1898,13 +1909,33 @@ static void DoEmailSuppliersGmail(const std::vector<SupplierGroup>& data) {
     }
 }
 
+static EmailWording WordingWithNotes(const std::wstring& supplier, const std::map<std::wstring, EmailNotes>& notes) {
+    EmailWording w = CurrentEmailWording();
+    auto it = notes.find(supplier);
+    if (it != notes.end()) w.notes = it->second;
+    return w;
+}
+
 void DoEmailSuppliers() {
     auto data = BuildBreakdownData(g_entries);
     if (data.empty()) {
         MessageBoxW(g_hMainWnd, L"There are no entries to email yet.", L"Email Suppliers", MB_OK | MB_ICONINFORMATION);
         return;
     }
-    if (g_settings.emailMode == EmailMode::Gmail) { DoEmailSuppliersGmail(data); return; }
+    // v0.24.0: Jack emails once per sheet (a second set can look like changed prices), so ask before repeating.
+    if (g_emailedThisSheet &&
+        MessageBoxW(g_hMainWnd,
+                    L"You have already created supplier emails for this sheet.\n\n"
+                    L"Sending a second set can look to suppliers as if prices have changed. Only continue if you really mean to "
+                    L"send them again.\n\nCreate them again?",
+                    L"Email Suppliers - already emailed", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
+        return;
+
+    // v0.24.0: optional per-supplier notes (NOT SOLD / UP / DOWN), asked for every time, starting blank.
+    std::map<std::wstring, EmailNotes> notes;
+    if (ShowEmailNotesDialog(data, notes) == EmailNotesResult::Cancel) return;
+
+    if (g_settings.emailMode == EmailMode::Gmail) { DoEmailSuppliersGmail(data, notes); return; }
 
     std::vector<std::wstring> withoutEmail;
     for (auto& sg : data) {
@@ -1939,13 +1970,14 @@ void DoEmailSuppliers() {
         std::wstring email = (it != g_supplierEmails.end()) ? it->second : L"";
 
         std::wstring emailErr;
-        if (!EmailSupplierWith(g_settings.emailMode, email, sg, &emailErr, CurrentEmailWording())) {
+        if (!EmailSupplierWith(g_settings.emailMode, email, sg, &emailErr, WordingWithNotes(sg.supplier, notes))) {
             std::wstring failMsg = L"Couldn't open an email draft for " + sg.supplier + L":\n\n" + emailErr +
                 L"\n\nClick OK to try the next supplier, or Cancel to stop here.";
             if (MessageBoxW(g_hMainWnd, failMsg.c_str(), L"Email Couldn't Open", MB_OKCANCEL | MB_ICONWARNING) == IDCANCEL)
                 return;
             continue;
         }
+        g_emailedThisSheet = true;
 
         if (i + 1 < data.size()) {
             std::wstring nextMsg = L"Opened a draft for " + sg.supplier + L".\n\n"
@@ -2976,6 +3008,7 @@ void ResetApplicationStateForTest() {
     g_entries.clear();
     SetCurrentBook(L"", 0);
     g_allowMixedDatesThisSession = false;
+    g_emailedThisSheet = false;
     g_currentFile.clear();
     g_finalizedDate.clear();
     g_dirty = false;

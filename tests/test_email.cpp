@@ -371,3 +371,89 @@ TEST_CASE("v0.23.0: the email uses EmailWording::dateText when the caller suppli
     std::wstring body = BuildSupplierEmailBody(sg, 9, w.dateText, w);
     CHECK(body.find(L"(14 November 2026):") != std::wstring::npos);
 }
+
+TEST_SUITE("v0.24.0 supplier notes and multi-line signature") {
+    static SupplierGroup OneLine() {
+        SupplierGroup sg; sg.supplier = L"Harbour & Co";
+        ProductGroup pg; pg.species = L"RIBB"; pg.prices.push_back({600.0, 2.0, 1200.0}); sg.products.push_back(pg);
+        return sg;
+    }
+    TEST_CASE("CleanMultiline keeps line breaks, trims, drops blank ends, caps lines") {
+        CHECK(CleanMultiline(L"  a  \r\n\r\n b\t\r\n\n", 30, 150) == L"a\n\nb");
+        CHECK(CleanMultiline(L"\n\nx", 30, 150) == L"x");
+        CHECK(CleanMultiline(L"", 30, 150) == L"");
+        CHECK(CleanMultiline(L"1\n2\n3\n4", 2, 150) == L"1\n2");
+        CHECK(CleanMultiline(std::wstring(300, L'x'), 30, 150).size() == 150);
+        CHECK(CleanMultiline(L"a\x01" L"b", 30, 150) == L"a b");
+    }
+    TEST_CASE("multi-line values survive the one-line settings file") {
+        const std::wstring sig = L"Jack\nCompany Pty Ltd\nPhone: 0400 000 000\\ext";
+        const std::wstring stored = EncodeMultiline(sig);
+        CHECK(stored.find(L'\n') == std::wstring::npos);
+        CHECK(DecodeMultiline(stored) == sig);
+        CHECK(DecodeMultiline(L"Regards\\Jack") == L"Regards\\Jack"); // an old value with a lone backslash is unchanged
+        CHECK(DecodeMultiline(L"Kind regards,") == L"Kind regards,");
+    }
+    TEST_CASE("the signature can have several lines and falls back to the default") {
+        auto w = ResolveEmailWording(L"", L"", L"Thanks,", EncodeMultiline(L"Jack\nCompany\n0400 000 000"));
+        CHECK(w.signoff == L"Thanks,");
+        CHECK(w.signature == L"Jack\nCompany\n0400 000 000");
+        CHECK(SignOffBlock(w) == L"Thanks,\n\nJack\nCompany\n0400 000 000");
+        CHECK(ResolveEmailWording(L"", L"", L"").signoff == L"Kind regards,");
+        CHECK(ResolveEmailWording(L"", L"", L"").signature.empty());           // no signature unless one is typed
+        CHECK(SignOffBlock(ResolveEmailWording(L"", L"", L"")) == L"Kind regards,");
+        CHECK(ResolveEmailWording(L"", L"", L"", L"\\n\\n").signature.empty());
+    }
+    TEST_CASE("mailto body: notes under the table, above the signature, only blocks with text") {
+        SupplierGroup sg = OneLine();
+        EmailWording w; w.signoff = L"Thanks,"; w.signature = L"Jack\nCompany";
+        w.notes.notSold = L"17X25 GREN\n12X30 RIBB";
+        w.notes.down = L"1 SAW";
+        const std::wstring body = BuildSupplierEmailBody(sg, 9, L"18 Nov", w);
+        const size_t ns = body.find(L"NOT SOLD:\r\n17X25 GREN\r\n12X30 RIBB\r\n");
+        const size_t dn = body.find(L"DOWN:\r\n1 SAW\r\n");
+        const size_t sig = body.find(L"Thanks,\r\n\r\nJack\r\nCompany");
+        REQUIRE(ns != std::wstring::npos); REQUIRE(dn != std::wstring::npos); REQUIRE(sig != std::wstring::npos);
+        CHECK(body.find(L"UP:") == std::wstring::npos);          // nothing typed: no heading
+        CHECK(body.find(L"RIBB\t") < ns);                        // after the table
+        CHECK(ns < dn); CHECK(dn < sig);                          // order: not sold, down, signature
+    }
+    TEST_CASE("no notes: the body is exactly as before apart from the signature") {
+        SupplierGroup sg = OneLine();
+        const std::wstring body = BuildSupplierEmailBody(sg, 9, L"18 Nov");
+        CHECK(body.find(L"NOT SOLD") == std::wstring::npos);
+        CHECK(body.size() > 0);
+        CHECK(body.substr(body.size() - 13) == L"Kind regards,");
+    }
+    TEST_CASE("a very long mailto email is still shortened, and keeps the notes and signature") {
+        SupplierGroup sg; sg.supplier = L"A";
+        for (int i = 0; i < 120; ++i) {
+            ProductGroup pg; pg.species = L"SPECIES" + std::to_wstring(i); pg.prices.push_back({10.0, 5.0, 50.0}); sg.products.push_back(pg);
+        }
+        EmailWording w; w.notes.up = L"2 O/PERCH"; w.signoff = L"Jack";
+        const std::wstring body = BuildSupplierEmailBody(sg, 9, L"18 Nov", w);
+        CHECK(body.find(L"shortened") != std::wstring::npos);
+        CHECK(body.find(L"UP:\r\n2 O/PERCH") != std::wstring::npos);
+        CHECK(body.find(L"Jack") != std::wstring::npos);
+    }
+    TEST_CASE("eml / Gmail HTML: notes escaped, line breaks kept, signature on several lines") {
+        SupplierGroup sg = OneLine();
+        EmailWording w; w.signoff = L"Thanks,"; w.signature = L"Jack\nA & B";
+        w.notes.notSold = L"1X16 <RIBB>\n21.4 kg GUMMY";
+        auto r = BuildSupplierEml(sg, 9, L"18 Nov", L"", L"S", false, w);
+        REQUIRE(r.ok);
+        CHECK(r.content.find("<p><b>NOT SOLD:</b><br>\r\n1X16 &lt;RIBB&gt;<br>\r\n21.4 kg GUMMY</p>") != std::string::npos);
+        CHECK(r.content.find("<p>Thanks,<br>\r\n<br>\r\nJack<br>\r\nA &amp; B</p>") != std::string::npos);
+        CHECK(r.content.find("<b>UP:") == std::string::npos);
+        CHECK(r.content.find("<b>DOWN:") == std::string::npos);
+        CHECK(r.content.find("</table>") < r.content.find("NOT SOLD:"));
+    }
+    TEST_CASE("notes cannot inject headers or markup") {
+        SupplierGroup sg = OneLine();
+        EmailWording w; w.notes.up = L"x\r\nBcc: evil@example.com";
+        auto r = BuildSupplierEml(sg, 9, L"18 Nov", L"a@b.com", L"S", false, w);
+        REQUIRE(r.ok);
+        const size_t headerEnd = r.content.find("\r\n\r\n");
+        CHECK(r.content.substr(0, headerEnd).find("Bcc:") == std::string::npos); // only in the body, after the headers
+    }
+}

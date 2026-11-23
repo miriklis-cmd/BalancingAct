@@ -21,6 +21,20 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.24.1] - 2026-11-23
+
+- **WinUI notes dialog layout fixed:** the DOWN box and the end of the hint line were cut off on the right. The two panels are now a two-column grid, so the right side wraps inside the dialog.
+- **WinUI close:** the autosave debounce timer is now also stopped when the window starts closing (it was already guarded; this is belt and braces after a shutdown-time `RPC_E_WRONG_THREAD` / "object already closed" seen only under the Visual Studio debugger).
+
+## [0.24.0] - 2026-11-23
+
+- **Email signature, separate from the sign-off:** Settings > Email (Win32 and WinUI) now has Sign-off (one line, "Kind regards,") and a new Signature box (name, company, phone; up to 8 lines; empty = none). The signature goes under the sign-off after a blank line, last in every email (Gmail draft, .eml, mailto). New setting `EMAILSIGNATURE` (stored on one line, `\n` = line break); `EMAILSIGNOFF` is unchanged.
+- **Win32 Settings tab names** no longer lose their "&" (Windows read it as a shortcut marker): "Backups and flags", "Display and printing", "Data and about". The Email page is taller to fit the Signature box.
+- **Email Suppliers - notes for each supplier (WinUI):** before the emails are made, a dialog lists the suppliers on the sheet, each with three free-text boxes: NOT SOLD, UP (arrived over the manifest) and DOWN (short of the manifest). Headings are added automatically and left out when a box is empty. Buttons: Create emails / Skip - no notes / Cancel; "Next supplier" steps down the list. Always starts blank. Notes sit under the price table, above the signature, in all three email methods (a very long mailto email is still shortened, notes and signature kept).
+- **Already-emailed warning:** a second Email Suppliers on the same sheet asks first (default No), because a second set can look like changed prices. Remembered only while the app is open; opening or starting a new sheet resets it.
+- **Win32 gets the same notes dialog and already-emailed warning** (new `src/forms/EmailNotesWindow.cpp/.h`; added to `build_msvc.bat` and the integration-test source list). In mailto / .eml mode the notes ride in each email, one supplier at a time as before.
+- New unit tests for the notes / signature helpers.
+
 ## [0.23.4] - 2026-11-23
 
 - WinUI **File > Restore from Backup...**: the picker opens in the backups folder (same folder-forcing picker as Win32), the chosen backup loads as an UNSAVED sheet (no file name, counts as unsaved so New / Open / close ask first - Win32 treats it as clean; this is the safer choice), and the sheet it replaces is first copied into `backups\` as `before-restore`, so a wrong pick can be undone by restoring that one. A backup that fails to load changes nothing and leaves no extra file.

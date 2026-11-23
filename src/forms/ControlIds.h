@@ -30,13 +30,15 @@ enum {
     // v0.22.0 Settings window. The two radio groups must stay consecutive (CheckRadioButton uses the ranges).
     ID_SET_TAB = 1500, ID_SET_OK, ID_SET_CANCEL,
     ID_SET_EMAIL_MAILTO, ID_SET_EMAIL_EML, ID_SET_EMAIL_GMAIL,
-    ID_SET_GMAIL_ACCOUNT, ID_SET_GMAIL_FORGET, ID_SET_SUBJECT, ID_SET_INTRO, ID_SET_SIGNOFF,
+    ID_SET_GMAIL_ACCOUNT, ID_SET_GMAIL_FORGET, ID_SET_SUBJECT, ID_SET_INTRO, ID_SET_SIGNOFF, ID_SET_SIGNATURE,
     ID_SET_BACKUP_MIN, ID_SET_BACKUP_KEEP,
     ID_SET_SENS_RELAXED, ID_SET_SENS_NORMAL, ID_SET_SENS_STRICT,
     ID_SET_DATA_PATH, ID_SET_OPEN_DATA,
     ID_SET_PRINTER, ID_SET_ORIENT, ID_SET_PAPER,                 // v0.23.0 (combo boxes)
     ID_SET_TEXT_100, ID_SET_TEXT_125, ID_SET_TEXT_150,           // consecutive radio group
     ID_SET_DATE_LONG, ID_SET_DATE_SHORT, ID_SET_DATE_NUM,        // consecutive radio group
+    // v0.24.0 Email Suppliers notes dialog
+    ID_NOTES_LIST = 1600, ID_NOTES_NOTSOLD, ID_NOTES_UP, ID_NOTES_DOWN, ID_NOTES_NEXT, ID_NOTES_SKIP, ID_NOTES_CREATE,
     // v0.12.0 Start Book... popup menu items (ID_BOOK_PICK_BASE + n = continue an existing book)
     ID_BOOK_NEW_DEBTOR = 990, ID_BOOK_NEW_CASH = 991, ID_BOOK_NONE = 992, ID_BOOK_PICK_BASE = 1000,
     // v0.16.0 right-click on the entries list: Move selected rows to a book (ID_MOVE_PICK_BASE + n = an existing book)

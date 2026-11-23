@@ -5,7 +5,7 @@ REM by the small resource script app_icon.rc, so the exe is self-contained.
 
 rem v0.10.0: every .cpp of the app is listed HERE (and in
 rem tests\win32_integration\run_integration_tests.ps1) - add new source files to both.
-set SOURCES=main.cpp src\data\AppData.cpp src\data\Storage.cpp src\data\Backups.cpp src\services\CsvExport.cpp src\services\Email.cpp src\services\GmailDraft.cpp src\services\ReportRender.cpp src\services\PrintJob.cpp src\forms\UiState.cpp src\forms\MainWindowLayout.cpp src\forms\MainWindowLists.cpp src\forms\ManageNamesWindow.cpp src\forms\PrintPreviewWindow.cpp src\forms\DrillDownWindow.cpp src\forms\SettingsWindow.cpp
+set SOURCES=main.cpp src\data\AppData.cpp src\data\Storage.cpp src\data\Backups.cpp src\services\CsvExport.cpp src\services\Email.cpp src\services\GmailDraft.cpp src\services\ReportRender.cpp src\services\PrintJob.cpp src\forms\UiState.cpp src\forms\MainWindowLayout.cpp src\forms\MainWindowLists.cpp src\forms\ManageNamesWindow.cpp src\forms\PrintPreviewWindow.cpp src\forms\DrillDownWindow.cpp src\forms\SettingsWindow.cpp src\forms\EmailNotesWindow.cpp
 
 rc /nologo app_icon.rc
 if errorlevel 1 goto :error

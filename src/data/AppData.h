@@ -88,6 +88,7 @@ struct AppSettings {
     EmailMode emailMode = EmailMode::Mailto; // v0.20.0: settings.txt EMAILMODE=mailto|eml|gmail (Tools > Settings > Email)
     // v0.22.0 (Tools > Settings). Blank wording = default; see EmailWording in FishBalanceCore.h.
     std::wstring emailSubject, emailIntro, emailSignoff;   // EMAILSUBJECT= / EMAILINTRO= / EMAILSIGNOFF=
+    std::wstring emailSignature;   // EMAILSIGNATURE= (v0.24.0; several lines, stored on one line with \n)
     int backupMinutes = 3;                                  // BACKUPMINUTES= (1-60)
     int backupKeep = 50;                                    // BACKUPKEEP= (10-500)
     int outlierSensitivity = 1;                             // OUTLIERSENS= 0 relaxed, 1 normal, 2 strict
@@ -102,7 +103,7 @@ extern AppSettings g_settings;
 inline ULONGLONG BackupIntervalMs() { return (ULONGLONG)ClampBackupMinutes(g_settings.backupMinutes) * 60ULL * 1000ULL; }
 inline int MaxBackups() { return ClampBackupKeep(g_settings.backupKeep); }
 inline EmailWording CurrentEmailWording() {
-    EmailWording w = ResolveEmailWording(g_settings.emailSubject, g_settings.emailIntro, g_settings.emailSignoff);
+    EmailWording w = ResolveEmailWording(g_settings.emailSubject, g_settings.emailIntro, g_settings.emailSignoff, g_settings.emailSignature);
     SYSTEMTIME st; GetLocalTime(&st);
     w.dateText = EmailDateText(g_entries, g_settings.dateStyle, SimpleDate{ st.wYear, st.wMonth, st.wDay }); // v0.23.0: sheet date, not today
     return w;

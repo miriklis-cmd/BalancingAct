@@ -469,6 +469,19 @@ Needs the Google client file (client_secret.json) in `C:\BalancingAct\private\` 
 - [ ] Copies = 2 gives two copies on a real printer; Cancel prints nothing.
 - [ ] Microsoft Print to PDF produces a correct PDF.
 
+### v0.24.0 checks (email signature + supplier notes, WinUI)
+
+- [ ] WinUI Tools > Settings > Email: Sign-off is one line, and a separate Signature box takes several lines (Enter = new line). Save, reopen: all still there. Empty the Signature: emails end at the sign-off.
+- [ ] Win32 Settings > Email: same. Also the tab names read "Backups and flags", "Display and printing", "Data and about", and everything fits (OK / Cancel visible).
+- [ ] A setting made in one app shows in the other (same settings.txt).
+- [ ] WinUI Email All Suppliers: the notes dialog opens listing only suppliers that have sales. Type NOT SOLD / UP / DOWN for two suppliers, click between them: each keeps its own text, and "notes" shows beside those names.
+- [ ] Create emails (Gmail mode): open the drafts. Under the price table you see only the headings you typed text for (NOT SOLD:, UP:, DOWN:), then your multi-line signature last. A supplier with no notes has no headings.
+- [ ] Skip - no notes: emails are made as before (plus the signature). Cancel: nothing is made.
+- [ ] Run Email All Suppliers again on the same sheet: a warning asks first (answer No stops). Open another file, then it does not warn.
+- [ ] Switch to .eml and to mailto: notes and the signature show there too.
+- [ ] Win32 Email All Suppliers: the same notes dialog opens (Esc or Cancel = nothing made; Skip = no notes; Enter in a box = new line). Create in Gmail mode: notes and signature in the drafts. The second-send warning also works here.
+- [ ] In each mode (mailto / .eml / Gmail) create one email and tell me: is your signature DOUBLED (your mail program adds its own as well)?
+
 ### v0.23.4 checks (WinUI Restore from Backup)
 
 - [ ] File > Restore from Backup... opens the picker IN the backups folder (even right after you used File > Open somewhere else).

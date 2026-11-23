@@ -145,6 +145,7 @@ void LoadSettings(int dpi) {
         else if (key == L"EMAILSUBJECT") g_settings.emailSubject = val;
         else if (key == L"EMAILINTRO") g_settings.emailIntro = val;
         else if (key == L"EMAILSIGNOFF") g_settings.emailSignoff = val;
+        else if (key == L"EMAILSIGNATURE") g_settings.emailSignature = val;
         else if (key == L"BACKUPMINUTES") g_settings.backupMinutes = ClampBackupMinutes(_wtoi(val.c_str()));
         else if (key == L"BACKUPKEEP") g_settings.backupKeep = ClampBackupKeep(_wtoi(val.c_str()));
         else if (key == L"OUTLIERSENS") g_settings.outlierSensitivity = ClampOutlierSensitivity(_wtoi(val.c_str()));
@@ -187,6 +188,7 @@ void SaveSettingsFile(int x, int y, int w, int h, bool maximized, const std::wst
     if (!g_settings.emailSubject.empty()) writeLine(L"EMAILSUBJECT=" + g_settings.emailSubject);
     if (!g_settings.emailIntro.empty()) writeLine(L"EMAILINTRO=" + g_settings.emailIntro);
     if (!g_settings.emailSignoff.empty()) writeLine(L"EMAILSIGNOFF=" + g_settings.emailSignoff);
+    if (!g_settings.emailSignature.empty()) writeLine(L"EMAILSIGNATURE=" + g_settings.emailSignature);
     writeLine(L"BACKUPMINUTES=" + std::to_wstring(ClampBackupMinutes(g_settings.backupMinutes)));
     writeLine(L"BACKUPKEEP=" + std::to_wstring(ClampBackupKeep(g_settings.backupKeep)));
     writeLine(L"OUTLIERSENS=" + std::to_wstring(ClampOutlierSensitivity(g_settings.outlierSensitivity)));
