@@ -21,6 +21,14 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.24.3] - 2026-11-23
+
+- **Skip - no notes now asks first when notes have been typed** ("You have typed notes. Skip and throw them away?", default No; No keeps you in the dialog). WinUI and Win32. Nothing is asked when no notes were typed.
+
+## [0.24.2] - 2026-11-23
+
+- **WinUI Settings: the multi-line Signature showed only its first line.** The text was put in the box before the box was allowed to take line breaks, and a single-line box cuts text at the first break. Fixed (text is now set after). Saving was already correct, so signatures saved earlier are intact.
+
 ## [0.24.1] - 2026-11-23
 
 - **WinUI notes dialog layout fixed:** the DOWN box and the end of the hint line were cut off on the right. The two panels are now a two-column grid, so the right side wraps inside the dialog.

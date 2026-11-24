@@ -550,11 +550,12 @@ namespace winrt::FishBalanceWinUI::implementation
             tbIntro.Header(box_value(L"Opening line  (the date and a colon follow it)"));
             auto tbSignoff = textBox(shown.signoff, 150);
             tbSignoff.Header(box_value(L"Sign-off"));
-            auto tbSignature = textBox(NewlinesToCrlf(shown.signature), 600); // v0.24.0: optional, several lines
+            auto tbSignature = textBox(L"", 600); // v0.24.0: optional, several lines
             tbSignature.Header(box_value(L"Signature  (name, company, phone - up to 8 lines; empty = none)"));
-            tbSignature.AcceptsReturn(true);
+            tbSignature.AcceptsReturn(true);   // BEFORE the text is set: a single-line TextBox cuts the text at the first line break
             tbSignature.TextWrapping(TextWrapping::Wrap);
             tbSignature.MinHeight(96);
+            tbSignature.Text(hstring{ NewlinesToCrlf(shown.signature) });
 
             auto emailPage = page();
             emailPage.Children().Append(label(L"How should \"Email All Suppliers\" open each email?", 4));
@@ -3793,6 +3794,16 @@ namespace winrt::FishBalanceWinUI::implementation
         dlg.CloseButtonText(L"Cancel");
         dlg.DefaultButton(Controls::ContentDialogButton::Primary);
         dlg.Resources().Insert(box_value(L"ContentDialogMaxWidth"), box_value(960.0));
+        // Skip - no notes throws away anything typed: ask first, and stay in the dialog on No.
+        dlg.SecondaryButtonClick([strong, ns, saveCurrent, anyNotes](Controls::ContentDialog const&, Controls::ContentDialogButtonClickEventArgs const& args) {
+            saveCurrent();
+            bool any = false;
+            for (const auto& kv : ns->notes)
+                if (anyNotes(kv.second)) { any = true; break; }
+            if (any && MessageBoxW(strong->Hwnd(), L"You have typed notes. Skip and throw them away?", L"Email Suppliers",
+                                   MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES)
+                args.Cancel(true);
+        });
         list.SelectedIndex(0); // after the handlers are attached: fills the boxes for the first supplier
 
         const Controls::ContentDialogResult result = co_await dlg.ShowAsync();

@@ -117,6 +117,15 @@ LRESULT CALLBACK NotesWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
         if (id == ID_NOTES_CREATE) { SaveCurrent(); g_st->result = EmailNotesResult::Create; g_st->done = true; DestroyWindow(hwnd); return 0; }
+        if (id == ID_NOTES_SKIP) {
+            // Skip throws away anything typed: ask first, and stay in the dialog on No.
+            SaveCurrent();
+            bool any = false;
+            for (const auto& kv : g_st->notes) if (HasNotes(kv.second)) { any = true; break; }
+            if (any && MessageBoxW(hwnd, L"You have typed notes. Skip and throw them away?", L"Email Suppliers",
+                                   MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES)
+                return 0;
+        }
         if (id == ID_NOTES_SKIP) { g_st->result = EmailNotesResult::Skip; g_st->done = true; DestroyWindow(hwnd); return 0; }
         if (id == IDCANCEL) { g_st->result = EmailNotesResult::Cancel; g_st->done = true; DestroyWindow(hwnd); return 0; }
         break;

@@ -83,7 +83,7 @@ The old "Next" list (split stages, WinUI prototype steps) is finished or history
 
 **Phase B - WinUI catch-up (the app Jack will use daily)**
 - B1. DONE v0.23.4 (written, not yet run by Jack). Restore from Backup (file picker in `backups\`, safety snapshot of the current sheet first).
-- B2. Crash-recovery named file and the exit exception check.
+- B2. Crash-recovery named file. (The "exit exception" seen when running WinUI under Visual Studio is thrown from VS's own XAML inspector, `WinUITap.dll`, with no app frames in the stack; Jack saw it twice, 2026-11-23. Not pursued unless it shows when run outside the debugger.)
 - B3. Filter box on Total Overview, Breakdown and By Species (Win32 has it since v0.19.0; WinUI only filters the entries list).
 - B4. Start-up behaviour setting: resume silently, but ask first if the loaded sheet is from an earlier session (decide).
 - B5. Dark theme (WinUI only).

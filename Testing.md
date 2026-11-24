@@ -469,6 +469,14 @@ Needs the Google client file (client_secret.json) in `C:\BalancingAct\private\` 
 - [ ] Copies = 2 gives two copies on a real printer; Cancel prints nothing.
 - [ ] Microsoft Print to PDF produces a correct PDF.
 
+### v0.24.3 check (both apps)
+
+- [ ] Email All Suppliers: type a note for any supplier, click Skip - no notes: it asks "Skip and throw them away?". No stays in the dialog with your notes intact; Yes makes the emails with no notes. With nothing typed, Skip goes straight through with no question.
+
+### v0.24.2 re-check (WinUI signature)
+
+- [ ] WinUI Settings > Email: type a 3-line Signature, OK, reopen Settings: all 3 lines show (0.24.1 showed only the first). A signature saved earlier in Win32 shows all its lines too.
+
 ### v0.24.0 checks (email signature + supplier notes, WinUI)
 
 - [ ] WinUI Tools > Settings > Email: Sign-off is one line, and a separate Signature box takes several lines (Enter = new line). Save, reopen: all still there. Empty the Signature: emails end at the sign-off.
