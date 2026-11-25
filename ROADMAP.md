@@ -4,7 +4,7 @@ This is the current plan: where we are, what is next, what is not built, and wha
 (every version's test checklist, the 0.9.x status notes) is frozen in `ROADMAP_ARCHIVE.md`; version-by-version detail
 is in `CHANGELOG.md`; manual checks still to do are in `Testing.md`.
 
-## Where we are (v0.24.4, 2026-11-25)
+## Where we are (v0.24.5, 2026-11-25)
 
 **v0.24.x (email notes and signature) tested OK by Jack on both apps, 2026-11-25.** What is in it: a per-supplier notes dialog shown every time before the emails are made (NOT SOLD / UP / DOWN, free text, starts blank, Skip asks first if notes were typed); a signature kept separate from the sign-off (several lines, under the sign-off); a warning before a second set of emails for the same sheet. WinUI and Win32 both have all three. Gmail drafts are the mode in daily use. **Still to check (needs the other machine):** whether mailto and .eml mail programs add their own signature on top of ours (Testing.md "v0.24.0 checks"). v0.24.4 (Win32 Settings > Email page was cut off) is written, not yet run by Jack.
 
@@ -30,7 +30,8 @@ The old "Next" list (split stages, WinUI prototype steps) is finished or history
 - A3. DONE (checked on GitHub 2026-11-25). `COMMIT_MESSAGE.txt` is stale (still v0.13.0); `push_update.ps1` builds the message from `CHANGELOG.md`. Delete it.
 - A4. DONE v0.23.3. The shared data folder was defined twice: `DataDir()` in `AutosaveShared.h` (used by WinUI) and `GetSharedDataDir()` in `Storage.cpp` (Win32). Unify so the two apps cannot drift apart.
 - A5. DONE v0.23.3. Docs drift: audit finding F7 (data beside the exe) is done in practice - the data lives in `C:\BalancingAct\data` (v0.13.2) - so mark it closed (a hard-coded path rather than `%LOCALAPPDATA%` is the decision on record); `README.md` / `ARCHITECTURE.md` should describe the WinUI edition and `winui/`; `AuditFindings_2026-09-30.md` open-items table to be refreshed.
-- A6. DONE (Jack, 2026-11-23: Win32 and WinUI clean). A "Regression pass" of 13 checks is now at the top of `Testing.md` (v0.23.3). `Testing.md` has about 140 unticked checks, many of them old. Do that short regression pass (Jack) and tick or delete what is no longer relevant; split into "Win32" and "WinUI" lists.
+- A6. DONE (Jack, 2026-11-23: Win32 and WinUI clean). A "Regression pass" of 13 checks is now at the top of `Testing.md` (v0.23.3). `Testing.md` was cleaned up in v0.24.5: the old per-version lists are gone and 19 checks that only Jack can do remain under "Still to check".
+- A8. **OPEN (Jack):** remove `15-10-26.fbd` (a real saved sheet) from the public GitHub history with `purge_fbd_history.ps1` (supplied with the 0.24.5 zip), then force-push. See SecurityHardeningRegister item 21 and DevelopmentWorkflow "Git history cleanup".
 - A7. DONE v0.23.4: `build_mingw.bat`, `CMakeLists.txt` and `CMakeSettings.json` removed (never run by Jack); MSVC is the build. Docs updated. Jack deletes the three files (command in the delivery message).
 
 **Phase B - WinUI catch-up (the app Jack will use daily)**

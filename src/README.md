@@ -11,9 +11,9 @@
 `MessageBox`; `services` never touches a control. That is what lets the UI layer be replaced (e.g. by
 WinUI 3) without rewriting the rest.
 
-Status (v0.10.18): the split is staged (see ROADMAP.md "Where we are"). `main.cpp` (still at the repo root) keeps the main window's
-creation code, window procedure, entry point, entry-form actions, file operations and the Finalize Day popup; Finalize persistence
-(stage 7d) and entry operations (7e) are the remaining planned moves into `services/`.
+Status: the split is done as far as is planned. `main.cpp` (still at the repo root) keeps the main window's
+creation code, window procedure, entry point, entry-form actions, file operations and the Finalize Day popup. Moving the
+rest (Finalize persistence, entry operations) is not scheduled. The WinUI edition under `winui/` shares `core/`, `data/` and `services/`.
 
 `PlatformWin.h` is the single place that sets Windows macros and includes `<windows.h>`; include it (directly or via a
 layer header) rather than `<windows.h>` itself.

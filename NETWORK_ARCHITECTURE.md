@@ -6,6 +6,11 @@ extended design discussion (2026-09-05) before any of it was built. It's
 the detailed "how and why"; ROADMAP.md tracks what's actually being built
 and when.
 
+**Status (2026-11-25): design only, partly out of date.** Written before the WinUI edition and before the shared
+`C:\BalancingAct\data` folder, `autosave.lock` and the Gmail drafts existed. The ideas are still the plan for the
+multi-machine phase, but file locations and the "next to the exe" wording below describe the old layout. Re-check
+against ARCHITECTURE.md and DATA_FORMATS.md before building any of it.
+
 **Status: fully designed, not yet built.** See ROADMAP.md's "Bucket C" for
 sequencing - this is deliberately sequenced after the current single-
 machine app reaches its "done" state (Bucket A), so staff can start using

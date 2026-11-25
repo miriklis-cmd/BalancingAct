@@ -6,11 +6,11 @@ worth having in one place since this app handles a real small business's
 financial data (supplier balances, pricing) even though it's a single-user
 offline desktop tool.
 
-Threat model: this is an offline desktop app with no network server
-component. It has no stored credentials of any kind. The realistic attack
-surface is (a) memory-safety bugs in the C++ code itself, and (b) a
-maliciously or accidentally malformed file being opened by the user (a
-`.fbd` file, or CSV output opened in Excel).
+Threat model: this is a desktop app with no server component of its own. The realistic attack
+surface is (a) memory-safety bugs in the C++ code itself, (b) a maliciously or accidentally malformed file being
+opened by the user (a `.fbd` file, or CSV output opened in Excel), and (c) since v0.21.0, the optional Gmail draft
+feature, which is the only part that touches the network and holds a credential (see item 22). No email password is
+ever stored. The data files are plain text, so protecting the PC and the data folder matters (see the v2 note below).
 
 ## Fixed issues
 
@@ -372,7 +372,11 @@ than as large in-source literals.
 ### 18. Fixed temp-file name and no single-instance guard (v0.9.65, audit F6 / F24)
 **What**: the atomic writer used one fixed `.tmp` name, and two copies of the app on one machine could write the same
 autosave / settings / backup files with no coordination.
-**Fix**: temp file is `<file>.<pid>.tmp`; a named mutex stops a second instance from starting.
+**Fix**: temp file is `<file>.<pid>.tmp`; in the Win32 app a named mutex stops a second Win32 copy from starting (it
+brings the first to the front). **Since v0.18.0** (WinUI + Win32 sharing one data folder) there is a second, separate
+guard: `autosave.lock` in the data folder, held open exclusively by whichever app owns `autosave.fbd`. A second app of
+either kind shows "Another Copy Is Open" and starts blank without autosave, so it cannot overwrite the first one's work.
+The two guards are independent: the mutex only covers Win32 copies, the lock covers both editions.
 
 ### 19. Exe-folder path truncated on long paths (v0.9.66, audit F23)
 **What**: `GetExeDir` used a fixed `MAX_PATH` buffer without checking for truncation, and every data path is built from it.
@@ -386,8 +390,21 @@ sheet) was re-saved without the `FINALIZED=` line, so reopening it showed it unl
 ### 21. Restore from Backup failed silently; saved sheets could be committed to git (v0.10.15 - v0.10.17)
 **What**: a file-picker failure looked like "nothing happens" (0.10.15), the picker could open in the wrong folder
 (0.10.16), and a sheet saved inside the project folder was committed to the repository (0.10.17).
-**Fix**: picker errors are reported; Restore uses `IFileOpenDialog` + `SetFolder`; `*.fbd` is git-ignored. If the
-repository is ever public, remove `15-10-26.fbd` from its history.
+**Fix**: picker errors are reported; Restore uses `IFileOpenDialog` + `SetFolder`; `*.fbd` is git-ignored.
+**Still open until the history is rewritten (found 2026-11-25):** the repository IS public and the file
+`15-10-26.fbd` (real supplier names, weights and prices) is still reachable in its history (added in 7dd64ad, deleted in
+48471aa). See "Git history cleanup" in DevelopmentWorkflow.md. Treat the contents as already public: removing it stops
+further spread but cannot recall copies already taken.
+
+### 22. Gmail sign-in token storage (v0.21.0)
+**What**: Gmail draft mode needs a Google refresh token so the browser sign-in is not repeated. The Google client file
+(`client_secret.json`) is also a credential for the app.
+**How it is handled**: the refresh token is stored as `gmail_refresh.bin` in the data folder, encrypted with Windows DPAPI
+(readable only by the same Windows user on the same PC). The app only ever asks for the "create drafts" permission, so
+a stolen token could create drafts but not read mail or send. `client_secret.json` lives in `C:\BalancingAct\private\`,
+never in the source tree or data folder; `.gitignore` excludes `client_secret*.json` and `gmail_refresh.bin`. The Google
+project's audience is Internal (checked 2026-11-20), so the refresh token does not expire after 7 days. Settings has
+"Forget this PC's Gmail sign-in", which deletes the token. Sign-in uses PKCE and a loopback listener (tested).
 
 ## Deliberately accepted risk (not fixed, by design)
 

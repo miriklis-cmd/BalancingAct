@@ -32,27 +32,43 @@ if ([string]::IsNullOrWhiteSpace($remotes)) {
     exit 1
 }
 
-# 2. Check whether any history\*.fbd files are already tracked by git -
-#    real finalized-day business data should never be committed (see
-#    .gitignore). Checked BEFORE staging anything, so this run can't make
-#    it worse.
-$trackedHistory = git ls-files -- history/ 2>&1
-Test-LastExit "git ls-files -- history/"
-if (-not [string]::IsNullOrWhiteSpace($trackedHistory)) {
-    Write-Host "STOPPING: real finalized day-file(s) already committed to git:" -ForegroundColor Red
-    Write-Host $trackedHistory -ForegroundColor Red
-    Write-Host ""
-    Write-Host "This needs a decision before anything else is pushed - removing these" -ForegroundColor Yellow
-    Write-Host "from tracking (git rm --cached) stops FUTURE commits from including them," -ForegroundColor Yellow
-    Write-Host "but they will still be sitting in past commits/GitHub until those are" -ForegroundColor Yellow
-    Write-Host "rewritten too. Ask for help walking through that before running this" -ForegroundColor Yellow
-    Write-Host "script again." -ForegroundColor Yellow
+# 2. Never let business data or secrets reach GitHub. Patterns checked against
+#    (a) files git already tracks, BEFORE staging, and (b) files staged by
+#    `git add -A`, BEFORE committing. Any match stops the script. This is a second
+#    line of defence behind .gitignore (a file that is already tracked, or added with
+#    `git add -f`, ignores .gitignore). A real saved sheet (15-10-26.fbd) once got
+#    into public history this way; it was removed 2026-11-25.
+$blocked = '^(data|private)/|(^|/)(history|backups)/|\.fbd$|(^|/)(names|settings|recent|emails)\.txt$|(^|/)portable\.txt$|client_secret.*\.json$|gmail_refresh\.bin$|\.pfx$|\.tmp$|(^|/)\.xdp-'
+
+function Test-Blocked($files) {
+    $hits = @($files | Where-Object { $_ -and ($_ -match $blocked) })
+    if ($hits.Count -gt 0) {
+        Write-Host "STOPPING: these files are business data or secrets and must never go to GitHub:" -ForegroundColor Red
+        $hits | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+        return $true
+    }
+    return $false
+}
+
+$tracked = git ls-files 2>&1
+Test-LastExit "git ls-files"
+if (Test-Blocked $tracked) {
+    Write-Host "They are already tracked. Remove them from tracking with:  git rm --cached <file>" -ForegroundColor Yellow
+    Write-Host "and ask for help if they were already pushed (history has to be rewritten)." -ForegroundColor Yellow
     exit 1
 }
 
-# 3. Stage everything.
+# 3. Stage everything, then check what was staged.
 git add -A
 Test-LastExit "git add -A"
+
+$staged = git diff --cached --name-only --diff-filter=ACMR 2>&1
+Test-LastExit "git diff --cached"
+if (Test-Blocked $staged) {
+    git reset | Out-Null
+    Write-Host "Nothing was committed (staging undone). Move or delete the file(s), or add them to .gitignore, then run again." -ForegroundColor Yellow
+    exit 1
+}
 
 # 4. Write the commit message to a temp file rather than passing it as a
 #    -m argument (see the header comment above for exactly why).

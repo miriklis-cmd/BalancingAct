@@ -7,14 +7,13 @@ rediscover the same mistakes that have already been made and fixed once.
 ## Big picture
 
 Win32 C++ application, no external UI framework (no MFC, no WTL, no Qt) — plain
-`CreateWindowExW` + a manual `WndProc` message loop. `main.cpp` (~2,860 lines) still holds the main window's
+`CreateWindowExW` + a manual `WndProc` message loop. `main.cpp` (~3,250 lines) still holds the main window's
 `WndProc`, startup, the entry-form actions, file operations and the Finalize Day popup; everything else has been split
 into `src/` (see below).
-No compiler is available in the environment this was originally built in,
-so every change has to be checked by careful reading and structural
-verification (brace/paren balance, forward-declaration order, function
-uniqueness) rather than by compiling. Treat every edit with that level of
-care; there's no compiler safety net catching mistakes before they ship.
+The environment Claude works in has no MSVC and cannot run Windows code. It can compile and run the portable unit
+tests (`tests/`, g++), but not `main.cpp` or the WinUI project, so every change to those is checked by careful reading
+and structural verification (brace/paren balance, forward-declaration order, function uniqueness) and then built and
+tested by Jack. Treat every edit with that level of care.
 
 ## Source layout and layering (v0.10.0)
 
@@ -25,8 +24,8 @@ The split is staged (ROADMAP.md "Where we are"); code not yet moved still lives 
 
 ## Windows in the app
 
-There are five top-level windows, each with its own `WndProc`. The main window and the Finalize popup are in
-`main.cpp`; Manage Names and Print Preview moved to `src/forms/` in v0.10.6, and the Breakdown drill-down popup (v0.12.6) is in `src/forms/`:
+There are seven top-level windows, each with its own `WndProc`. The main window and the Finalize popup are in
+`main.cpp`; Manage Names and Print Preview moved to `src/forms/` in v0.10.6, the Breakdown drill-down popup (v0.12.6), Settings and the Email notes dialog (v0.24.0) are in `src/forms/` too:
 
 1. **Main window** (`WndProc`) — the tabbed interface (Data Entry, Total
    Overview, Breakdown, By Species). Controls for all four tabs are
@@ -47,6 +46,13 @@ There are five top-level windows, each with its own `WndProc`. The main window a
    Every failure in it is reported to the user (`ReportDrillFailure`), never swallowed.
    Header click sorts (`SortDrillDownIndices`, core); Esc closes via `SetWindowSubclass` on the list and Close button, because the
    popup is a plain window with no IDCANCEL handling.
+
+6. **Settings window** (`src/forms/SettingsWindow.cpp`, v0.22.0) - tabbed (Email, Backups and flags, Display and printing,
+   Data and about). Tab labels must not contain `&` (it is eaten as a mnemonic): use "and". Layout is fixed pixel
+   positions through `S()`; the Email page is the tallest, so check it fits when adding a control.
+7. **Email notes dialog** (`src/forms/EmailNotesWindow.cpp`, v0.24.0) - `ShowEmailNotesDialog(data, notes)` returns
+   `Cancel`, `Skip` or `Create`. Own window class, disables the owner, runs a nested message loop with `IsDialogMessage`.
+   Control IDs `ID_NOTES_*` are in `ControlIds.h`. The WinUI edition builds its own dialog in code in `DoEmailSuppliers`.
 
 All the popups follow the same lifecycle: `EnableWindow(mainWnd, FALSE)`
 on creation (so the popup behaves modally without actually being a true
@@ -210,18 +216,16 @@ A second front end for the same data and the same logic. Both apps read and writ
 
 ## Build
 
-No compiler is available in the development environment this project was
-built in, which is why `FishBalanceCore.h` exists as a separate,
-platform-independent header: it holds the parsing/aggregation/formatting
-logic pulled out of `main.cpp` specifically so it can be covered by a real,
-compiler-verified automated test suite (`tests/`, doctest-based - see
-README.md's "Note on testing" and Testing.md) that Jack runs on his own
-machine via CTest or `run_tests.bat`/`run_tests.ps1`. That suite is real
+`FishBalanceCore.h` exists as a separate, platform-independent header: it holds the
+parsing/aggregation/formatting/email-wording logic pulled out of `main.cpp` specifically so it can be covered by a real,
+compiler-verified automated test suite (`tests/`, doctest-based, 353 cases - see
+README.md's "Note on testing" and Testing.md). Claude runs it with g++ in its own environment; Jack runs it with
+MSVC via `run_tests.bat`/`run_tests.ps1`. That suite is real
 coverage, not a substitute for the steps below - it just covers the
 portable half of the codebase. A second suite (`tests/win32_integration/`,
 also run by `run_tests.bat`) exercises the Win32 file I/O for real, but
 window/printing behavior is still checked by hand. All build paths use the
-same warning gate (MSVC `/W4 /WX`; MinGW `-Wall -Wextra -Wpedantic -Werror`).
+same warning gate (MSVC `/W4 /WX`). MSVC is the only build.
 
 For everything in `main.cpp` itself (window creation, message handling,
 printing, file dialogs - code that can't be unit-tested without a Win32
@@ -234,15 +238,15 @@ environment), all correctness checking on Claude's end is done by:
 
 None of this substitutes for an actual compile — always build and run
 after a batch of changes, and report back anything the compiler flags.
-See README.md for the build (MSVC).
+See README.md for the build (MSVC) and `winui/README.md` for the WinUI edition.
 
 ### `app.rc` — deleted 2026-09-05, do not re-add
 
 An old, vestigial file (`1 24 "app.manifest"` — raw RC syntax to
 **embed** the manifest as a resource) was found still sitting in the
-repo, unreferenced by any of the three build paths. This directly
-conflicts with the deliberate approach all three actually use: the
-manifest shipped as an external side-by-side file (superseded in v0.18.6:
+repo, unreferenced by any build. This directly
+conflicts with the deliberate approach every build used: the
+manifest was shipped as an external side-by-side file (superseded in v0.18.6:
 it is now embedded via `app_icon.rc`, `1 24 "app.manifest"`, with
 `/MANIFEST:NO` kept so the linker adds no second one). `app.rc` wasn't doing
 anything active, but its presence was a latent footgun — if it were ever
@@ -250,6 +254,5 @@ added to a build's sources without this context, it would silently
 reintroduce the exact manifest conflict already engineered around,
 likely surfacing as confusing, hard-to-trace lost ListView theming
 rather than an obvious build error. Confirmed unused by checking all
-the build files directly (`build_msvc.bat` and the old CMake / MinGW
-files each referenced only `app_icon.rc`) before deleting -
+the build files directly (every build file referenced only `app_icon.rc`) before deleting -
 don't re-add it.

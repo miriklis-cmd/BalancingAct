@@ -144,19 +144,19 @@ END
     cause a sheet to quietly load with data missing. See
     BUSINESS_RULES.md and `AuditFindings_2026-09-30.md` (F3/F2).
 
-`autosave.fbd` (next to the exe) uses this same format and is
+`autosave.fbd` (in the data folder, `C:\BalancingAct\data`) uses this same format and is
 continuously overwritten on every data change. Named files created via
 File > Save As use the identical format with a user-chosen filename.
 
 ## `history\` — Finalize Day snapshots
 
-Added v0.9.40 (ROADMAP.md item 3). A folder next to the exe, created on
+Added v0.9.40 (ROADMAP.md item 3). A folder in the data folder (`C:\BalancingAct\data`; beside the exe before v0.14.0), created on
 first use, holding one permanent `.fbd` file per finalized business day,
 named by that day's ISO date: `history\2026-09-20.fbd`. Same `.fbd` format
 as above (including the `FINALIZED=` line), written once at the moment of
 finalizing and not touched again unless the day is re-finalized (with a
 confirm-overwrite prompt). Separate from the rolling, throttled/pruned
-`backups\` folder (ROADMAP.md item 4) that already exists next to the exe
+`backups\` folder (ROADMAP.md item 4) that already exists in the same data folder
 for crash/mistake recovery — `history\` files are deliberate, permanent
 records of a locked-in day, never pruned. **Phase 1 / F9 (2026-09-30)**:
 this permanent history write is the one that actually locks the day in,
@@ -185,7 +185,7 @@ EMAILMODE=mailto
 - `MAX` — `1` if the window was maximized, `0` otherwise.
 - `autosave.lock` (v0.18.0, same folder) - empty file held open exclusively by the app that owns autosave.fbd; deleted when it exits.
 - `GMAILACCOUNT` — (v0.21.0) optional Google account address used as the sign-in hint and for the "open Gmail Drafts" link. Written back only when set.
-- `EMAILMODE` — (v0.20.0) how Email All Suppliers opens drafts: `mailto` (default; also used when missing or unknown), `eml` (Outlook draft with an HTML table), `gmail` (v0.21.0: drafts created in Gmail via the API). Set from Tools > Settings > Email. Win32 rewrites it with the other keys; WinUI leaves it alone.
+- `EMAILMODE` — (v0.20.0) how Email All Suppliers opens drafts: `mailto` (default; also used when missing or unknown), `eml` (Outlook draft with an HTML table), `gmail` (v0.21.0: drafts created in Gmail via the API). Set from Tools > Settings > Email in either app (both read and write it).
 - `EMAILSUBJECT`, `EMAILINTRO`, `EMAILSIGNOFF` - (v0.22.0) email wording; written only when customised. Subject may contain `{supplier}` and `{date}`. Single line, max 150 chars; missing/blank = standard wording. (v0.24.0) `EMAILSIGNATURE` - optional multi-line signature (up to 8 lines) printed under the sign-off; stored on one line with `\n` for a line break and `\\` for a backslash; blank/missing = none.
 - `BACKUPMINUTES` (1-60, default 3), `BACKUPKEEP` (10-500, default 50) - (v0.22.0) backup throttle and number of snapshots kept.
 - `OUTLIERSENS` - (v0.22.0) price-flag sensitivity: 0 relaxed, 1 normal (default), 2 strict.

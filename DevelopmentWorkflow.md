@@ -8,10 +8,10 @@ not written down (it already has, more than once).
 ## The core loop
 
 1. You describe a feature or bug in chat.
-2. Claude edits `main.cpp` (and supporting files) directly.
-3. Claude runs a **structural check** (see below) — this is the only
-   verification available; there is no compiler in Claude's environment.
-4. Claude packages the whole project into a zip and delivers it.
+2. Claude edits the source (`main.cpp`, `src/`, `winui/`) directly.
+3. Claude runs the portable unit tests with g++ (353 cases) and a **structural check** (see below). There is no MSVC
+   or Windows in Claude's environment, so `main.cpp` and the WinUI project are never compiled there.
+4. Claude packages the **changed files** into a zip (new version number every time) and delivers it.
 5. **You build and test on your own Windows machine** — this is the only
    point in the loop where the code is actually compiled and run.
 6. You report back what happened (worked / didn't / build error / runtime
@@ -22,7 +22,7 @@ report it working.
 
 ## Verification without a compiler
 
-Since there's no C++ compiler available, every change is checked by:
+Since Claude cannot build the Windows code, every change to it is checked by:
 
 - **Structural balance check**: a script that strips string/char literals
   and comments, then confirms braces `{}` and parens `()` are balanced.
@@ -62,16 +62,9 @@ implications:
 
 ## Git
 
-**Corrected 2026-09-05** (an earlier version of this section claimed
-Claude maintains a real git repository and commits to it - verified
-false: this sandbox has no `.git` folder, no SSH keys, no GitHub token,
-no credential helper. Network access to github.com works, but with
-nothing to authenticate with, so even reading a private repo fails, let
-alone pushing).
-
-Claude **cannot commit or push to GitHub in this environment** — no
-persistent credentials, and this sandbox resets between sessions even if
-it could. You own the actual GitHub repo (`miriklis-cmd/BalancingAct`)
+**Updated 2026-11-25.** The repo (`miriklis-cmd/BalancingAct`) is public, so Claude can **clone and read it** in
+its sandbox (useful after a reset, to rebuild the working tree). Claude has **no credentials to push** and must not
+try: the sandbox has no GitHub login, and it resets between sessions anyway. You own the actual GitHub repo (`miriklis-cmd/BalancingAct`)
 and the push step, using your own already-authenticated local git setup.
 
 **Standing requirement, not optional, not just for large changes**:
@@ -108,6 +101,14 @@ to push):
   (`git remote` returns something) - fail with a clear, actionable
   message if not, rather than let `git push` fail confusingly at the end
   after the commit already succeeded.
+
+## Git history cleanup (a data file was committed once)
+
+`15-10-26.fbd`, a real saved sheet, was committed in 0.10.16 and deleted in 0.10.17, but it stays in the public history.
+`*.fbd` has been in `.gitignore` since 0.10.17, and since 0.24.6 `push_update.ps1` also stops if any `.fbd`, data or secret file is tracked or staged. To remove it from history, run `purge_fbd_history.ps1` (kept outside
+the repo, supplied with the 0.24.5 zip) from a fresh clone, then force-push. Everyone with a clone must re-clone afterwards.
+Old commit links on github.com may keep working for a while; GitHub Support can be asked to clear cached views. Treat
+the data as already seen by others.
 
 ## Testing responsibility
 

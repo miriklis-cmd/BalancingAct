@@ -21,6 +21,15 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.24.6] - 2026-11-25
+
+- `push_update.ps1` now refuses to push business data or secrets. Before staging it checks every file git already tracks, and after `git add -A` it checks every staged file; any `.fbd`, `history\` or `backups\` folder, top-level `data\` or `private\` folder, `names.txt`, `settings.txt`, `recent.txt`, `emails.txt`, `portable.txt`, `client_secret*.json`, `gmail_refresh.bin`, `.pfx` or leftover `.tmp` file stops the script (staging is undone, nothing is committed). This is a second line of defence behind `.gitignore`. Includes all of 0.24.5 (docs audit).
+
+## [0.24.5] - 2026-11-25
+
+- Docs audit (no code change). Every `.md` file was read line by line and checked against the code. `Testing.md` rewritten: the Regression pass is ticked (Jack, 2026-11-20/23), the old per-version checklists (v0.9 to v0.24.3) were removed as covered, replaced or obsolete, and 19 open checks that only Jack can do remain under "Still to check". ARCHITECTURE (seven windows, build section, line count), DevelopmentWorkflow (git section, Claude runs g++ tests, changed-files zips), SecurityHardeningRegister (threat model; item 18 now explains the Win32 mutex AND the `autosave.lock`; item 21 now says the file is still in public history; new item 22: Gmail token storage), NETWORK_ARCHITECTURE (marked partly out of date), AuditFindings (header note), DATA_FORMATS (data-folder locations, EMAILMODE), README and src/README corrected.
+- **Found:** a real saved sheet (`15-10-26.fbd`) is still in the public repository history (added 0.10.16, deleted 0.10.17). A cleanup script (`purge_fbd_history.ps1`, supplied beside the zip, not in the repo) rewrites the history.
+
 ## [0.24.4] - 2026-11-25
 
 - **Win32 Settings > Email page was cut off at the bottom** (the Signature box showed about 3 lines, and the note under it was clipped). The Signature box is taller (about 5 lines), the note has room for 3 lines, and the Settings window is taller to fit.

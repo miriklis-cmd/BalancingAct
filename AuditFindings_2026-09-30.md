@@ -12,7 +12,7 @@ existing "verify before implementing" practice.
 
 **Status (2026-10-17, v0.10.18): historical record.** Phases 1-3a are done (F1-F6, F8-F15, F23-F29 fixed - see the
 per-finding status lines and CHANGELOG.md). **Still open: F16-F22 (F7 closed 2026-11-20)** (see the table at the end). Line numbers
-quoted in the findings below are from v0.9.47's single-file `main.cpp` and no longer match the code.
+quoted in the findings below are from v0.9.47's single-file `main.cpp` and no longer match the code. References to CMake, MinGW and "four build paths" are also historical: only MSVC is built since v0.23.4.
 
 ## How to read this
 

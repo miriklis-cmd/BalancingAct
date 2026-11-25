@@ -73,7 +73,7 @@ Cash balances exactly against what's entered, click "Finalize Day" to lock
 it in. You'll be asked which date it represents (your team doesn't always
 balance strictly by calendar day — e.g. Monday and Tuesday together, dated
 for the Tuesday), and confirming writes a permanent copy to a `history`
-folder next to the exe and disables further edits (entry form,
+folder in the data folder and disables further edits (entry form,
 Add/Edit/Delete/Duplicate, Debtor, Cash) until you click "Un-finalize Day"
 to reopen it. Finalize is blocked outright if the day doesn't balance —
 there's no way to lock in an unbalanced sheet.
@@ -192,16 +192,16 @@ embedded directly in the .exe, so it doesn't need `app.ico` alongside it —
 that file is only a fallback the app checks if the embedded icon is ever
 missing.
 
-The app also creates a few small files/folders next to the exe as you use
-it: `autosave.fbd` (automatic backup of your current data), `settings.txt`
-(window size/position and last file), `recent.txt` (your Recent Files
-list), `emails.txt` (supplier email addresses), a `backups\` folder
+The app also creates a few small files/folders in `C:\BalancingAct\data` as you use
+it (shared by the Win32 and WinUI apps): `autosave.fbd` (automatic backup of your current data), `settings.txt`
+(window size/position, last file and settings), `recent.txt` (your Recent Files
+list), `names.txt` (master Supplier / Species lists and supplier email addresses), a `backups\` folder
 (rolling timestamped snapshots, taken automatically roughly every 3
 minutes and on every Save — see File > Restore from Backup), and a
 `history\` folder (one permanent file per day you've clicked "Finalize
 Day" on, named by date). These aren't required to run the app and can be
 deleted to reset that state, but don't delete `autosave.fbd` if you want
-to keep unsaved work, and `history\` files are your permanent finalized
+to keep unsaved work, `names.txt` holds your supplier addresses, and `history\` files are your permanent finalized
 records, not disposable like the others.
 
 ## Note on testing
@@ -214,14 +214,11 @@ portable suite and the Windows integration suite (real files, injected
 save failures, headless startup) - run it after any change.
 
 What it can't cover is the Win32-specific code in `main.cpp` itself
-(window creation, message handling, printing, file dialogs) - that was
-written directly against the Win32 API without access to a Windows
-compiler to verify the build, since no Windows toolchain is available in
-the environment this was created in. The API usage follows standard,
-well-known patterns, but if you hit a compile error when building it on
-your machine, share the error message and it can be fixed directly. See
-`Testing.md` for the manual checklist that covers that Win32-specific
-behavior.
+(window creation, message handling, printing, file dialogs) and the WinUI
+screens - there is no Windows compiler where the code is written, so those
+are built and checked on a real Windows machine. If a build fails, the exact
+compiler error is enough to fix it. See `Testing.md` for the manual checklist
+that covers that behaviour.
 
 ## Data file format
 
