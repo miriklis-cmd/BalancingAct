@@ -21,6 +21,10 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.24.8] - 2026-11-26
+
+- Docs only. Testing.md: Win32 Settings fit, Win32 text size (after 0.24.7), name autocomplete and Win32 crash recovery (hard kill) confirmed by Jack and ticked; the combo grey-strip glitch is recorded as still happening (with a stuck tooltip) in 0.24.7; the crash-test instructions now say to hard-kill (`taskkill /F`) because Task Manager's "End task" closes the app politely. ROADMAP "Known problems" updated.
+
 ## [0.24.7] - 2026-11-26
 
 - **Win32: Extra large / Large text size was applied unevenly.** The list headers and plain Data Entry rows grew, but bold rows (the first row of each book) and every row on Total Overview, the Books table, Breakdown and By Species were drawn in the normal system size, because the row-drawing code picked the system fonts. Those rows now use the list text size (a bold version of it where needed), and row heights grow with the text size too. Found by Jack's screenshots; `main.cpp`, `MainWindowLayout.cpp`, `UiState.*`.

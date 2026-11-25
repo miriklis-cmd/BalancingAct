@@ -39,13 +39,13 @@ Email (needs the other machine):
 - [ ] In each mode (mailto / .eml / Gmail) is the signature DOUBLED because your mail program adds its own? Tell Claude which.
 
 Display:
-- [ ] v0.24.4: Win32 Settings > Email: the Signature box shows about 5 lines, the grey note under it reads in full, and OK / Cancel are fully visible, at your usual display scaling.
-- [ ] (v0.24.7 fixed mixed sizes on Win32) Settings > Display and printing: text size Large / Extra large (applies at next start; lists get bigger, columns still readable), email date style options, printer / paper / orientation start the Print dialog and Preview as chosen. Both apps.
-- [ ] Supplier / Species boxes: several fresh launches in a row - note whether the grey strip glitch (ROADMAP "Known problems") still happens in the Win32 app.
-- [ ] Supplier / Species boxes (both apps): typing part of a name completes it, Tab accepts, typing on carries on; typing the start of an alias completes to the alias and is corrected to the real name when you leave the box.
+- [x] v0.24.4: Win32 Settings > Email: the Signature box shows about 5 lines, the grey note under it reads in full, and OK / Cancel are fully visible, at your usual display scaling. (Jack, 2026-11-26)
+- [ ] Settings > Display and printing: text size Large / Extra large in the WinUI app, and printer / paper / orientation / email date style in both apps. (Win32 text size confirmed working after v0.24.7, Jack 2026-11-26.)
+- [ ] Supplier / Species boxes: several fresh launches in a row - note whether the grey strip glitch (ROADMAP "Known problems") still happens in the Win32 app. STILL HAPPENS 2026-11-26 (v0.24.7): Species box drawn in pieces plus a stuck, faded Debtor tooltip over the list. Not fixed; WinUI does not have it. Left open.
+- [x] Supplier / Species boxes (both apps): typing part of a name completes it, Tab accepts, typing on carries on; typing the start of an alias completes to the alias and is corrected to the real name when you leave the box. (Jack, 2026-11-26)
 
-Crash and failure cases (kill the app from Task Manager, do NOT use Exit):
-- [ ] Open named file A, close normally. Open file B, kill the app. Relaunch: "Recovered Unsaved Work", B's data, title shows "(unsaved)", NOT linked to A. Save prompts Save As. (Logic is unit-tested; the screen and wording are not.)
+Crash and failure cases (hard kill with `taskkill /F /IM <exe name>` or Task Manager > Details > End process; do NOT use Exit or the Processes tab):
+- [x] Open named file A, close normally. Open file B, kill the app. Relaunch: "Recovered Unsaved Work", B's data, title shows "(unsaved)", NOT linked to A. Save prompts Save As. (Logic is unit-tested; the screen and wording are not.) (Jack, 2026-11-26, Win32. Must be a HARD kill: `taskkill /F /IM FishBalanceManager.exe`; Task Manager "End task" on the Processes tab closes the app politely and proves nothing.)
 - [ ] WinUI: same crash recovery (the 2026-11-12 test did not cover a crash).
 - [ ] A half-typed Add Entry row (Tab away without adding) survives a kill and reopens in the form.
 - [ ] Finalize Day while the open named file is read-only: the history file is still written and you get a warning that the open file could not be re-saved. Remove read-only, Save works.

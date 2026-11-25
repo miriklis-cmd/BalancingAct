@@ -79,7 +79,7 @@ The old "Next" list (split stages, WinUI prototype steps) is finished or history
 ## Known problems
 
 - **Supplier / Species combo boxes sometimes paint a grey strip** between the text area and the arrow on first
-  display (intermittent). Four code fixes (0.9.42-0.9.46) and a clip-style experiment (0.10.10, reverted in 0.10.11, made
+  display (intermittent; still seen 2026-11-26 on v0.24.7, once with a faded Debtor tooltip stuck over the list; WinUI does not have it). Four code fixes (0.9.42-0.9.46) and a clip-style experiment (0.10.10, reverted in 0.10.11, made
   the combos vanish) did not cure it; the workaround code (`FixComboBoxFirstPaint`, timers) is still in. It needs a
   diagnostic build, not another guess; WinUI 3 would likely remove it. See `ARCHITECTURE.md`.
 - (Removed v0.23.4: the MinGW and CMake builds. Only MSVC is built.)

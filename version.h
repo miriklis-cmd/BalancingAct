@@ -1,2 +1,2 @@
 // Bump this alongside a new entry at the top of CHANGELOG.md.
-#define APP_VERSION L"0.24.7"
+#define APP_VERSION L"0.24.8"
