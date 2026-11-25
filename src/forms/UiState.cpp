@@ -7,6 +7,7 @@ HWND hTab = nullptr;
 HWND hStatusBar = nullptr;
 HFONT g_normalFont = nullptr, g_boldFont = nullptr;
 HFONT g_listFont = nullptr;
+HFONT g_listBoldFont = nullptr;
 int g_textPercent = 100;
 HWND hLblSupplier, hCmbSupplier, hLblProduct, hCmbProduct;
 HWND hLblKgs, hEditKgs, hLblPrice, hEditPrice, hBtnAdd, hBtnDelete, hBtnEdit, hBtnCancelEdit;

@@ -21,6 +21,10 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.24.7] - 2026-11-26
+
+- **Win32: Extra large / Large text size was applied unevenly.** The list headers and plain Data Entry rows grew, but bold rows (the first row of each book) and every row on Total Overview, the Books table, Breakdown and By Species were drawn in the normal system size, because the row-drawing code picked the system fonts. Those rows now use the list text size (a bold version of it where needed), and row heights grow with the text size too. Found by Jack's screenshots; `main.cpp`, `MainWindowLayout.cpp`, `UiState.*`.
+
 ## [0.24.6] - 2026-11-25
 
 - `push_update.ps1` now refuses to push business data or secrets. Before staging it checks every file git already tracks, and after `git add -A` it checks every staged file; any `.fbd`, `history\` or `backups\` folder, top-level `data\` or `private\` folder, `names.txt`, `settings.txt`, `recent.txt`, `emails.txt`, `portable.txt`, `client_secret*.json`, `gmail_refresh.bin`, `.pfx` or leftover `.tmp` file stops the script (staging is undone, nothing is committed). This is a second line of defence behind `.gitignore`. Includes all of 0.24.5 (docs audit).

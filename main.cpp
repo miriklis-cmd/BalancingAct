@@ -2174,8 +2174,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         AddButtonGlyphIcon(hBtnEdit, L'\uE70F', RGB(0, 95, 184));     // pencil
         AddButtonGlyphIcon(hBtnCancelEdit, L'\uE711', RGB(90, 90, 90)); // cancel (x)
         for (HWND lv : { hListOverview, hListBooks, hListBreakdown, hListBySpecies })
-            SetListRowHeight(lv, S(28));
-        SetListRowHeight(hListEntries, S(22)); // v0.12.0: denser grid (~16 rows visible), like the spreadsheet
+            SetListRowHeight(lv, MulDiv(S(28), g_textPercent, 100)); // v0.24.7: rows grow with the list text size
+        SetListRowHeight(hListEntries, MulDiv(S(22), g_textPercent, 100)); // v0.12.0: denser grid (~16 rows visible), like the spreadsheet
 
         g_tab1Ctrls = { hLblSupplier, hCmbSupplier, hLblProduct, hCmbProduct, hLblKgs, hEditKgs,
                          hLblPrice, hEditPrice, hBtnAdd, hBtnDelete, hBtnEdit, hBtnCancelEdit, hBtnDuplicate,
@@ -2486,7 +2486,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     cd->clrText = RGB(200, 0, 0);
                 }
                 if (bookStart) {
-                    SelectObject(cd->nmcd.hdc, g_boldFont);
+                    SelectObject(cd->nmcd.hdc, g_listBoldFont ? g_listBoldFont : g_boldFont); // v0.24.7: list text size
                     return CDRF_NEWFONT;
                 }
                 return CDRF_DODEFAULT;
@@ -2503,7 +2503,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 const std::wstring d = diff;
                 if (!d.empty() && d != L"-" && d != FormatMoney(0.0)) cd->clrText = RGB(200, 0, 0);
                 bool bold = wcsstr(name, L"Total") != nullptr;
-                SelectObject(cd->nmcd.hdc, bold ? g_boldFont : g_normalFont);
+                SelectObject(cd->nmcd.hdc, bold ? (g_listBoldFont ? g_listBoldFont : g_boldFont) : (g_listFont ? g_listFont : g_normalFont)); // v0.24.7: list text size
                 return CDRF_NEWFONT;
             }
         }
@@ -2515,7 +2515,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 wchar_t txt[256] = { 0 };
                 ListView_GetItemText(hdr->hwndFrom, (int)cd->nmcd.dwItemSpec, 0, txt, 256);
                 bool bold = wcsstr(txt, L"Total") != nullptr;
-                SelectObject(cd->nmcd.hdc, bold ? g_boldFont : g_normalFont);
+                SelectObject(cd->nmcd.hdc, bold ? (g_listBoldFont ? g_listBoldFont : g_boldFont) : (g_listFont ? g_listFont : g_normalFont)); // v0.24.7: list text size
                 return CDRF_NEWFONT;
             }
         }
@@ -2725,6 +2725,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         g_buttonIconLists.clear();
         if (g_normalFont) DeleteObject(g_normalFont);
         if (g_boldFont) DeleteObject(g_boldFont);
+        if (g_listFont) DeleteObject(g_listFont);
+        if (g_listBoldFont) DeleteObject(g_listBoldFont);
         PostQuitMessage(0);
         return 0;
     }

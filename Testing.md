@@ -40,7 +40,7 @@ Email (needs the other machine):
 
 Display:
 - [ ] v0.24.4: Win32 Settings > Email: the Signature box shows about 5 lines, the grey note under it reads in full, and OK / Cancel are fully visible, at your usual display scaling.
-- [ ] Settings > Display and printing: text size Large / Extra large (applies at next start; lists get bigger, columns still readable), email date style options, printer / paper / orientation start the Print dialog and Preview as chosen. Both apps.
+- [ ] (v0.24.7 fixed mixed sizes on Win32) Settings > Display and printing: text size Large / Extra large (applies at next start; lists get bigger, columns still readable), email date style options, printer / paper / orientation start the Print dialog and Preview as chosen. Both apps.
 - [ ] Supplier / Species boxes: several fresh launches in a row - note whether the grey strip glitch (ROADMAP "Known problems") still happens in the Win32 app.
 - [ ] Supplier / Species boxes (both apps): typing part of a name completes it, Tab accepts, typing on carries on; typing the start of an alias completes to the alias and is corrected to the real name when you leave the box.
 

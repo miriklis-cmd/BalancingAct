@@ -49,6 +49,8 @@ void InitFonts() {
     LOGFONTW lfList = ncm.lfMessageFont;
     lfList.lfHeight = MulDiv(lfList.lfHeight, g_textPercent, 100);
     g_listFont = CreateFontIndirectW(&lfList);
+    lfList.lfWeight = FW_BOLD; // v0.24.7: rows drawn bold in the lists must use the list size too
+    g_listBoldFont = CreateFontIndirectW(&lfList);
 }
 
 // ---------------------------------------------------------------------------
