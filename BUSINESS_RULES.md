@@ -236,20 +236,30 @@ understood:
 
 ## Email
 
-- **No automatic/SMTP sending.** Emailing suppliers opens a pre-filled
-  draft in the user's own default email app (via `mailto:`) for them to
-  review and send manually. This was a deliberate choice to avoid storing
-  email server credentials in the app, which would be a much larger
-  security surface than this tool should take on.
-- **Suppliers without a saved email address are still included**, with
-  the "To" field left blank rather than being skipped entirely — the user
-  can fill it in before sending. Since a blank-To draft has no address to
-  visually distinguish it by, the supplier's name is appended to the
-  Subject line in that case only.
-- **Multiple suppliers are emailed one at a time**, with an explicit
-  confirmation dialog between each — not all at once. See
-  ARCHITECTURE.md for the technical reason (mail clients don't reliably
-  handle rapid successive `mailto:` requests).
+- **The app never sends email by itself.** It prepares a draft for each supplier and a person reviews and sends it.
+  Three ways, chosen in Settings > Email: a `mailto:` draft in the default mail program (plain text); an Outlook draft
+  with a price table (`.eml`, needs classic Outlook); or a Gmail draft saved in the Gmail Drafts folder (the app can
+  only create drafts - its Google permission is "create drafts", nothing more). Gmail drafts are the mode in daily use.
+  No email passwords are stored in the app.
+- **Suppliers without a saved email address are still included**, with the "To" field left blank rather than being
+  skipped - the user can fill it in before sending. The supplier's name is added to the Subject line in that case only.
+- **`mailto:` and `.eml` emails open one at a time**, with a confirmation dialog between each, because mail clients do
+  not reliably handle rapid successive requests (see ARCHITECTURE.md). Gmail drafts are all created in one go.
+- **Suppliers with no sales on the sheet get no email.** No sales, no email.
+- **Wording is the user's:** subject, opening line, sign-off and a separate multi-line signature are set in Settings
+  (blank = the standard wording). The signature goes under the sign-off and is last in every email. It is plain text.
+- **Notes for each supplier (v0.24.0).** Before the emails are made, a dialog is shown EVERY time (with a Skip button)
+  where the user may type free text for each supplier under three headings: NOT SOLD (product the supplier sent that
+  has not been sold yet), UP (arrived over what the manifest said) and DOWN (short of the manifest). The user types it
+  exactly as the supplier should read it (bins x weight, or kg); the app does not work it out. The dialog always starts
+  blank, nothing is remembered between runs, a heading appears in the email only when its box has text, and notes sit
+  under the price table, above the signature. If notes have been typed, Skip asks before throwing them away.
+- **Suppliers are emailed ONCE per sheet (Jack's rule, 2026-11-23).** Suppliers react badly to a second email because
+  it looks as if the prices have changed. The sheet must balance fully (product sold and money) BEFORE any email is
+  made. The app does not forbid a second set (a person may have a real reason) but warns first, with No as the default.
+  The warning is remembered only while the app is open and resets when another sheet is opened or started.
+- **Stock tracking (what arrived vs what sold vs what is unsold) is not built.** It is flagged for a v2 discussion
+  (ROADMAP E1b); today the NOT SOLD / UP / DOWN notes are typed by hand.
 
 ## File persistence philosophy
 

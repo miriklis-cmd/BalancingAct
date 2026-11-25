@@ -4,38 +4,13 @@ This is the current plan: where we are, what is next, what is not built, and wha
 (every version's test checklist, the 0.9.x status notes) is frozen in `ROADMAP_ARCHIVE.md`; version-by-version detail
 is in `CHANGELOG.md`; manual checks still to do are in `Testing.md`.
 
-## Where we are (v0.23.4, 2026-11-23)
+## Where we are (v0.24.4, 2026-11-25)
 
-**v0.23.4 written, NOT yet run by Jack:** WinUI Restore from Backup (Phase B1); MinGW / CMake builds removed (A7); Gmail audience checked (D4). Phase A is closed: the Win32 and WinUI regression passes were both confirmed by Jack (2026-11-23). Checks: Testing.md "v0.23.4 checks". Next: Phase B2 onwards.
+**v0.24.x (email notes and signature) tested OK by Jack on both apps, 2026-11-25.** What is in it: a per-supplier notes dialog shown every time before the emails are made (NOT SOLD / UP / DOWN, free text, starts blank, Skip asks first if notes were typed); a signature kept separate from the sign-off (several lines, under the sign-off); a warning before a second set of emails for the same sheet. WinUI and Win32 both have all three. Gmail drafts are the mode in daily use. **Still to check (needs the other machine):** whether mailto and .eml mail programs add their own signature on top of ours (Testing.md "v0.24.0 checks"). v0.24.4 (Win32 Settings > Email page was cut off) is written, not yet run by Jack.
 
-**v0.23.3 (Phase A housekeeping) tested OK by Jack, pushed.**
+**Before that:** v0.23.4 (WinUI Restore from Backup, MinGW/CMake builds removed) and v0.23.3 (Phase A housekeeping) tested OK; Win32 and WinUI regression passes clean (2026-11-23); WinUI Print dialog, Undo Delete, About, Recent Files, window position and Export to CSV done (v0.23.1-0.23.2). Both apps share `src/`, `version.h` and the data folder `C:\BalancingAct\data`; WinUI is the main app, Win32 is still used (D1). 353 unit tests.
 
-
-**v0.23.2 tested OK by Jack 2026-11-20 and pushed: WinUI catch-up batch - Edit > Undo Delete, Help > About, File > Recent Files, remembered window position, File > Export to CSV.** Checks: Testing.md "v0.23.2 checks". WinUI still lacks: Restore from Backup, crash-recovery named file, exit exception check (the rest of the list below is done once these are confirmed).
-
-**v0.23.1 shared by Win32 and WinUI; WinUI lives in the same repo under `winui/` and builds/deploys from there.** Tested OK by Jack (2026-11-20): WinUI's own Print dialog (printer list with the saved printer pre-selected, copies, paper, orientation; prints straight to the chosen printer, "Microsoft Print to PDF" works), Win32 classic Print dialog unchanged, `run_tests.bat`. Also confirmed by Jack: Gmail drafts, `.eml`, WinUI Settings. WinUI list text size and Settings layout were reworked (tables only change size); `[print]` debug line removed. Checks: Testing.md "WinUI Print dialog". WinUI still lacks: see Phase B below. Other open items: cheapest-supplier highlight, Print/PDF for Overview and By Species, price history, start-up behaviour setting, dark theme (WinUI only, later).
-
-Earlier (v0.18.0, 2026-11-12):
-
-**v0.18.0 + WinUI step 13 (tested OK by Jack 2026-11-12: WinUI autosave/recovery, both-ways recovery between the apps, two-apps notice; crash recovery not tested): autosave, recovery and rolling backups for WinUI in the SAME shared folder as Win32 (`C:\BalancingAct\data\autosave.fbd`, `backups\`), with an ownership lock so two open apps cannot overwrite each other (first app to start owns autosave; a second starts blank and says so).** Tested OK by Jack: v0.16.x/v0.17.0-v0.17.3 (same-name grouping in reports, letters-only + alias-first auto-complete, recovered sheets count as unsaved, WinUI steps 11-12d). Still open: WinUI CSV export, WinUI settings/recent files, Excel Import menu, shared repository (Postgres), installer. Checks: Testing.md "v0.18.0 checks".
-
-**v0.16.0 tested OK by Jack (2026-11-09; price-flagged row's Clear flag not re-checked), v0.15.0 (emails in names.txt) tested OK; v0.16.1 (recovered autosave counts as unsaved) written, not yet seen:** right-click Move to book for selected rows; first-entry "No Book Yet" prompt (Debtor / Cash / none / Cancel). Checks: Testing.md "v0.16.0 checks". WinUI port of both is next (Win32 first, per Jack).
-
-Earlier (v0.15.0):
-
-**v0.15.0 written (strict build + 311 tests pass), NOT yet run by Jack:** supplier emails moved into `names.txt` (`S|name|date|email`); old `emails.txt` migrates once (renamed `.migrated`). WinUI gets the same plus exit-crash guards. Checks: Testing.md. Next: Jack's book questions (fix wrong/missing book on entered rows; first-entry "no book" prompt).
-
-Earlier (v0.14.4):
-
-**v0.14.0 written (strict build + 307 tests pass), NOT yet run by Jack:** Manage Names shows an "Also known as" column and has Add alias / Remove alias (with Undo); the entry form's status bar says when a typed name is an alias; autosave.fbd, backups\ and history\ moved into `C:\BalancingAct\data` (existing files moved across on first run). Checks: Testing.md.
-
-Earlier status:
-
-**v0.13.0 written, strict MinGW build and 303 unit tests pass, NOT yet seen or run by Jack** (master Supplier/Species name lists in `names.txt`; Add Entry
-snaps case/spacing, corrects remembered aliases, asks "did you mean...?" for near matches, adds genuinely new names silently; Manage Names rewritten with
-tick boxes, duplicates strip, merge confirmation, undo). Checklist: Testing.md "v0.13.0 checks". Decisions (Jack, 2026-11-06): ticks for merging; new names
-are added silently; keep the duplicates strip. Open: where `names.txt` / `emails.txt` live once several machines share data (today: beside the exe, so each
-machine has its own copy) - decide with the networking work. WinUI Manage Names was rebuilt on this in WinUI step 9 (2026-11-09; written, not compiled or seen): names.txt, tick boxes, duplicates strip, merge with the "same thing spelled differently" box, aliases, Undo; Add Entry also snaps/aliases silently, asks about near matches and records new names.
+Older status notes (v0.10 to v0.23.2) were moved to `ROADMAP_ARCHIVE.md` on 2026-11-25.
 
 **Design note to settle with the shared-repository (Postgres) work - names, aliases and emails are reference data (Jack, 2026-11-06; no actual lists belong in this file or the repo):**
 - Eventually shared tables (suppliers with email, species, aliases) read by every machine and by the analysis side; `names.txt` / `emails.txt` are the simple version of the same data.
@@ -45,44 +20,21 @@ machine has its own copy) - decide with the networking work. WinUI Manage Names 
 - Installed under Program Files, nothing may be written beside the exe: autosave, settings, recent files, backups, history and these lists all move to a ProgramData (or AppData) folder at install time - separate roadmap item.
 - Analysis wants more than clean spelling: never delete aliases (old files map through them on import); room for dates/retired flags; many names embed a form (frozen, smoked, live, whole, H&G, fillets), so later split into base species + form.
 
-(Earlier status, v0.12.10, 2026-11-05:)
-
-The app is complete and in use for single-machine daily work: data entry, four report tabs, Finalize Day, autosave,
-rolling backups, restore, print/PDF (Breakdown tab), CSV export, supplier emails, outlier-price flagging, Books (v0.12.0: mark where each Debtor/Cash book starts, check per-book totals; v0.12.5: only `;` separates books in the Debtor/Cash boxes, with a hover tooltip; v0.12.6: double-click a Breakdown row to list the entries behind it), 287 portable
-and 25 Windows integration tests.
-
-**Current project: splitting `main.cpp` (was ~5,000 lines, now ~2,860) into `src/core`, `src/data`, `src/services`,
-`src/forms`.** Behaviour should not change; each stage is its own version, built and tested by Jack before the next.
-
-| Stage | What | Version | State |
-|---|---|---|---|
-| 1-5 | layout, shared state, data/, services/ (print, export, email), popups | 0.10.0-0.10.7 | done, verified |
-| 6a / 6b | main window lists; layout, tab switching, control helpers | 0.10.8 / 0.10.9 | done, verified |
-| 6c / 6d | WM_CREATE / WndProc / wWinMain | - | skipped on purpose: WinUI 3 would replace them |
-| 7a | `.fbd` file text built by tested core code (`BuildFbdText`) | 0.10.12 | done, verified |
-| 7b | autosave / rolling-backup disk write to `src/data/Backups.*` | 0.10.14 | done, verified |
-| 7c | Open and Recent Files share `OpenNamedFile` (rest of file operations reviewed: nothing else worth moving) | 0.10.17 | done, verified |
-| 7d | Finalize / Un-finalize persistence | - | reviewed, nothing left to move: the coordination is already the tested core `CoordinateFinalizeDay` (0.9.51); what remains in `ExecuteFinalizeDay` is glue that must touch the lock state, title and lists |
-| 7e | entry commit / duplicate / delete / undo validation separated from controls | - | dropped for now: the validation rules are already pure core functions (`ValidateWeightKg`, `ValidatePriceDollars`, parsing); the rest reads and writes controls directly, so separating it is the front-end rewrite WinUI 3 would do anyway |
-
-Fixes found along the way: Finalize Day now marks the open saved file as finalized (0.10.13); Restore from Backup no
-longer fails silently (0.10.15) and always opens in `backups\` (0.10.16); `*.fbd` is git-ignored (0.10.17).
-
 ## Next, in order (full audit 2026-11-20, v0.23.2)
 
 The old "Next" list (split stages, WinUI prototype steps) is finished or history; it is in `ROADMAP_ARCHIVE.md` and `CHANGELOG.md`. This is the plan from here. Each phase can be done in any order unless a note says otherwise.
 
-**Phase A - housekeeping (DONE in v0.23.3 except where marked; A1-A3 are Jack's deletions, A6 is Jack's pass, A7 is waiting for a decision)**
-- A1. Root-folder duplicates of `FishBalanceCore.h` and `FishBalanceWin32IO.h` are OLD copies (1,739 vs 2,503 lines for Core). Nothing builds from them (`main.cpp`, `src/` and the tests all include the `src/` versions), but a future include could silently pick up stale code. `FishBalanceControlLimits.h` at the root is an identical copy. Delete the three root copies (`git rm`); `tools/fbd_breakdown.cpp` already builds with `-I src/core`.
-- A2. The `docs/` folder holds older copies of `CHANGELOG.md` and `ROADMAP.md` (about 130 lines behind). Decide whether it is needed; if not, delete it so there is one source of truth.
-- A3. `COMMIT_MESSAGE.txt` is stale (still v0.13.0); `push_update.ps1` builds the message from `CHANGELOG.md`. Delete it.
+**Phase A - housekeeping (ALL DONE, closed 2026-11-25)**
+- A1. DONE (checked on GitHub 2026-11-25). Root-folder duplicates of `FishBalanceCore.h` and `FishBalanceWin32IO.h` are OLD copies (1,739 vs 2,503 lines for Core). Nothing builds from them (`main.cpp`, `src/` and the tests all include the `src/` versions), but a future include could silently pick up stale code. `FishBalanceControlLimits.h` at the root is an identical copy. Delete the three root copies (`git rm`); `tools/fbd_breakdown.cpp` already builds with `-I src/core`.
+- A2. DONE (checked on GitHub 2026-11-25). The `docs/` folder holds older copies of `CHANGELOG.md` and `ROADMAP.md` (about 130 lines behind). Decide whether it is needed; if not, delete it so there is one source of truth.
+- A3. DONE (checked on GitHub 2026-11-25). `COMMIT_MESSAGE.txt` is stale (still v0.13.0); `push_update.ps1` builds the message from `CHANGELOG.md`. Delete it.
 - A4. DONE v0.23.3. The shared data folder was defined twice: `DataDir()` in `AutosaveShared.h` (used by WinUI) and `GetSharedDataDir()` in `Storage.cpp` (Win32). Unify so the two apps cannot drift apart.
 - A5. DONE v0.23.3. Docs drift: audit finding F7 (data beside the exe) is done in practice - the data lives in `C:\BalancingAct\data` (v0.13.2) - so mark it closed (a hard-coded path rather than `%LOCALAPPDATA%` is the decision on record); `README.md` / `ARCHITECTURE.md` should describe the WinUI edition and `winui/`; `AuditFindings_2026-09-30.md` open-items table to be refreshed.
 - A6. DONE (Jack, 2026-11-23: Win32 and WinUI clean). A "Regression pass" of 13 checks is now at the top of `Testing.md` (v0.23.3). `Testing.md` has about 140 unticked checks, many of them old. Do that short regression pass (Jack) and tick or delete what is no longer relevant; split into "Win32" and "WinUI" lists.
 - A7. DONE v0.23.4: `build_mingw.bat`, `CMakeLists.txt` and `CMakeSettings.json` removed (never run by Jack); MSVC is the build. Docs updated. Jack deletes the three files (command in the delivery message).
 
 **Phase B - WinUI catch-up (the app Jack will use daily)**
-- B1. DONE v0.23.4 (written, not yet run by Jack). Restore from Backup (file picker in `backups\`, safety snapshot of the current sheet first).
+- B1. DONE v0.23.4 (tested OK by Jack 2026-11-25). Restore from Backup (file picker in `backups\`, safety snapshot of the current sheet first).
 - B2. Crash-recovery named file. (The "exit exception" seen when running WinUI under Visual Studio is thrown from VS's own XAML inspector, `WinUITap.dll`, with no app frames in the stack; Jack saw it twice, 2026-11-23. Not pursued unless it shows when run outside the debugger.)
 - B3. Filter box on Total Overview, Breakdown and By Species (Win32 has it since v0.19.0; WinUI only filters the entries list).
 - B4. Start-up behaviour setting: resume silently, but ask first if the loaded sheet is from an earlier session (decide).
@@ -100,12 +52,12 @@ The old "Next" list (split stages, WinUI prototype steps) is finished or history
 - D2. Installer / packaging: the WinUI package is signed with a temporary key, so it only installs on this PC through Visual Studio. A second machine needs a proper signing certificate or a different packaging route.
 - D3. If Win32 stays: F16-F22 as one small stage (unchecked window-creation results, message-loop error, main-window position not clamped to monitors on restore, no `WM_DPICHANGED`). WinUI already checks the saved position is on a screen.
 - D4. DONE (checked 2026-11-20): the Google project's audience is **Internal** (own Workspace organisation), so sign-in does not expire after 7 days and no Google verification is needed. Only accounts on that domain can sign in. Do not click "Make external".
-- D5. Test coverage: `src/` logic is covered (345 tests) but WinUI-only code (settings, recent files, window placement, dialogs) has none. Move the logic that can be tested (recent-list handling, placement validation) into `src/` with tests when it next changes.
+- D5. Test coverage: `src/` logic is covered (353 tests) but WinUI-only code (settings, recent files, window placement, dialogs) has none. Move the logic that can be tested (recent-list handling, placement validation) into `src/` with tests when it next changes.
 - D6. WinUI should be layered like Win32 (it already shares core/data/services in `src/`; its forms layer is the problem). `winui/.../MainWindow.xaml.cpp` is 4,500 lines in one file; split it into `winui/.../Forms/` pieces (Manage Names, Settings, Print, About, Drill-down) one dialog at a time, starting next time one of them is edited. Decided 2026-11-20: WinUI is the main app, Win32 stays in use. Keep the unity-include rule for `PrintJob.cpp` / `ReportRender.cpp` / `Email.cpp` / `CsvExport.cpp` in mind (they are included in this file, not project items).
 
 **Phase E - later / only if decided**
 - E1. Multi-machine, shared hosting, encryption (Bucket C, designed in `NETWORK_ARCHITECTURE.md`, nothing built).
-- E1a. DONE v0.24.0 (WinUI): per-supplier email notes dialog + multi-line signature + already-emailed warning. Win32 has the same dialog. Open question: whether mailto / .eml mail programs add their own signature on top of ours (Testing.md v0.24.0 checks).
+- E1a. DONE v0.24.0-0.24.3 (both apps; tested OK 2026-11-25): per-supplier email notes dialog, separate multi-line signature, already-emailed warning, Skip asks before discarding typed notes. Open question: whether mailto / .eml mail programs add their own signature on top of ours (Testing.md v0.24.0 checks).
 - E1b. **Stock tracking: received (manifests) vs sold vs not sold - FLAGGED FOR A v2 DISCUSSION (Jack, 2026-11-23: "too complicated at the moment").** Background: fishermen send manifests (paper or electronic, every supplier a different layout: kgs per species only, or boxes + kgs, or kgs + boxes + sizes + grades); Jack checks them before the sale starts, unsold fish is sold the next day, the day after, or (frozen) much later, and at the end of the day a not-sold list is made and used to reconcile that what was received equals what was sold. The app has only the sale lines, so it cannot know what is unsold. Design sketch (not agreed, not started): a stock file in the data folder with one running balance per supplier + species; a Received entry section (kgs per species from the manifest, boxes / sizes / grades only as a free-text note); Finalize Day takes the day's sales off the balance (so a sale of fish that arrived days ago still counts); each supplier's email lists their current balance as "not sold"; an end-of-day check compares the physical count with the balance and flags any species that differs. Limits: a total per supplier + species, not per lot; negative balance is flagged, not guessed; frozen vs fresh kept apart by species name ("Snapper (frozen)"); electronic manifests could later be pasted or imported. Needs a decision on the file format first, and both apps would have to read it. Interim: the per-supplier "Not sold" note at email time (see CHANGELOG once built).
 - E2. **1.0** only when Jack decides it is ready for prime-time release. Suggested bar: Phase A done, Phase B done, the Testing.md regression pass clean on both apps, a second-machine install working (D2).
 

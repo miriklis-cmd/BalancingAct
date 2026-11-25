@@ -85,37 +85,52 @@ want them merged/renamed to, and click Apply — every matching entry is
 updated at once. Handy for cleaning up typos or inconsistent spelling before
 they split your totals across two buckets. When Supplier mode is selected
 and exactly one supplier is highlighted, an **Email** field appears so you
-can set (or clear) that supplier's email address, saved to `emails.txt`.
+can set (or clear) that supplier's email address, saved in `names.txt`.
 
-**Email All Suppliers...** (button on the Breakdown tab, or File menu) opens
-a pre-filled email for each supplier in the current sheet, in your default
-email app (Outlook, etc.) via the `mailto:` protocol, ready for you to
-review and send. They open **one at a time** — you'll be asked to confirm
-before each one, so you can send or close the current draft before the next
-appears. (Many mail clients, Outlook included, don't reliably handle several
-`mailto:` requests fired in quick succession — going one at a time sidesteps
-that entirely rather than relying on timing.) Nothing is sent automatically
-and no email credentials are stored anywhere. Suppliers with a saved email
-address get it filled in automatically; suppliers without one still get a
-draft opened, just with the To field left blank for you to fill in — since
-there's no address to tell those drafts apart by, the supplier's name is
-added to the Subject line in that case. Each email reads:
+**Email All Suppliers...** (button on the Breakdown tab, or File menu) makes a
+price email for each supplier on the current sheet. How it opens is set in
+**Tools > Settings > Email**: as a Gmail draft (saved in your Gmail Drafts
+folder, nothing is sent), as an Outlook draft with a price table (`.eml`,
+classic Outlook), or in your default mail program via `mailto:` (plain text).
+The app never sends anything itself, and no email password is stored.
+
+First a dialog lists the suppliers and lets you type optional notes for each:
+**NOT SOLD**, **UP** (arrived over the manifest) and **DOWN** (short of the
+manifest). Type them as the supplier should read them. The headings are added
+for you and left out when a box is empty. The dialog starts blank every time;
+**Skip - no notes** goes straight on (and asks first if you had typed notes).
+Suppliers with no sales are not listed. If you have already made the emails
+for the sheet on screen, the app asks before making a second set, because
+suppliers can take a second email to mean the prices changed.
+
+`mailto:` and `.eml` emails open **one at a time** with a confirmation between
+each (many mail clients do not handle several requests in quick succession);
+Gmail drafts are all created together. Suppliers with a saved address get it
+filled in; those without still get a draft with the To field blank and the
+supplier's name added to the Subject. Subject, opening line, sign-off and a
+multi-line signature can all be changed in Settings. An email reads:
 
 ```
 Good afternoon,
 
-Please see prices below
-KG     Species           Price
-13.8   Garfish           $17.00
-5.5    Rock Flat         $12.00
+Please find below the prices for today's sale (18 November 2026):
+KG     SPECIES           PRICE
+13.8   Species one       $17.00
+5.5    Species two       $12.00
+
+NOT SOLD:
+(whatever you typed)
 
 Kind regards,
+
+Your name
+Your company | phone
 ```
 
-The greeting automatically matches the time of day (morning / afternoon /
-evening) when you click Send All. If a supplier has an unusually long list
-of species, the email falls back to a shortened summary instead of risking
-a `mailto:` link that's too long for some mail clients to open.
+The greeting matches the time of day. In `mailto:` mode, if a supplier has an
+unusually long list, the email falls back to a shortened summary (your notes
+and signature are kept) instead of risking a link too long for some mail
+clients; Gmail and `.eml` emails have no such limit.
 
 **File > Export to CSV...** saves everything — the raw entries, per-supplier
 totals, per-species totals, and the full breakdown — into one file that
@@ -157,6 +172,7 @@ build_msvc.bat
 | `src/data/Backups.*` | Writing a timestamped rolling-backup snapshot to `backups\` (v0.10.14) |
 | `src/data/Storage.*` | Where the app's files live and how settings / recent files / supplier emails are read and written (v0.10.3) |
 | `src/services/*` | CSV export, supplier-email building and report rendering, split out of `main.cpp` (v0.10.4-0.10.5) |
+| `src/forms/SettingsWindow.*`, `src/forms/EmailNotesWindow.*` | The Settings window (email mode and wording, backups, display, printing) and the Email Suppliers notes dialog (v0.24.0) |
 | `src/forms/ManageNamesWindow.*`, `src/forms/PrintPreviewWindow.*`, `src/forms/MainWindowApi.h` | The Manage Names and Print Preview popups, split out of `main.cpp` (v0.10.6) |
 | `src/forms/DrillDownWindow.*` | The Breakdown drill-down popup: double-click a Breakdown row to list the entries behind it (v0.12.6) |
 | `src/forms/MainWindowLayout.*` | The main window's layout, tab switching, glyph icons and control helpers (v0.10.9) |

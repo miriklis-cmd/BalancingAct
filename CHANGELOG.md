@@ -21,6 +21,11 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.24.4] - 2026-11-25
+
+- **Win32 Settings > Email page was cut off at the bottom** (the Signature box showed about 3 lines, and the note under it was clipped). The Signature box is taller (about 5 lines), the note has room for 3 lines, and the Settings window is taller to fit.
+- Docs refreshed (no code): ROADMAP "Where we are" rewritten and old status moved to `ROADMAP_ARCHIVE.md`; BUSINESS_RULES Email section now covers the Gmail / .eml modes, notes, signature and the once-per-sheet rule; README email section and file table updated; Testing.md ticked for what Jack has confirmed.
+
 ## [0.24.3] - 2026-11-23
 
 - **Skip - no notes now asks first when notes have been typed** ("You have typed notes. Skip and throw them away?", default No; No keeps you in the dialog). WinUI and Win32. Nothing is asked when no notes were typed.

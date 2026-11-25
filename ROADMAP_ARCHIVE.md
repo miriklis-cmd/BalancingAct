@@ -1440,3 +1440,65 @@ Raised at various points but not committed to the roadmap above:
 - A "Today" dashboard summary tab
 - File association so double-clicking a `.fbd` file opens the app
 - An installer (e.g. Inno Setup) if this is ever shared beyond one machine
+
+---
+
+## Status notes moved from ROADMAP.md (2026-11-25)
+
+These were the "Where we are" entries for v0.10 to v0.23.2, kept here as history. The design note about reference data was kept in ROADMAP.md.
+
+## Where we are (v0.23.4, 2026-11-23)
+
+**v0.23.4 written, NOT yet run by Jack:** WinUI Restore from Backup (Phase B1); MinGW / CMake builds removed (A7); Gmail audience checked (D4). Phase A is closed: the Win32 and WinUI regression passes were both confirmed by Jack (2026-11-23). Checks: Testing.md "v0.23.4 checks". Next: Phase B2 onwards.
+
+**v0.23.3 (Phase A housekeeping) tested OK by Jack, pushed.**
+
+
+**v0.23.2 tested OK by Jack 2026-11-20 and pushed: WinUI catch-up batch - Edit > Undo Delete, Help > About, File > Recent Files, remembered window position, File > Export to CSV.** Checks: Testing.md "v0.23.2 checks". WinUI still lacks: Restore from Backup, crash-recovery named file, exit exception check (the rest of the list below is done once these are confirmed).
+
+**v0.23.1 shared by Win32 and WinUI; WinUI lives in the same repo under `winui/` and builds/deploys from there.** Tested OK by Jack (2026-11-20): WinUI's own Print dialog (printer list with the saved printer pre-selected, copies, paper, orientation; prints straight to the chosen printer, "Microsoft Print to PDF" works), Win32 classic Print dialog unchanged, `run_tests.bat`. Also confirmed by Jack: Gmail drafts, `.eml`, WinUI Settings. WinUI list text size and Settings layout were reworked (tables only change size); `[print]` debug line removed. Checks: Testing.md "WinUI Print dialog". WinUI still lacks: see Phase B below. Other open items: cheapest-supplier highlight, Print/PDF for Overview and By Species, price history, start-up behaviour setting, dark theme (WinUI only, later).
+
+Earlier (v0.18.0, 2026-11-12):
+
+**v0.18.0 + WinUI step 13 (tested OK by Jack 2026-11-12: WinUI autosave/recovery, both-ways recovery between the apps, two-apps notice; crash recovery not tested): autosave, recovery and rolling backups for WinUI in the SAME shared folder as Win32 (`C:\BalancingAct\data\autosave.fbd`, `backups\`), with an ownership lock so two open apps cannot overwrite each other (first app to start owns autosave; a second starts blank and says so).** Tested OK by Jack: v0.16.x/v0.17.0-v0.17.3 (same-name grouping in reports, letters-only + alias-first auto-complete, recovered sheets count as unsaved, WinUI steps 11-12d). Still open: WinUI CSV export, WinUI settings/recent files, Excel Import menu, shared repository (Postgres), installer. Checks: Testing.md "v0.18.0 checks".
+
+**v0.16.0 tested OK by Jack (2026-11-09; price-flagged row's Clear flag not re-checked), v0.15.0 (emails in names.txt) tested OK; v0.16.1 (recovered autosave counts as unsaved) written, not yet seen:** right-click Move to book for selected rows; first-entry "No Book Yet" prompt (Debtor / Cash / none / Cancel). Checks: Testing.md "v0.16.0 checks". WinUI port of both is next (Win32 first, per Jack).
+
+Earlier (v0.15.0):
+
+**v0.15.0 written (strict build + 311 tests pass), NOT yet run by Jack:** supplier emails moved into `names.txt` (`S|name|date|email`); old `emails.txt` migrates once (renamed `.migrated`). WinUI gets the same plus exit-crash guards. Checks: Testing.md. Next: Jack's book questions (fix wrong/missing book on entered rows; first-entry "no book" prompt).
+
+Earlier (v0.14.4):
+
+**v0.14.0 written (strict build + 307 tests pass), NOT yet run by Jack:** Manage Names shows an "Also known as" column and has Add alias / Remove alias (with Undo); the entry form's status bar says when a typed name is an alias; autosave.fbd, backups\ and history\ moved into `C:\BalancingAct\data` (existing files moved across on first run). Checks: Testing.md.
+
+Earlier status:
+
+**v0.13.0 written, strict MinGW build and 303 unit tests pass, NOT yet seen or run by Jack** (master Supplier/Species name lists in `names.txt`; Add Entry
+snaps case/spacing, corrects remembered aliases, asks "did you mean...?" for near matches, adds genuinely new names silently; Manage Names rewritten with
+tick boxes, duplicates strip, merge confirmation, undo). Checklist: Testing.md "v0.13.0 checks". Decisions (Jack, 2026-11-06): ticks for merging; new names
+are added silently; keep the duplicates strip. Open: where `names.txt` / `emails.txt` live once several machines share data (today: beside the exe, so each
+machine has its own copy) - decide with the networking work. WinUI Manage Names was rebuilt on this in WinUI step 9 (2026-11-09; written, not compiled or seen): names.txt, tick boxes, duplicates strip, merge with the "same thing spelled differently" box, aliases, Undo; Add Entry also snaps/aliases silently, asks about near matches and records new names.
+
+(Earlier status, v0.12.10, 2026-11-05:)
+
+The app is complete and in use for single-machine daily work: data entry, four report tabs, Finalize Day, autosave,
+rolling backups, restore, print/PDF (Breakdown tab), CSV export, supplier emails, outlier-price flagging, Books (v0.12.0: mark where each Debtor/Cash book starts, check per-book totals; v0.12.5: only `;` separates books in the Debtor/Cash boxes, with a hover tooltip; v0.12.6: double-click a Breakdown row to list the entries behind it), 287 portable
+and 25 Windows integration tests.
+
+**Current project: splitting `main.cpp` (was ~5,000 lines, now ~2,860) into `src/core`, `src/data`, `src/services`,
+`src/forms`.** Behaviour should not change; each stage is its own version, built and tested by Jack before the next.
+
+| Stage | What | Version | State |
+|---|---|---|---|
+| 1-5 | layout, shared state, data/, services/ (print, export, email), popups | 0.10.0-0.10.7 | done, verified |
+| 6a / 6b | main window lists; layout, tab switching, control helpers | 0.10.8 / 0.10.9 | done, verified |
+| 6c / 6d | WM_CREATE / WndProc / wWinMain | - | skipped on purpose: WinUI 3 would replace them |
+| 7a | `.fbd` file text built by tested core code (`BuildFbdText`) | 0.10.12 | done, verified |
+| 7b | autosave / rolling-backup disk write to `src/data/Backups.*` | 0.10.14 | done, verified |
+| 7c | Open and Recent Files share `OpenNamedFile` (rest of file operations reviewed: nothing else worth moving) | 0.10.17 | done, verified |
+| 7d | Finalize / Un-finalize persistence | - | reviewed, nothing left to move: the coordination is already the tested core `CoordinateFinalizeDay` (0.9.51); what remains in `ExecuteFinalizeDay` is glue that must touch the lock state, title and lists |
+| 7e | entry commit / duplicate / delete / undo validation separated from controls | - | dropped for now: the validation rules are already pure core functions (`ValidateWeightKg`, `ValidatePriceDollars`, parsing); the rest reads and writes controls directly, so separating it is the front-end rewrite WinUI 3 would do anyway |
+
+Fixes found along the way: Finalize Day now marks the open saved file as finalized (0.10.13); Restore from Backup no
+longer fails silently (0.10.15) and always opens in `backups\` (0.10.16); `*.fbd` is git-ignored (0.10.17).

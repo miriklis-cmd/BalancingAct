@@ -22,6 +22,8 @@ Storage (`data/Storage`): exe-folder paths, settings, recent-files and supplier-
 
 Services (`services/`): `CsvExport` (CSV report), `Email` (supplier price email via mailto:). `ReportRender` (Breakdown report to bitmaps, shared by Print Preview and printing), `PrintJob` (the print job and the preview page size; entries and Debtor/Cash text are parameters, so the WinUI edition shares it).
 
+Settings and the Email Suppliers notes dialog (`forms/SettingsWindow`, `forms/EmailNotesWindow`, v0.24.0): own window classes; the notes dialog runs a nested message loop and returns Create / Skip / Cancel plus the typed notes.
+
 Popups (`forms/ManageNamesWindow`, `forms/PrintPreviewWindow`, `forms/DrillDownWindow`): the Manage Names, Print Preview and Breakdown drill-down (v0.12.6) windows. `forms/MainWindowApi.h` lists what the main window (still in `main.cpp`) provides to them.
 
 Backups (`data/Backups`, v0.10.14): writing a timestamped rolling-backup snapshot to `backups\` - no UI; the failure popup stays in `main.cpp`.
