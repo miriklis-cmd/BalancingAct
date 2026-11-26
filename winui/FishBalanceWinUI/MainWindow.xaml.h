@@ -64,6 +64,8 @@ namespace winrt::FishBalanceWinUI::implementation
                           Microsoft::UI::Xaml::RoutedEventArgs const& e);
         void Price_KeyDown(Windows::Foundation::IInspectable const& sender,
                            Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const& e);
+        void Draft_TextChanged(Windows::Foundation::IInspectable const& sender,
+                               Microsoft::UI::Xaml::Controls::TextChangedEventArgs const& e);
         void Box_TextChanged(Windows::Foundation::IInspectable const& sender,
                              Microsoft::UI::Xaml::Controls::TextChangedEventArgs const& e);
         void Filter_TextChanged(Windows::Foundation::IInspectable const& sender,

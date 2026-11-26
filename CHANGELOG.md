@@ -21,6 +21,14 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.24.10] - 2026-11-26
+
+- **WinUI: a half-typed Add Entry row was lost after a crash or kill.** The row is saved inside `autosave.fbd`, but the WinUI autosave only ran after a sheet change, never while typing in the Supplier / Species / Kgs / Price / Notes boxes. Typing in those boxes now schedules an autosave (1.5 seconds after you stop typing, same as every other change). Found by Jack's hard-kill test. `MainWindow.xaml`, `.xaml.h`, `.xaml.cpp`. Not built here (no MSVC): Jack to build in Visual Studio.
+
+## [0.24.9] - 2026-11-26
+
+- Docs only. Testing.md: WinUI crash recovery and the full Display / printing check (both apps) confirmed by Jack and ticked; 14 checks remain. The Win32 combo-box glitch is flagged by Jack as a real problem to fix.
+
 ## [0.24.8] - 2026-11-26
 
 - Docs only. Testing.md: Win32 Settings fit, Win32 text size (after 0.24.7), name autocomplete and Win32 crash recovery (hard kill) confirmed by Jack and ticked; the combo grey-strip glitch is recorded as still happening (with a stuck tooltip) in 0.24.7; the crash-test instructions now say to hard-kill (`taskkill /F`) because Task Manager's "End task" closes the app politely. ROADMAP "Known problems" updated.

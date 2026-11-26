@@ -883,6 +883,7 @@ namespace winrt::FishBalanceWinUI::implementation
                             auto tb = ts.try_as<Controls::TextBox>();
                             if (!me || me->m_closed || !tb)
                                 return;
+                            me->ScheduleAutosave(); // v0.24.10: the typed supplier / species is part of the saved draft
                             try
                             {
                                 const std::wstring text = ToStd(tb.Text());
@@ -2090,6 +2091,16 @@ namespace winrt::FishBalanceWinUI::implementation
                 if (!self->m_closed)
                     self->AddEntryClicked();
         });
+    }
+
+    // v0.24.10: a half-typed Add Entry row (supplier / species / kgs / price / notes) is part of autosave.fbd, so typing in
+    // those boxes must schedule an autosave too (it only ran after a sheet change before, so a kill lost the draft).
+    void MainWindow::Draft_TextChanged(Windows::Foundation::IInspectable const&,
+                                       Controls::TextChangedEventArgs const&)
+    {
+        if (m_closed)
+            return;
+        ScheduleAutosave();
     }
 
     void MainWindow::Box_TextChanged(Windows::Foundation::IInspectable const&,

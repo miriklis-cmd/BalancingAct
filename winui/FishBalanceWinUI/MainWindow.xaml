@@ -368,9 +368,9 @@
                                       IsEditable="True" HorizontalAlignment="Stretch" DropDownClosed="Combo_DropDownClosed" />
                             <ComboBox x:Name="SpeciesBox" PlaceholderText="Species" ToolTipService.ToolTip="Species" Grid.Column="1"
                                       IsEditable="True" HorizontalAlignment="Stretch" DropDownClosed="Combo_DropDownClosed" />
-                            <TextBox x:Name="KgsBox" PlaceholderText="Kgs" ToolTipService.ToolTip="Kgs" Grid.Column="2" MaxLength="200" KeyDown="Price_KeyDown" />
+                            <TextBox x:Name="KgsBox" PlaceholderText="Kgs" ToolTipService.ToolTip="Kgs" Grid.Column="2" MaxLength="200" KeyDown="Price_KeyDown" TextChanged="Draft_TextChanged" />
                             <TextBox x:Name="PriceBox" PlaceholderText="Price / kg" ToolTipService.ToolTip="Price per kg" Grid.Column="3"
-                                     KeyDown="Price_KeyDown" />
+                                     KeyDown="Price_KeyDown" TextChanged="Draft_TextChanged" />
                             <Button x:Name="AddButton" Content="Add Entry" Grid.Column="4"
                                     VerticalAlignment="Bottom" HorizontalAlignment="Stretch"
                                     Style="{StaticResource AccentButtonStyle}" Click="Add_Click" />
@@ -388,7 +388,7 @@
                             <CalendarDatePicker x:Name="DateBox" PlaceholderText="Date" ToolTipService.ToolTip="Date" Grid.Column="0"
                                                 HorizontalAlignment="Stretch"
                                                 DateFormat="{}{day.integer(2)}/{month.integer(2)}/{year.full}" />
-                            <TextBox x:Name="NotesBox" PlaceholderText="Notes" ToolTipService.ToolTip="Notes" MaxLength="4096" Grid.Column="1" KeyDown="Price_KeyDown" />
+                            <TextBox x:Name="NotesBox" PlaceholderText="Notes" ToolTipService.ToolTip="Notes" MaxLength="4096" Grid.Column="1" KeyDown="Price_KeyDown" TextChanged="Draft_TextChanged" />
                             <TextBox x:Name="BookBox" ToolTipService.ToolTip="Book (new entries go in this book)" Grid.Column="2" IsReadOnly="True" Text="(no book)"
                                      FontWeight="SemiBold" />
                             <Button x:Name="DuplicateButton" Content="Duplicate Entry" Grid.Column="3"
