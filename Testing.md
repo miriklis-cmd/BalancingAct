@@ -47,10 +47,10 @@ Display:
 Crash and failure cases (hard kill with `taskkill /F /IM <exe name>` or Task Manager > Details > End process; do NOT use Exit or the Processes tab):
 - [x] Open named file A, close normally. Open file B, kill the app. Relaunch: "Recovered Unsaved Work", B's data, title shows "(unsaved)", NOT linked to A. Save prompts Save As. (Logic is unit-tested; the screen and wording are not.) (Jack, 2026-11-26, Win32. Must be a HARD kill: `taskkill /F /IM FishBalanceManager.exe`; Task Manager "End task" on the Processes tab closes the app politely and proves nothing.)
 - [x] WinUI: same crash recovery. Comes back with "(unsaved changes)" and a status bar message, no popup (by design). (Jack, 2026-11-26)
-- [ ] A half-typed Add Entry row survives a hard kill and reopens in the form (type supplier, species, kgs; wait 2 seconds; kill). WinUI failed this on 2026-11-26 (v0.24.9); fixed in v0.24.10, re-test. Win32: not yet tested.
-- [ ] Finalize Day while the open named file is read-only: the history file is still written and you get a warning that the open file could not be re-saved. Remove read-only, Save works.
-- [ ] Make `backups\` read-only and edit: one "Backup Snapshot Failed" warning, not repeated, autosave still works.
-- [ ] Price-flagged row: right-click Clear flag still works (last checked before v0.16).
+- [x] A half-typed Add Entry row survives a hard kill and reopens in the form (type supplier, species, kgs, price; wait 2 seconds; kill). Win32 works (Jack, 2026-11-27). WinUI works as of v0.24.13 (Jack, 2026-11-27); v0.24.10 to v0.24.12 fixed the saving and the display in steps.
+- [x] Finalize Day while the open named file is read-only: the history file is still written and you get a warning that the open file could not be re-saved. Works in both apps (Win32 and WinUI: Jack, 2026-11-28; both use the same core finalize logic).
+- [x] Win32: Backup snapshot failure shows a "Backup Snapshot Failed" warning (Jack, 2026-11-28). Method that works: close the app, rename `backups` to `backups_keep`, create an empty FILE named `backups`, start the app. (Read-only on a folder in Explorer does nothing.)
+- [x] Price-flagged row: right-click Clear flag works in both apps (Jack, 2026-11-27).
 
 Gmail failure paths (the normal path is in daily use):
 - [ ] Cancel the browser sign-in: the app reports it, no crash, window usable.
@@ -61,7 +61,7 @@ Printing and copies:
 - [ ] A real physical printer: page not garbled, species names do not run into the Price column. WinUI Print dialog: Copies = 2 gives two copies.
 
 Portable and copied exe:
-- [ ] Portable copy: exe in a new folder with an empty `portable.txt`: title shows [PORTABLE TEST COPY], a `data` folder appears, `C:\BalancingAct\data` untouched, runs alongside the real app, deleting the folder leaves nothing behind.
+- [x] Portable copy: exe in a new folder with an empty `portable.txt`: title shows [PORTABLE TEST COPY], a `data` folder appears, `C:\BalancingAct\data` untouched, runs alongside the real app, deleting the folder leaves nothing behind. (Jack, 2026-11-28, on the other machine.)
 - [ ] Copy ONLY the exe (no manifest file) to a new folder and run it: buttons and tabs themed, boxes draw correctly.
 
 WinUI Settings:

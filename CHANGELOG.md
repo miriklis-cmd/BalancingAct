@@ -21,6 +21,32 @@ for prime time (released).
 - WinUI prototype (not part of the Win32 build): step 5c compacts the Data Entry grid; field labels became placeholders + tooltips; opening a file no longer reports "unsaved changes" (Debtor/Cash TextChanged arrives after the loading guard is cleared; now compared against the loaded/saved text); step 6a adds the Breakdown tab with a drill-down dialog; step 6b adds the By Species tab.
 - (nothing queued yet — see ROADMAP.md for what's planned next)
 
+## [0.24.16] - 2026-11-28
+
+- Docs only. Testing.md: Finalize with a read-only open file confirmed in BOTH apps (my 0.24.15 note that WinUI had no such warning was wrong: WinUI uses the same core finalize logic), backup-snapshot warning and the portable copy confirmed; 9 checks remain.
+
+## [0.24.15] - 2026-11-28
+
+- Win32 Settings > Backups and flags: the label "minutes (only if something changed)" was cut off at Jack's display scaling; it now reads "minutes (if changed)".
+- Day Finalized warning (open file could not be re-saved): the error text now ends with a full stop before the "Use File > Save" line. `FishBalanceCore.h`.
+- Testing.md: Finalize with a read-only open file (Win32), Clear flag (both apps) ticked; the backup-snapshot warning check stays open with a new way to test it. 11 checks remain.
+
+## [0.24.14] - 2026-11-27
+
+- Docs only. Testing.md: half-typed row after a hard kill confirmed working in both apps (WinUI from 0.24.13); 12 checks remain.
+
+## [0.24.13] - 2026-11-27
+
+- **WinUI: recovered Supplier / Species still looked blank (0.24.12 did not fix it).** Jack's screen recording shows the right text appearing the moment he clicks in. Cause: an unfocused editable ComboBox displays its *selected item* (or the placeholder), not its `Text`, so text set from code is invisible until focus. After recovery the app now selects the matching list item (adding the name to the list first if it is new), immediately and again at 0.3 / 1.5 seconds, only while the box is still empty. `MainWindow.xaml.cpp` only. Not built here: Jack to build in Visual Studio.
+
+## [0.24.12] - 2026-11-27
+
+- **WinUI: recovered Supplier and Species were saved correctly but looked blank until clicked.** Jack's test: after restart the boxes were empty, but clicking in them made the right text appear. The text was in the ComboBox's `Text` but not shown by its inner text box yet. After recovery the app now also puts it into the inner text box 0.3 and 1.5 seconds later (only if the box is still empty; a clear or new sheet cancels it). The 0.24.10 / 0.24.11 saving changes were still needed for Kgs / Price / Notes and for saving while the caret is in a box. `MainWindow.xaml.cpp` only. Not built here: Jack to build in Visual Studio.
+
+## [0.24.11] - 2026-11-27
+
+- **WinUI: the half-typed Supplier and Species were still lost after a kill (0.24.10 saved Kgs, Price and Notes).** An editable ComboBox's own `Text` can be empty while the caret is still in the box, so the autosave read nothing. The autosave now reads the typed text from the box's inner text box (same source the name-completion already uses), and after the drop-down lists are rebuilt on recovery the supplier / species are put back once more. `MainWindow.xaml.cpp` only. Not built here: Jack to build in Visual Studio. Win32 half-typed row confirmed working by Jack (2026-11-27).
+
 ## [0.24.10] - 2026-11-26
 
 - **WinUI: a half-typed Add Entry row was lost after a crash or kill.** The row is saved inside `autosave.fbd`, but the WinUI autosave only ran after a sheet change, never while typing in the Supplier / Species / Kgs / Price / Notes boxes. Typing in those boxes now schedules an autosave (1.5 seconds after you stop typing, same as every other change). Found by Jack's hard-kill test. `MainWindow.xaml`, `.xaml.h`, `.xaml.cpp`. Not built here (no MSVC): Jack to build in Visual Studio.

@@ -137,6 +137,24 @@ namespace
         return nullptr;
     }
 
+    // What is really in an editable Supplier / Species box right now: the inner text box when it has text (the ComboBox's
+    // own Text can still be empty until the box loses focus or Enter is pressed), else the ComboBox's Text.
+    // v0.24.11: used when saving the half-typed row, so a kill while the caret is still in the box keeps it.
+    std::wstring TypedComboText(Controls::ComboBox const& combo)
+    {
+        try
+        {
+            if (auto inner = FindEditableTextBox(combo))
+            {
+                const std::wstring t = ToStd(inner.Text());
+                if (!t.empty())
+                    return t;
+            }
+        }
+        catch (winrt::hresult_error const&) {}
+        return ToStd(combo.Text());
+    }
+
     // emails.txt lives in the shared data folder C:\BalancingAct\data, the same file the Win32 app uses
     // (Storage.cpp GetSharedDataDir). Created on first use; if that fails it falls back to beside this exe.
     // An emails.txt still sitting beside the exe is copied across once if the shared folder has none.
@@ -426,6 +444,39 @@ namespace
         box.Items().Clear();
         for (const std::wstring& n : names)
             box.Items().Append(box_value(hstring{ n }));
+    }
+
+    // v0.24.12: an editable ComboBox that is not focused shows its SELECTED ITEM (or the placeholder), not its Text, so
+    // text set from code stays invisible until the user clicks in (Jack's recovery test: Supplier / Species looked blank,
+    // then showed the right text on click). To show a recovered draft, select the matching list item, adding the name to
+    // the list first when it is a new one. Only when the box is still empty (never over text being typed).
+    void ShowDraftInCombo(Controls::ComboBox const& combo, const std::wstring& want)
+    {
+        if (want.empty() || !combo)
+            return;
+        try
+        {
+            if (combo.SelectedIndex() >= 0)
+                return;
+            auto lower = [](std::wstring v) {
+                for (wchar_t& ch : v)
+                    ch = static_cast<wchar_t>(std::towlower(static_cast<wint_t>(ch)));
+                return v;
+            };
+            const std::wstring wantLower = lower(want);
+            auto items = combo.Items();
+            for (uint32_t i = 0; i < items.Size(); ++i)
+            {
+                if (lower(ToStd(unbox_value_or<hstring>(items.GetAt(i), L""))) == wantLower)
+                {
+                    combo.SelectedIndex(static_cast<int32_t>(i));
+                    return;
+                }
+            }
+            items.Append(box_value(hstring{ want }));
+            combo.SelectedIndex(static_cast<int32_t>(items.Size()) - 1);
+        }
+        catch (winrt::hresult_error const&) {}
     }
 }
 
@@ -1150,6 +1201,45 @@ namespace winrt::FishBalanceWinUI::implementation
         ApplyLockState();
 
         RefreshNameLists();
+        // v0.24.11: put the half-typed supplier / species back once more after the drop-down lists were rebuilt (a rebuild
+        // can blank text that is not one of the listed names).
+        if (!f.draftSupplier.empty())
+            SupplierBox().Text(hstring{ f.draftSupplier });
+        if (!f.draftSpecies.empty())
+            SpeciesBox().Text(hstring{ f.draftSpecies });
+        // v0.24.12: the saved text IS in the combo's Text, but an unfocused editable ComboBox shows its selected item, not
+        // its Text (Jack: the boxes looked blank until he clicked in them). Select the matching list item now, and again
+        // shortly after the window has drawn. Never over typed text, and a clear / new sheet (m_nameGen) cancels it.
+        ShowDraftInCombo(SupplierBox(), f.draftSupplier);
+        ShowDraftInCombo(SpeciesBox(), f.draftSpecies);
+        if (!f.draftSupplier.empty() || !f.draftSpecies.empty())
+        {
+            const int gen = m_nameGen;
+            const std::wstring wantSupplier = f.draftSupplier;
+            const std::wstring wantSpecies = f.draftSpecies;
+            auto weakSelf = get_weak();
+            for (const int delayMs : { 300, 1500 })
+            {
+                auto timer = DispatcherQueue().CreateTimer();
+                timer.Interval(std::chrono::milliseconds(delayMs));
+                timer.IsRepeating(false);
+                auto token = std::make_shared<winrt::event_token>();
+                *token = timer.Tick([weakSelf, gen, wantSupplier, wantSpecies, timer, token](auto&&, auto&&) {
+                    timer.Tick(*token);
+                    auto self = weakSelf.get();
+                    if (!self || self->m_closed || self->m_nameGen != gen)
+                        return;
+                    // Only while the box is still empty (not typed into since).
+                    if (ToStd(self->SupplierBox().Text()).empty() || self->SupplierBox().SelectedIndex() < 0)
+                        if (TypedComboText(self->SupplierBox()).empty() || TypedComboText(self->SupplierBox()) == wantSupplier)
+                            ShowDraftInCombo(self->SupplierBox(), wantSupplier);
+                    if (ToStd(self->SpeciesBox().Text()).empty() || self->SpeciesBox().SelectedIndex() < 0)
+                        if (TypedComboText(self->SpeciesBox()).empty() || TypedComboText(self->SpeciesBox()) == wantSpecies)
+                            ShowDraftInCombo(self->SpeciesBox(), wantSpecies);
+                });
+                timer.Start();
+            }
+        }
         RefreshList();
         Recalculate();
         UpdateTitle();
@@ -1360,8 +1450,8 @@ namespace winrt::FishBalanceWinUI::implementation
         m_baseDebtor = s.debtor; // what is about to be written is the new clean baseline
         m_baseCash = s.cash;
         s.finalizedDate = finalizedDate;
-        s.draftSupplier = ToStd(SupplierBox().Text());
-        s.draftSpecies = ToStd(SpeciesBox().Text());
+        s.draftSupplier = TypedComboText(SupplierBox());
+        s.draftSpecies = TypedComboText(SpeciesBox());
         s.draftKgs = ToStd(KgsBox().Text());
         s.draftPrice = ToStd(PriceBox().Text());
         s.draftNotes = ToStd(NotesBox().Text());
